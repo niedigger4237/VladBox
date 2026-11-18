@@ -44,8 +44,7 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean): SingBoxOptions.Endpo
         type = "wireguard"
         address = bean.localAddress.listByLineOrComma().map { it.asPrefix() }
         private_key = bean.privateKey
-        // AWG adds padding/junk to the outer packets: a 1420 MTU black-holes full-size TCP segments
-        mtu = if (bean.isAmnezia) minOf(bean.mtu, 1280) else bean.mtu
+        mtu = bean.mtu
         peers = listOf(SingBoxOptions.Endpoint_WireGuardPeer().apply {
             address = bean.serverAddress
             port = bean.serverPort
