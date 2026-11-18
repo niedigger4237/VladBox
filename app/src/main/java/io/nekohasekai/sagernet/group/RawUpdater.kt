@@ -747,6 +747,15 @@ object RawUpdater : GroupUpdater() {
         bean.awgI3 = awgStr("I3")
         bean.awgI4 = awgStr("I4")
         bean.awgI5 = awgStr("I5")
+        bean.awgHpk = awgStr("HeaderProtectionKey").ifEmpty { awgStr("header_protection_key") }
+        bean.awgCpa = awgStr("ContentPaddingAddition").ifEmpty { awgStr("content_padding_addition") }
+        bean.awgRekeyAfter = awgStr("RekeyAfterTime").ifEmpty { awgStr("rekey_after_time") }
+        bean.awgRekeyTimeout = awgStr("RekeyTimeout").ifEmpty { awgStr("rekey_timeout") }
+        bean.awgRejectAfter = awgStr("RejectAfterTime").ifEmpty { awgStr("reject_after_time") }
+        bean.awgKeepaliveTimeout = awgStr("KeepaliveTimeout").ifEmpty { awgStr("keepalive_timeout") }
+        bean.awgMaxHandshake = awgStr("MaxHandshakeAttempts").ifEmpty { awgStr("max_handshake_attempts") }
+        bean.awgRandomTrailers = awgStr("RandomTrailers").ifEmpty { awgStr("random_trailers") }.equals("true", true)
+        bean.awgDisableCookies = awgStr("DisableCookies").ifEmpty { awgStr("disable_cookies") }.equals("true", true)
         val peers = ini.getAll("Peer")
         if (peers.isNullOrEmpty()) error("Missing 'Peer' selections")
         val beans = mutableListOf<WireGuardBean>()

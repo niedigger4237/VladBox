@@ -39,6 +39,15 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
     private val awgI3 = pbm.add(PreferenceBinding(Type.Text, "awgI3"))
     private val awgI4 = pbm.add(PreferenceBinding(Type.Text, "awgI4"))
     private val awgI5 = pbm.add(PreferenceBinding(Type.Text, "awgI5"))
+    private val awgHpk = pbm.add(PreferenceBinding(Type.Text, "awgHpk"))
+    private val awgCpa = pbm.add(PreferenceBinding(Type.Text, "awgCpa"))
+    private val awgRekeyAfter = pbm.add(PreferenceBinding(Type.Text, "awgRekeyAfter"))
+    private val awgRekeyTimeout = pbm.add(PreferenceBinding(Type.Text, "awgRekeyTimeout"))
+    private val awgRejectAfter = pbm.add(PreferenceBinding(Type.Text, "awgRejectAfter"))
+    private val awgKeepaliveTimeout = pbm.add(PreferenceBinding(Type.Text, "awgKeepaliveTimeout"))
+    private val awgMaxHandshake = pbm.add(PreferenceBinding(Type.Text, "awgMaxHandshake"))
+    private val awgRandomTrailers = pbm.add(PreferenceBinding(Type.Bool, "awgRandomTrailers"))
+    private val awgDisableCookies = pbm.add(PreferenceBinding(Type.Bool, "awgDisableCookies"))
 
     override fun WireGuardBean.init() {
         pbm.writeToCacheAll(this)
