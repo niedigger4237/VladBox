@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Fix permissions
+        run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
       - name: Golang Status
         run: find buildScript libcore/*.sh | xargs cat | sha1sum > golang_status
       - name: Libcore Status
@@ -48,6 +50,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Fix permissions
+        run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
       - name: Golang Status
         run: find buildScript libcore/*.sh | xargs cat | sha1sum > golang_status
       - name: Libcore Status
@@ -88,6 +92,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Fix permissions
+        run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
       - name: Donwload Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -110,6 +116,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Fix permissions
+        run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
       - name: Golang Status
         run: find buildScript libcore/*.sh | xargs cat | sha1sum > golang_status
       - name: Libcore Status
