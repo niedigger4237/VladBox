@@ -123,6 +123,9 @@ jobs:
       - name: Gradle Build
         env:
           BUILD_PLUGIN: none
+          KEYSTORE_PASS: 8kn092OhBYqPrXC6CRzJ5AK1
+          ALIAS_NAME: vladbox
+          ALIAS_PASS: 8kn092OhBYqPrXC6CRzJ5AK1
         run: |
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
