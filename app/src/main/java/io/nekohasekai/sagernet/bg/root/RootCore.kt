@@ -72,9 +72,13 @@ object RootCore {
         return null
     }
 
+    /** geoip.db / geosite.db location for the geoip:/geosite: rule-sets (see patch 0002) */
+    fun assetsEnv(): String =
+        "NEKO_ASSETS_DIR=${RootShell.q(SagerNet.externalAssets.absolutePath)} "
+
     /** `sing-box check` for the generated config, as root. Returns an error text or null. */
     fun check(binary: String, config: File): String? {
-        val r = RootShell.run("${RootShell.q(binary)} check -c ${RootShell.q(config)}")
+        val r = RootShell.run("${assetsEnv()}${RootShell.q(binary)} check -c ${RootShell.q(config)}")
         return if (r.ok) null else (r.err.ifBlank { r.out }).ifBlank { "check failed" }
     }
 

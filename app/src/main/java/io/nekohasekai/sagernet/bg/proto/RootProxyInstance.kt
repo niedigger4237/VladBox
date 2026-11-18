@@ -52,7 +52,7 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         val log = "$runDir/sing-box.log"
         val start = RootShell.run(
             "cd ${RootShell.q(runDir)}",
-            "nohup ${RootShell.q(core.path)} run -c ${RootShell.q(rcfg)} -D ${RootShell.q(runDir)} >${RootShell.q(log)} 2>&1 &",
+            "${RootCore.assetsEnv()}nohup ${RootShell.q(core.path)} run -c ${RootShell.q(rcfg)} -D ${RootShell.q(runDir)} >${RootShell.q(log)} 2>&1 &",
             "echo \$! > ${RootShell.q(pidFile)}",
         )
         if (!start.ok) throw IllegalStateException(start.err.ifBlank { "failed to start sing-box" })
