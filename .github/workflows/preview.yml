@@ -1,7 +1,6 @@
 name: Preview Build
 on:
   workflow_dispatch:
-    inputs:
 jobs:
   libcore:
     name: Native Build (LibCore)
