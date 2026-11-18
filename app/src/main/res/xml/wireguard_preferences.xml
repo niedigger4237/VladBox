@@ -62,6 +62,16 @@
         <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgI3" app:title="I3" app:useSimpleSummaryProvider="true" />
         <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgI4" app:title="I4" app:useSimpleSummaryProvider="true" />
         <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgI5" app:title="I5" app:useSimpleSummaryProvider="true" />
+        <!-- Amnezia 3.1 -->
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgHpk" app:title="HeaderProtectionKey" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgCpa" app:title="ContentPaddingAddition" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgRekeyAfter" app:title="RekeyAfterTime" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgRekeyTimeout" app:title="RekeyTimeout" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgRejectAfter" app:title="RejectAfterTime" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgKeepaliveTimeout" app:title="KeepaliveTimeout" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgMaxHandshake" app:title="MaxHandshakeAttempts" app:useSimpleSummaryProvider="true" />
+        <SwitchPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgRandomTrailers" app:title="RandomTrailers" />
+        <SwitchPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgDisableCookies" app:title="DisableCookies" />
     </PreferenceCategory>
 
 </PreferenceScreen>

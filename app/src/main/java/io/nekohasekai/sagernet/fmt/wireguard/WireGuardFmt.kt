@@ -44,13 +44,15 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean): SingBoxOptions.Endpo
         type = "wireguard"
         address = bean.localAddress.listByLineOrComma().map { it.asPrefix() }
         private_key = bean.privateKey
-        mtu = bean.mtu
+        // AWG adds padding/junk to the outer packets: a 1420 MTU black-holes full-size TCP segments
+        mtu = if (bean.isAmnezia) minOf(bean.mtu, 1280) else bean.mtu
         peers = listOf(SingBoxOptions.Endpoint_WireGuardPeer().apply {
             address = bean.serverAddress
             port = bean.serverPort
             public_key = bean.peerPublicKey
             if (bean.peerPreSharedKey.isNotBlank()) pre_shared_key = bean.peerPreSharedKey
             allowed_ips = listOf("0.0.0.0/0", "::/0")
+            persistent_keepalive_interval = 25
         })
         if (bean.isAmnezia) {
             amnezia = SingBoxOptions.Endpoint_WireGuardAmnezia().apply {
@@ -70,6 +72,15 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean): SingBoxOptions.Endpo
                 bean.awgI3.trim().takeIf { it.isNotEmpty() }?.let { i3 = it }
                 bean.awgI4.trim().takeIf { it.isNotEmpty() }?.let { i4 = it }
                 bean.awgI5.trim().takeIf { it.isNotEmpty() }?.let { i5 = it }
+                bean.awgHpk.trim().takeIf { it.isNotEmpty() }?.let { header_protection_key = it }
+                bean.awgCpa.trim().takeIf { it.isNotEmpty() }?.let { content_padding_addition = it }
+                bean.awgRekeyAfter.trim().takeIf { it.isNotEmpty() }?.let { rekey_after_time = it }
+                bean.awgRekeyTimeout.trim().takeIf { it.isNotEmpty() }?.let { rekey_timeout = it }
+                bean.awgRejectAfter.trim().takeIf { it.isNotEmpty() }?.let { reject_after_time = it }
+                bean.awgKeepaliveTimeout.trim().takeIf { it.isNotEmpty() }?.let { keepalive_timeout = it }
+                bean.awgMaxHandshake.trim().takeIf { it.isNotEmpty() }?.let { max_handshake_attempts = it }
+                if (bean.awgRandomTrailers) random_trailers = true
+                if (bean.awgDisableCookies) disable_cookies = true
             }
         }
     }

@@ -36,6 +36,15 @@ public class WireGuardBean extends AbstractBean {
     public String awgI3;
     public String awgI4;
     public String awgI5;
+    public String awgHpk;
+    public String awgCpa;
+    public String awgRekeyAfter;
+    public String awgRekeyTimeout;
+    public String awgRejectAfter;
+    public String awgKeepaliveTimeout;
+    public String awgMaxHandshake;
+    public Boolean awgRandomTrailers;
+    public Boolean awgDisableCookies;
 
     @Override
     public void initializeDefaultValues() {
@@ -62,6 +71,15 @@ public class WireGuardBean extends AbstractBean {
         if (awgI3 == null) awgI3 = "";
         if (awgI4 == null) awgI4 = "";
         if (awgI5 == null) awgI5 = "";
+        if (awgHpk == null) awgHpk = "";
+        if (awgCpa == null) awgCpa = "";
+        if (awgRekeyAfter == null) awgRekeyAfter = "";
+        if (awgRekeyTimeout == null) awgRekeyTimeout = "";
+        if (awgRejectAfter == null) awgRejectAfter = "";
+        if (awgKeepaliveTimeout == null) awgKeepaliveTimeout = "";
+        if (awgMaxHandshake == null) awgMaxHandshake = "";
+        if (awgRandomTrailers == null) awgRandomTrailers = false;
+        if (awgDisableCookies == null) awgDisableCookies = false;
     }
 
     /** true when any AmneziaWG obfuscation parameter is set */
@@ -70,12 +88,19 @@ public class WireGuardBean extends AbstractBean {
                 || awgS1 > 0 || awgS2 > 0 || awgS3 > 0 || awgS4 > 0
                 || !awgH1.isEmpty() || !awgH2.isEmpty() || !awgH3.isEmpty() || !awgH4.isEmpty()
                 || !awgI1.isEmpty() || !awgI2.isEmpty() || !awgI3.isEmpty()
-                || !awgI4.isEmpty() || !awgI5.isEmpty();
+                || !awgI4.isEmpty() || !awgI5.isEmpty() || is31();
+    }
+
+    /** true when any Amnezia 3.1 parameter is set */
+    public boolean is31() {
+        return !awgHpk.isEmpty() || !awgCpa.isEmpty() || !awgRekeyAfter.isEmpty() || !awgRekeyTimeout.isEmpty()
+                || !awgRejectAfter.isEmpty() || !awgKeepaliveTimeout.isEmpty() || !awgMaxHandshake.isEmpty()
+                || awgRandomTrailers || awgDisableCookies;
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(3);
+        output.writeInt(4);
         super.serialize(output);
         output.writeString(localAddress);
         output.writeString(privateKey);
@@ -100,6 +125,16 @@ public class WireGuardBean extends AbstractBean {
         output.writeString(awgI3);
         output.writeString(awgI4);
         output.writeString(awgI5);
+        // version 4: Amnezia 3.1
+        output.writeString(awgHpk);
+        output.writeString(awgCpa);
+        output.writeString(awgRekeyAfter);
+        output.writeString(awgRekeyTimeout);
+        output.writeString(awgRejectAfter);
+        output.writeString(awgKeepaliveTimeout);
+        output.writeString(awgMaxHandshake);
+        output.writeBoolean(awgRandomTrailers);
+        output.writeBoolean(awgDisableCookies);
     }
 
     @Override
@@ -129,6 +164,17 @@ public class WireGuardBean extends AbstractBean {
             awgI3 = input.readString();
             awgI4 = input.readString();
             awgI5 = input.readString();
+        }
+        if (version >= 4) {
+            awgHpk = input.readString();
+            awgCpa = input.readString();
+            awgRekeyAfter = input.readString();
+            awgRekeyTimeout = input.readString();
+            awgRejectAfter = input.readString();
+            awgKeepaliveTimeout = input.readString();
+            awgMaxHandshake = input.readString();
+            awgRandomTrailers = input.readBoolean();
+            awgDisableCookies = input.readBoolean();
         }
     }
 
