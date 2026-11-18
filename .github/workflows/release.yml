@@ -74,6 +74,11 @@ jobs:
             app/libs/libcore.aar
             app/src/main/jniLibs/*/libsingbox.so
           key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
       - name: Gradle cache
         uses: actions/cache@v4
         with:
@@ -140,6 +145,11 @@ jobs:
             app/libs/libcore.aar
             app/src/main/jniLibs/*/libsingbox.so
           key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
       - name: Gradle cache
         uses: actions/cache@v4
         with:

@@ -30,6 +30,7 @@ abstract class BoxInstance(
 
     lateinit var config: ConfigBuildResult
     lateinit var box: BoxInstance
+    fun isBoxInitialized() = ::box.isInitialized
 
     val pluginPath = hashMapOf<String, PluginManager.InitResult>()
     val pluginConfigs = hashMapOf<Int, Pair<Int, String>>()

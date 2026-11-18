@@ -47,10 +47,10 @@ open class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interfac
     }
 
     override fun launch() {
-        if (::box.isInitialized) box.setAsMain()
+        if (isBoxInitialized()) box.setAsMain()
         super.launch() // start box
         // traffic stats need the in-process core (root modes run it externally)
-        if (::box.isInitialized) runOnDefaultDispatcher {
+        if (isBoxInitialized()) runOnDefaultDispatcher {
             looper = service?.let { TrafficLooper(it.data, this) }
             looper?.start()
         }

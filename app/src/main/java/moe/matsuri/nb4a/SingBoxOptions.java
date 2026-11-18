@@ -2824,6 +2824,9 @@ public class SingBoxOptions {
 
         public Integer mtu;
 
+        // sing-box >= 1.10
+        public List<String> address;
+
         // Generate note: Listable
         public List<String> inet4_address;
 
