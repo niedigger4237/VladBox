@@ -74,7 +74,7 @@ object RootCore {
 
     /** geoip.db / geosite.db location for the geoip:/geosite: rule-sets (see patch 0002) */
     fun assetsEnv(): String =
-        "NEKO_ASSETS_DIR=${RootShell.q(SagerNet.externalAssets.absolutePath)} "
+        "NEKO_ASSETS_DIR=${RootShell.q(SagerNet.application.externalAssets.absolutePath)} "
 
     /** `sing-box check` for the generated config, as root. Returns an error text or null. */
     fun check(binary: String, config: File): String? {
