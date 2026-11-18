@@ -1,0 +1,67 @@
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <EditTextPreference
+        app:icon="@drawable/ic_social_emoji_symbols"
+        app:key="name"
+        app:title="@string/profile_name"
+        app:useSimpleSummaryProvider="true" />
+
+    <PreferenceCategory app:title="@string/proxy_cat">
+        <EditTextPreference
+            app:icon="@drawable/ic_hardware_router"
+            app:key="serverAddress"
+            app:title="@string/server_address"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:icon="@drawable/ic_maps_directions_boat"
+            app:key="serverPort"
+            app:title="@string/server_port"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:icon="@drawable/ic_baseline_domain_24"
+            app:key="localAddress"
+            app:title="@string/wireguard_local_address"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:icon="@drawable/ic_baseline_vpn_key_24"
+            app:key="privateKey"
+            app:title="@string/ssh_private_key"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:icon="@drawable/ic_action_copyright"
+            app:key="peerPublicKey"
+            app:title="@string/wireguard_public_key"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:dialogLayout="@layout/layout_password_dialog"
+            app:icon="@drawable/ic_settings_password"
+            app:key="peerPreSharedKey"
+            app:title="@string/wireguard_psk" />
+        <EditTextPreference
+            app:defaultValue="1420"
+            app:icon="@drawable/baseline_public_24"
+            app:key="mtu"
+            app:title="@string/mtu"
+            app:useSimpleSummaryProvider="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/awg_category">
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgJc" app:title="Jc" app:summary="@string/awg_summary" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgJmin" app:title="Jmin" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgJmax" app:title="Jmax" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgS1" app:title="S1" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgS2" app:title="S2" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgS3" app:title="S3" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgS4" app:title="S4" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgH1" app:title="H1" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgH2" app:title="H2" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgH3" app:title="H3" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgH4" app:title="H4" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgI1" app:title="I1" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgI2" app:title="I2" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgI3" app:title="I3" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgI4" app:title="I4" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgI5" app:title="I5" app:useSimpleSummaryProvider="true" />
+    </PreferenceCategory>
+
+</PreferenceScreen>

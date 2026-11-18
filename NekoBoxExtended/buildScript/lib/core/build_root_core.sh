@@ -1,0 +1,28 @@
+#!/bin/bash
+# Builds the external sing-box (sing-box-extended + NekoBox patches) used by the
+# root modes and drops it into jniLibs as libsingbox.so (extracted on install, see
+# useLegacyPackaging). Needs ANDROID_NDK_HOME and the sources from get_source.sh.
+set -e
+source "buildScript/init/env.sh"
+source "buildScript/lib/core/get_source_env.sh"
+
+ROOT="$(pwd)"
+SB="$ROOT/../sing-box"
+TAGS="with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0"
+API=24
+TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+
+build() { # abi goarch cc-prefix [GOARM]
+  local abi=$1 goarch=$2 cc=$3 goarm=$4
+  mkdir -p "$ROOT/app/src/main/jniLibs/$abi"
+  ( cd "$SB" && \
+    CGO_ENABLED=1 GOOS=android GOARCH=$goarch GOARM=$goarm \
+    CC="$TOOLCHAIN/${cc}${API}-clang" \
+    go build -trimpath -buildvcs=false -tags "$TAGS" \
+      -ldflags "-s -w -buildid= -X github.com/sagernet/sing-box/constant.Version=${SING_BOX_TAG#v}" \
+      -o "$ROOT/app/src/main/jniLibs/$abi/libsingbox.so" ./cmd/sing-box )
+}
+
+build arm64-v8a  arm64 aarch64-linux-android
+build armeabi-v7a arm  armv7a-linux-androideabi 7
+build x86_64     amd64 x86_64-linux-android
