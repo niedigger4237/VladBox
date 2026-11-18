@@ -21,9 +21,9 @@ jobs:
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
       - name: Golang Status
-        run: find buildScript libcore/*.sh | xargs cat | sha1sum > golang_status
+        run: find buildScript libcore -maxdepth 6 -type f \( -path "buildScript/*" -o -name "*.sh" \) -not -path "libcore/*/*" | LC_ALL=C sort | xargs cat | sha1sum > golang_status
       - name: Libcore Status
-        run: git ls-files libcore | xargs cat | sha1sum > libcore_status
+        run: git ls-files libcore | LC_ALL=C sort | xargs cat | sha1sum > libcore_status
       - name: LibCore Cache
         id: cache
         uses: actions/cache@v4
@@ -64,9 +64,9 @@ jobs:
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
       - name: Golang Status
-        run: find buildScript libcore/*.sh | xargs cat | sha1sum > golang_status
+        run: find buildScript libcore -maxdepth 6 -type f \( -path "buildScript/*" -o -name "*.sh" \) -not -path "libcore/*/*" | LC_ALL=C sort | xargs cat | sha1sum > golang_status
       - name: Libcore Status
-        run: git ls-files libcore | xargs cat | sha1sum > libcore_status
+        run: git ls-files libcore | LC_ALL=C sort | xargs cat | sha1sum > libcore_status
       - name: LibCore Cache
         uses: actions/cache@v4
         with:
@@ -138,9 +138,9 @@ jobs:
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
       - name: Golang Status
-        run: find buildScript libcore/*.sh | xargs cat | sha1sum > golang_status
+        run: find buildScript libcore -maxdepth 6 -type f \( -path "buildScript/*" -o -name "*.sh" \) -not -path "libcore/*/*" | LC_ALL=C sort | xargs cat | sha1sum > golang_status
       - name: Libcore Status
-        run: git ls-files libcore | xargs cat | sha1sum > libcore_status
+        run: git ls-files libcore | LC_ALL=C sort | xargs cat | sha1sum > libcore_status
       - name: LibCore Cache
         uses: actions/cache@v4
         with:
