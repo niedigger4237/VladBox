@@ -15,7 +15,7 @@ if [ -z "$GOPATH" ]; then
 fi
 
 export GOBIND=gobind-matsuri
-"$GOPATH"/bin/gomobile-matsuri bind -v -androidapi 21 -cache "$(realpath $BUILD)" -trimpath -ldflags='-s -w' -tags='with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0' . || exit 1
+"$GOPATH"/bin/gomobile-matsuri bind -v -androidapi 21 ${LIBCORE_TARGETS:+-target=$LIBCORE_TARGETS} -cache "$(realpath $BUILD)" -trimpath -ldflags='-s -w' -tags='with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0' . || exit 1
 rm -r libcore-sources.jar
 
 proj=../app/libs

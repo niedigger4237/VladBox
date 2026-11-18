@@ -12,8 +12,10 @@ TAGS="with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,ba
 API=24
 TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
+# ROOTCORE_ABIS="arm64-v8a" builds a single ABI (fast CI); empty = all
 build() { # abi goarch cc-prefix [GOARM]
   local abi=$1 goarch=$2 cc=$3 goarm=$4
+  if [ -n "$ROOTCORE_ABIS" ] && [[ " $ROOTCORE_ABIS " != *" $abi "* ]]; then return; fi
   mkdir -p "$ROOT/app/src/main/jniLibs/$abi"
   ( cd "$SB" && \
     CGO_ENABLED=1 GOOS=android GOARCH=$goarch GOARM=$goarm \
