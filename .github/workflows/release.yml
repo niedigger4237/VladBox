@@ -32,11 +32,22 @@ jobs:
             app/libs/libcore.aar
             app/src/main/jniLibs/*/libsingbox.so
           key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
+      - name: Go cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('buildScript/lib/core/get_source_env.sh') }}-${{ github.run_id }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ hashFiles('buildScript/lib/core/get_source_env.sh') }}-
+            go-${{ runner.os }}-
       - name: Install Golang
         if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/setup-go@v5
         with:
           go-version: "1.26.4"
+          cache: false
       - name: Native Build
         if: steps.cache.outputs.cache-hit != 'true'
         run: |

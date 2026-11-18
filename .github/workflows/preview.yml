@@ -1,8 +1,51 @@
 name: Preview Build
 on:
   workflow_dispatch:
+    inputs:
+      fast:
+        description: "Fast: arm64 only (debug builds). Disable for a full multi-ABI build."
+        type: boolean
+        default: true
 jobs:
+  check:
+    name: Compile check (Go, fast)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Fix permissions
+        run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
+      - name: Install Golang
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          cache: false
+      - name: Go cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('buildScript/lib/core/get_source_env.sh') }}-${{ github.run_id }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ hashFiles('buildScript/lib/core/get_source_env.sh') }}-
+            go-${{ runner.os }}-
+      - name: Fetch core sources
+        run: bash buildScript/lib/core/get_source.sh
+      - name: Generate libcore go.mod
+        working-directory: libcore
+        run: bash ./sync_gomod.sh
+      - name: Build libcore (type check, android/arm64)
+        working-directory: libcore
+        env:
+          GOOS: android
+          GOARCH: arm64
+          CGO_ENABLED: "1"
+        run: |
+          export CC="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          go build -tags with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0 ./...
   libcore:
+    needs: check
     name: Native Build (LibCore)
     runs-on: ubuntu-latest
     steps:
@@ -21,14 +64,28 @@ jobs:
           path: |
             app/libs/libcore.aar
             app/src/main/jniLibs/*/libsingbox.so
-          key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
+          key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}-${{ inputs.fast }}
+      - name: Go cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('buildScript/lib/core/get_source_env.sh') }}-${{ github.run_id }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ hashFiles('buildScript/lib/core/get_source_env.sh') }}-
+            go-${{ runner.os }}-
       - name: Install Golang
         if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/setup-go@v5
         with:
           go-version: "1.26.4"
+          cache: false
       - name: Native Build
         if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          LIBCORE_TARGETS: ${{ inputs.fast && 'android/arm64' || '' }}
+          ROOTCORE_ABIS: ${{ inputs.fast && 'arm64-v8a' || '' }}
         run: |
           ./run lib core
           ./run lib rootcore
@@ -52,7 +109,7 @@ jobs:
           path: |
             app/libs/libcore.aar
             app/src/main/jniLibs/*/libsingbox.so
-          key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
+          key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}-${{ inputs.fast }}
       - name: Gradle cache
         uses: actions/cache@v4
         with:
