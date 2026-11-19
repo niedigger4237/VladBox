@@ -1,7 +1,7 @@
 package io.nekohasekai.sagernet.bg.proto
 
 class TrafficUpdater(
-    private val box: libcore.BoxInstance,
+    private val box: io.nekohasekai.sagernet.bg.core.CoreBox,
     val items: List<TrafficLooperData>, // contain "bypass"
 ) {
 

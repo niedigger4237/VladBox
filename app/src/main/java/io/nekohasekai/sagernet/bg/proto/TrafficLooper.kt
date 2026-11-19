@@ -128,7 +128,7 @@ class TrafficLooper
                 trafficUpdater = TrafficUpdater(
                     box = proxy.box, items = idMap.values.toList()
                 )
-                proxy.box.setV2rayStats(tags.joinToString("\n"))
+                proxy.box.enableStats(tags.joinToString("\n"))
             }
 
             trafficUpdater.updateAll()

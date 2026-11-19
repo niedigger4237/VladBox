@@ -68,7 +68,7 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean): SingBoxOptions.Endpo
             allowed_ips = listOf("0.0.0.0/0", "::/0")
             if (bean.persistentKeepalive > 0) persistent_keepalive_interval = bean.persistentKeepalive
             // `reserved` (Cloudflare WARP) is only understood by Throne's core
-            if (io.nekohasekai.sagernet.database.DataStore.rootEngine == "throne") {
+            if (io.nekohasekai.sagernet.database.DataStore.coreEngine == io.nekohasekai.sagernet.Key.ENGINE_THRONE) {
                 reservedBytes(bean.reserved)?.let { reserved = it }
             }
         })

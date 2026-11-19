@@ -66,7 +66,7 @@ object RootCore {
         get() = File(SagerNet.application.applicationInfo.nativeLibraryDir, "libsingbox_throne.so")
 
     fun resolve(): Active? {
-        if (io.nekohasekai.sagernet.database.DataStore.rootEngine == "throne") {
+        if (io.nekohasekai.sagernet.database.DataStore.coreEngine == io.nekohasekai.sagernet.Key.ENGINE_THRONE) {
             val t = bundledThrone
             return if (t.exists()) Active(t.absolutePath, "throne", true) else null
         }
