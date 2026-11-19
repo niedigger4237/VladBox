@@ -727,7 +727,7 @@ object RawUpdater : GroupUpdater() {
         if (localAddresses.isNullOrEmpty()) error("Empty address in 'Interface' selection")
         bean.localAddress = localAddresses.flatMap { it.split(",") }.joinToString("\n")
         bean.privateKey = iface["PrivateKey"]
-        bean.mtu = iface["MTU"]?.toIntOrNull()
+        bean.mtu = iface["MTU"]?.toIntOrNull() ?: 1280 // as in Throne: Android clients use 1280 when .conf has no MTU
         // AmneziaWG obfuscation parameters (awg-quick .conf, [Interface] section)
         fun awgInt(key: String) = iface[key]?.trim()?.toIntOrNull() ?: 0
         fun awgStr(key: String) = iface[key]?.trim() ?: ""

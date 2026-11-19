@@ -211,9 +211,12 @@ fun buildConfig(
                 tag = "tun-in"
                 if (isRootTun) {
                     // external sing-box running as root creates the device itself
-                    interface_name = "neko-tun"
+                    interface_name = io.nekohasekai.sagernet.bg.root.RootDaemon.TUN_DEVICE
                     auto_route = true
                     strict_route = false
+                    // as in AsteriskBOX: sing-box redirects TCP itself, "lo" keeps local OUTPUT captured
+                    auto_redirect = true
+                    include_interface = listOf("lo")
                 }
                 stack = when (DataStore.tunImplementation) {
                     TunImplementation.GVISOR -> "gvisor"

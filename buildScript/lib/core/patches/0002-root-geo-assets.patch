@@ -3,7 +3,7 @@ new file mode 100644
 index 00000000..f06f1fce
 --- /dev/null
 +++ b/cmd/sing-box/neko_geo.go
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,81 @@
 +package main
 +
 +import (
@@ -24,6 +24,10 @@ index 00000000..f06f1fce
 +// The standalone root-mode binary needs the same hooks; NEKO_ASSETS_DIR points at the app's assets.
 +func init() {
 +	dir := os.Getenv("NEKO_ASSETS_DIR")
++	if dir == "" {
++		// started by asteriskd: the working directory holds geoip.db / geosite.db
++		dir, _ = os.Getwd()
++	}
 +
 +	nekoutils.GetGeoIPHeadlessRules = func(name string) ([]option.HeadlessRule, error) {
 +		if dir == "" {
