@@ -22,7 +22,7 @@ P
 sudo rm -f /var/run/amneziawg/awg0.sock
 sudo "$AWG" -f awg0 >server.log 2>&1 &
 sleep 2
-python3 -I - "$SPRIV" "$CPUB" "$PARAMS" <<'P'
+sudo python3 -I - "$SPRIV" "$CPUB" "$PARAMS" <<'P'
 import base64,json,socket,sys
 hexk=lambda b:base64.b64decode(b).hex()
 priv,cpub,params=sys.argv[1],sys.argv[2],json.loads(sys.argv[3])
