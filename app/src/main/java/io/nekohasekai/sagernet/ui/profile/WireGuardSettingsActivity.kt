@@ -23,6 +23,11 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
     private val peerPublicKey = pbm.add(PreferenceBinding(Type.Text, "peerPublicKey"))
     private val peerPreSharedKey = pbm.add(PreferenceBinding(Type.Text, "peerPreSharedKey"))
     private val mtu = pbm.add(PreferenceBinding(Type.TextToInt, "mtu"))
+    private val reserved = pbm.add(PreferenceBinding(Type.Text, "reserved"))
+    private val persistentKeepalive = pbm.add(PreferenceBinding(Type.TextToInt, "persistentKeepalive"))
+    private val system = pbm.add(PreferenceBinding(Type.Bool, "system"))
+    private val workers = pbm.add(PreferenceBinding(Type.TextToInt, "workers"))
+    private val udpTimeout = pbm.add(PreferenceBinding(Type.Text, "udpTimeout"))
     private val awgJc = pbm.add(PreferenceBinding(Type.TextToInt, "awgJc"))
     private val awgJmin = pbm.add(PreferenceBinding(Type.TextToInt, "awgJmin"))
     private val awgJmax = pbm.add(PreferenceBinding(Type.TextToInt, "awgJmax"))
@@ -68,6 +73,9 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
             .setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
         (privateKey.preference as EditTextPreference).summaryProvider = PasswordSummaryProvider
         (mtu.preference as EditTextPreference).setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
+        listOf(persistentKeepalive, workers).forEach {
+            (it.preference as EditTextPreference).setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
+        }
         listOf(awgJc, awgJmin, awgJmax, awgS1, awgS2, awgS3, awgS4).forEach {
             (it.preference as EditTextPreference)
                 .setOnBindEditTextListener(EditTextPreferenceModifiers.Number)

@@ -43,6 +43,33 @@
             app:key="mtu"
             app:title="@string/mtu"
             app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:icon="@drawable/ic_baseline_fingerprint_24"
+            app:key="reserved"
+            app:title="@string/wireguard_reserved"
+            app:summary="@string/reserved_hint"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:defaultValue="25"
+            app:icon="@drawable/ic_action_lock_open"
+            app:key="persistentKeepalive"
+            app:title="@string/wireguard_persistent_keepalive"
+            app:useSimpleSummaryProvider="true" />
+        <SwitchPreference
+            app:icon="@drawable/ic_action_settings"
+            app:key="system"
+            app:title="@string/wireguard_system" />
+        <EditTextPreference
+            app:defaultValue="0"
+            app:icon="@drawable/ic_baseline_low_priority_24"
+            app:key="workers"
+            app:title="@string/wireguard_worker_count"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:icon="@drawable/ic_baseline_timelapse_24"
+            app:key="udpTimeout"
+            app:title="@string/wireguard_udp_timeout"
+            app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
 
     <PreferenceCategory app:title="@string/awg_category">

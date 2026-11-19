@@ -27,13 +27,13 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
     override fun startCore() {
         if (!RootShell.isAvailable()) throw IllegalStateException("Root access was denied")
 
-        val core = RootCore.resolve() ?: throw IllegalStateException("No sing-box core for root mode (bundled core missing, import one in settings)")
+        val core = RootCore.resolve() ?: throw IllegalStateException("No sing-box core for root mode (selected engine "${DataStore.rootEngine}" is not part of this build, import one in settings)")
         Logs.i("root core: ${core.label} (${core.path})")
 
         val mode = if (DataStore.serviceMode == Key.MODE_ROOT_TPROXY) RootDaemon.Mode.TPROXY else RootDaemon.Mode.TUN
         val ipv6 = DataStore.ipv6Mode != io.nekohasekai.sagernet.IPv6Mode.DISABLE
         var err = RootDaemon.start(mode, core, config.config, DataStore.rootTproxyPort, ipv6)
-        if (err != null && !core.bundled && RootCore.bundled.exists()) {
+        if (err != null && !core.bundled && DataStore.rootEngine != "throne" && RootCore.bundled.exists()) {
             // an installed (unpatched / incompatible) core must not leave the user without root mode
             Logs.w("core ${core.label} failed: $err\nretrying with the bundled core")
             err = RootDaemon.start(

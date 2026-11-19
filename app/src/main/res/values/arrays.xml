@@ -517,6 +517,15 @@
         <item>v2ray-plugin</item>
     </string-array>
 
+    <string-array name="root_engine_names" translatable="false">
+        <item>sing-box-extended</item>
+        <item>Throne</item>
+    </string-array>
+    <string-array name="root_engine_values" translatable="false">
+        <item>extended</item>
+        <item>throne</item>
+    </string-array>
+
     <string-array name="log_level" translatable="false">
         <item>none</item>
         <item>warn</item>

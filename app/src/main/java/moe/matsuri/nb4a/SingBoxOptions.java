@@ -3900,6 +3900,10 @@ public class SingBoxOptions {
 
         public Endpoint_WireGuardAmnezia amnezia;
 
+        public Integer workers;
+
+        public String udp_timeout;
+
     }
 
     public static class Endpoint_WireGuardPeer extends SingBoxOption {
@@ -3915,6 +3919,8 @@ public class SingBoxOptions {
         public List<String> allowed_ips;
 
         public Integer persistent_keepalive_interval;
+
+        public List<Integer> reserved;
 
     }
 

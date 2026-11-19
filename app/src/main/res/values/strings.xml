@@ -51,6 +51,13 @@
     <!-- misc -->
     <string name="service_mode">Service Mode</string>
     <string name="root_settings">Root mode</string>
+    <string name="wireguard_reserved">Reserved (WARP, Throne core only)</string>
+    <string name="reserved_hint">Three bytes, e.g. 1,2,3 or base64</string>
+    <string name="wireguard_persistent_keepalive">Persistent keepalive (s)</string>
+    <string name="wireguard_system">System interface</string>
+    <string name="wireguard_worker_count">Worker count</string>
+    <string name="wireguard_udp_timeout">UDP timeout</string>
+    <string name="root_engine">Root core engine</string>
     <string name="root_tproxy_port">TPROXY port</string>
     <string name="root_core_update">Update sing-box core (root)</string>
     <string name="root_core_import">Import sing-box core file (root)</string>

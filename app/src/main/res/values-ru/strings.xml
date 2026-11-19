@@ -494,6 +494,7 @@
 <string name="xtls_flow">Flow (подпротокол VLESS)</string>
 <string name="yes">Да</string>
     <string name="root_settings">Root-режим</string>
+    <string name="root_engine">Ядро root-режима</string>
     <string name="root_tproxy_port">Порт TPROXY</string>
     <string name="root_core_update">Обновить ядро sing-box (root)</string>
     <string name="root_core_import">Импортировать файл ядра sing-box (root)</string>

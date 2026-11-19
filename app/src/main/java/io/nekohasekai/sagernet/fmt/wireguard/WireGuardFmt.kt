@@ -26,6 +26,18 @@ fun genReserved(anyStr: String): String {
     }
 }
 
+/** "1,2,3" / "[1, 2, 3]" or the base64 form -> three bytes */
+fun reservedBytes(text: String): List<Int>? {
+    val t = text.trim()
+    if (t.isEmpty()) return null
+    val nums = t.listByLineOrComma().mapNotNull { it.replace("[", "").replace("]", "").trim().toIntOrNull() }
+    if (nums.size == 3 && nums.all { it in 0..255 }) return nums
+    return try {
+        val ba = android.util.Base64.decode(t, android.util.Base64.DEFAULT)
+        if (ba.size == 3) ba.map { it.toInt() and 0xff } else null
+    } catch (e: Exception) { null }
+}
+
 /** "10.0.0.2" -> "10.0.0.2/32", "fd00::2" -> "fd00::2/128"; prefixes are kept. */
 private fun String.asPrefix(): String {
     val v = trim()
@@ -45,13 +57,20 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean): SingBoxOptions.Endpo
         address = bean.localAddress.listByLineOrComma().map { it.asPrefix() }
         private_key = bean.privateKey
         mtu = bean.mtu
+        if (bean.system) system = true
+        if (bean.workers > 0) workers = bean.workers
+        bean.udpTimeout.trim().takeIf { it.isNotEmpty() }?.let { udp_timeout = it }
         peers = listOf(SingBoxOptions.Endpoint_WireGuardPeer().apply {
             address = bean.serverAddress
             port = bean.serverPort
             public_key = bean.peerPublicKey
             if (bean.peerPreSharedKey.isNotBlank()) pre_shared_key = bean.peerPreSharedKey
             allowed_ips = listOf("0.0.0.0/0", "::/0")
-            persistent_keepalive_interval = 25
+            if (bean.persistentKeepalive > 0) persistent_keepalive_interval = bean.persistentKeepalive
+            // `reserved` (Cloudflare WARP) is only understood by Throne's core
+            if (io.nekohasekai.sagernet.database.DataStore.rootEngine == "throne") {
+                reservedBytes(bean.reserved)?.let { reserved = it }
+            }
         })
         if (bean.isAmnezia) {
             amnezia = SingBoxOptions.Endpoint_WireGuardAmnezia().apply {
