@@ -7,6 +7,7 @@ import com.google.gson.JsonObject
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.Logs
+import libcore.Libcore
 import java.io.File
 
 /**
@@ -127,6 +128,49 @@ object RootDaemon {
         return gson.toJson(root) + "\n"
     }
 
+    val coreLogPath get() = "$logDir/sing-box.log"
+
+    /** makes the root core write its log to a file the app can forward into its log screen */
+    private fun withLogFile(json: String): String = try {
+        val o = com.google.gson.JsonParser.parseString(json).asJsonObject
+        val log = if (o.has("log") && o.get("log").isJsonObject) o.getAsJsonObject("log") else JsonObject().also { o.add("log", it) }
+        log.addProperty("output", coreLogPath)
+        log.addProperty("timestamp", true)
+        gson.toJson(o)
+    } catch (e: Exception) { json }
+
+    private var tailer: Thread? = null
+
+    /** forwards core/daemon log lines into the in-app log (Logs -> neko.log) while the service runs */
+    fun startLogForward() {
+        stopLogForward()
+        tailer = Thread({
+            val offsets = HashMap<String, Long>()
+            val files = listOf(coreLogPath, logPath, "$logDir/error.log")
+            try {
+                while (!Thread.currentThread().isInterrupted) {
+                    for (f in files) {
+                        val off = offsets[f] ?: 0L
+                        val r = RootShell.run("[ -f ${RootShell.q(f)} ] && tail -c +${off + 1} ${RootShell.q(f)} | head -c 65536", timeoutMs = 4_000)
+                        if (r.out.isNotEmpty()) {
+                            offsets[f] = off + r.out.toByteArray().size
+                            r.out.lineSequence().filter { it.isNotBlank() }.forEach { Libcore.nekoLogPrintln(it) }
+                        }
+                    }
+                    Thread.sleep(1500)
+                }
+            } catch (_: InterruptedException) {
+            } catch (e: Exception) {
+                Logs.w("log forward stopped: $e")
+            }
+        }, "root-log-forward").apply { isDaemon = true; start() }
+    }
+
+    fun stopLogForward() {
+        tailer?.interrupt()
+        tailer = null
+    }
+
     /**
      * Writes the configs, starts asteriskd and waits until the core is up.
      * @return null on success, otherwise a readable error
@@ -135,12 +179,13 @@ object RootDaemon {
         if (!binary.exists()) return "libasteriskd.so is not part of this build"
 
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
-        val cfg = File(stage, "config.json").apply { writeText(singBoxConfig) }
+        val cfg = File(stage, "config.json").apply { writeText(withLogFile(singBoxConfig)) }
         val dcfg = File(stage, "asteriskd.json").apply { writeText(buildConfig(mode, core.path, tproxyPort, ipv6)) }
         val assets = SagerNet.application.externalAssets
         try {
             val prep = RootShell.run(
                 "mkdir -p ${RootShell.q(logDir)}",
+                "rm -f ${RootShell.q(coreLogPath)} ${RootShell.q(logPath)} ${RootShell.q("$logDir/error.log")}",
                 // the geoip:/geosite: rule-sets are read from the core's working directory (patch 0002)
                 "for f in geoip.db geosite.db; do [ -f ${RootShell.q(assets)}/\$f ] && cp -f ${RootShell.q(assets)}/\$f ${RootShell.q(runDir)}/\$f; done",
                 "cp -f ${RootShell.q(cfg)} ${RootShell.q(configPath)} && chmod 600 ${RootShell.q(configPath)}",
@@ -162,6 +207,7 @@ object RootDaemon {
         )
         if (!r.ok) return r.err.ifBlank { "failed to launch asteriskd" }
 
+        startLogForward()
         // poll `status` until running, or fail with the daemon's own words
         val deadline = System.currentTimeMillis() + 25_000
         var last = ""
@@ -187,6 +233,7 @@ object RootDaemon {
 
     /** Ends the cycle and the supervisor; it removes its own rules/routes/devices first. */
     fun shutdown() {
+        stopLogForward()
         RootShell.run("${RootShell.q(binary)} shutdown >/dev/null 2>&1; true", timeoutMs = 20_000)
         // belt and braces: a wedged supervisor must not keep the rules
         RootShell.run("pkill -x libasteriskd.so 2>/dev/null; true", timeoutMs = 3_000)
