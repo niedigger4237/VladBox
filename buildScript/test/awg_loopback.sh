@@ -18,8 +18,9 @@ print(json.dumps(base))
 P
 )
 
+HOSTIP=$(ip -4 route get 1.1.1.1 | sed -n "s/.* src \([0-9.]*\).*/\1/p"); echo "host ip: $HOSTIP"
 head -c 20000000 /dev/urandom > big.bin
-( python3 -I -m http.server 18080 --bind 127.0.0.1 >/dev/null 2>&1 & echo $! > http.pid )
+( python3 -I -m http.server 18080 --bind 0.0.0.0 >/dev/null 2>&1 & echo $! > http.pid )
 
 cat > server.json <<J
 {"log":{"level":"debug"},
@@ -45,8 +46,8 @@ sleep 4
 
 RES=FAIL
 # small request first (like a url test), then the 20 MB transfer
-if curl -s -m 15 -x socks5h://127.0.0.1:11080 -o /dev/null -w "small: %{http_code} %{time_total}s\n" http://127.0.0.1:18080/; then :; fi
-OUT=$(curl -s -m 60 -x socks5h://127.0.0.1:11080 -o got.bin -w "%{http_code} %{size_download} %{time_total}" http://127.0.0.1:18080/big.bin)
+if curl -s -m 10 -x socks5h://127.0.0.1:11080 -o /dev/null -w "small: %{http_code} %{time_total}s\n" http://127.0.0.1:18080/; then :; fi
+OUT=$(curl -s -m 40 -x socks5h://127.0.0.1:11080 -o got.bin -w "%{http_code} %{size_download} %{time_total}" http://$HOSTIP:18080/big.bin)
 echo "big: $OUT"
 if cmp -s big.bin got.bin; then RES=PASS; fi
 echo "[$LABEL] mtu=$MTU extra=$EXTRA => $RES"
