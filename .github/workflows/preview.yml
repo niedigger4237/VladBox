@@ -39,11 +39,11 @@ jobs:
           fail=0
           T=buildScript/test/awg_loopback.sh
           for bin in sb-stock sb-patched; do
-            bash $T ./$bin "$bin/awg2.0" '{}' 1420 || fail=1
-            bash $T ./$bin "$bin/awg2.0-mtu1280" '{}' 1280 || fail=1
-            bash $T ./$bin "$bin/awg-no-s3s4" '{"s3":0,"s4":0}' 1420 || fail=1
-            bash $T ./$bin "$bin/awg3.1" '{"random_trailers":true}' 1420 || fail=1
-            bash $T ./$bin "$bin/wg-plain" '{"jc":0,"jmin":0,"jmax":0,"s1":0,"s2":0,"s3":0,"s4":0,"h1":null,"h2":null,"h3":null,"h4":null}' 1420 || fail=1
+            bash $T "$PWD/$bin" "$bin/awg2.0" '{}' 1420 || fail=1
+            bash $T "$PWD/$bin" "$bin/awg2.0-mtu1280" '{}' 1280 || fail=1
+            bash $T "$PWD/$bin" "$bin/awg-no-s3s4" '{"s3":0,"s4":0}' 1420 || fail=1
+            bash $T "$PWD/$bin" "$bin/awg3.1" '{"random_trailers":true}' 1420 || fail=1
+            bash $T "$PWD/$bin" "$bin/wg-plain" '{"jc":0,"jmin":0,"jmax":0,"s1":0,"s2":0,"s3":0,"s4":0,"h1":null,"h2":null,"h3":null,"h4":null}' 1420 || fail=1
           done
           exit $fail
   check:
