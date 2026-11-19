@@ -6,9 +6,51 @@ on:
         description: "Fast: arm64 only (debug builds). Disable for a full multi-ABI build."
         type: boolean
         default: true
+      awg_test:
+        description: "Only run the AmneziaWG loopback test (no APK build)."
+        type: boolean
+        default: false
 jobs:
+  awg-test:
+    name: AWG loopback test
+    if: ${{ inputs.awg_test }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Golang
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          cache: false
+      - name: Build stock and patched sing-box-extended
+        run: |
+          set -e
+          source buildScript/lib/core/get_source_env.sh
+          TAGS=with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0
+          git clone --no-checkout "$SING_BOX_REPO" ../stock
+          git -C ../stock checkout -q "$SING_BOX_COMMIT"
+          (cd ../stock && go build -tags "$TAGS" -o "$GITHUB_WORKSPACE/sb-stock" ./cmd/sing-box)
+          bash buildScript/lib/core/get_source.sh
+          (cd ../sing-box && go build -tags "$TAGS" -o "$GITHUB_WORKSPACE/sb-patched" ./cmd/sing-box)
+      - name: Loopback tests
+        run: |
+          set +e
+          fail=0
+          T=buildScript/test/awg_loopback.sh
+          for bin in sb-patched; do
+            bash $T "$PWD/$bin" "$bin/awg2.0" '{}' 1420 || fail=1
+            bash $T "$PWD/$bin" "$bin/awg2.0-mtu1280" '{}' 1280 || fail=1
+            bash $T "$PWD/$bin" "$bin/awg-no-s3s4" '{"s3":0,"s4":0}' 1420 || fail=1
+            bash $T "$PWD/$bin" "$bin/awg3.1" '{"random_trailers":true}' 1420 || fail=1
+            bash $T "$PWD/$bin" "$bin/h-single-numbers" '{"h1":"1020325451","h2":"3288052141","h3":"1766607858","h4":"2528465083"}' 1420 || fail=1
+            bash $T "$PWD/$bin" "$bin/i1-i5" '{"i1":"<b 0xc0000000010800000000><r 20><t>","i2":"<b 0xdeadbeef><rc 8>","i3":"<r 12>","i4":"<rd 6>","i5":"<b 0x00>"}' 1420 || fail=1
+            bash $T "$PWD/$bin" "$bin/wg-plain" '{"jc":0,"jmin":0,"jmax":0,"s1":0,"s2":0,"s3":0,"s4":0,"h1":null,"h2":null,"h3":null,"h4":null}' 1420 || fail=1
+          done
+          exit $fail
   check:
     name: Compile check (Go, fast)
+    if: ${{ !inputs.awg_test }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
