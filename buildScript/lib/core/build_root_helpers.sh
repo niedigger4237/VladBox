@@ -36,9 +36,11 @@ build_hev() { # abi triple
   local abi=$1 triple=$2
   want "$abi" || return 0
   local cc="$TOOLCHAIN/${triple}${API}-clang"
+  # bionic has no separate libpthread: give the Makefile's -lpthread an empty archive
+  local stub; stub="$(mktemp -d)"; "$TOOLCHAIN/llvm-ar" rc "$stub/libpthread.a"
   ( cd "$HEV" && make clean >/dev/null 2>&1 || true
     make -j"$(nproc)" REV_ID="$HEV_TAG" \
-      CC="$cc -fPIE -pie" PP="$cc -E" AR="$TOOLCHAIN/llvm-ar" STRIP="$TOOLCHAIN/llvm-strip" \
+      CC="$cc -fPIE -pie -L$stub" PP="$cc -E" AR="$TOOLCHAIN/llvm-ar" STRIP="$TOOLCHAIN/llvm-strip" \
       CFLAGS="-fPIE -Wno-error -DFD_SET_DEFINED" bin/hev-socks5-tunnel )
   mkdir -p "$ROOT/app/src/main/jniLibs/$abi"
   cp "$HEV/bin/hev-socks5-tunnel" "$ROOT/app/src/main/jniLibs/$abi/libhevtun.so"
