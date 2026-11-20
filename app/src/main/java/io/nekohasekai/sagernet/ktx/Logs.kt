@@ -1,17 +1,12 @@
 package io.nekohasekai.sagernet.ktx
 
-import io.nekohasekai.sagernet.SagerNet
 import libcore.Libcore
 import java.io.InputStream
 import java.io.OutputStream
 
 object Logs {
 
-    // the :throne process hosts a different Go runtime and must never load libcore
-    private fun emit(line: String) {
-        if (SagerNet.application.process.endsWith(":throne")) android.util.Log.w("VladBox", line)
-        else Libcore.nekoLogPrintln(line)
-    }
+    private fun emit(line: String) = Libcore.nekoLogPrintln(line)
 
 
     private fun mkTag(): String {

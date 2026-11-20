@@ -2,7 +2,7 @@ package io.nekohasekai.sagernet.bg.core
 
 import libcore.Libcore
 
-/** What the service needs from the running sing-box, whichever engine (extended / Throne) is behind it. */
+/** What the service needs from the running sing-box,. */
 interface CoreBox {
     fun start()
     fun close()

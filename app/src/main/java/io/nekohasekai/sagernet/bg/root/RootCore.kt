@@ -61,15 +61,7 @@ object RootCore {
     }
 
     /** Resolves the binary to run, falling back to the bundled one when the active core is unusable. */
-    /** Throne's core (throneproj sing-box fork), shipped as jniLibs/<abi>/libsingbox_throne.so */
-    val bundledThrone: File
-        get() = File(SagerNet.application.applicationInfo.nativeLibraryDir, "libsingbox_throne.so")
-
     fun resolve(): Active? {
-        if (io.nekohasekai.sagernet.database.DataStore.coreEngine == io.nekohasekai.sagernet.Key.ENGINE_THRONE) {
-            val t = bundledThrone
-            return if (t.exists()) Active(t.absolutePath, "throne", true) else null
-        }
         activeLabel()?.let { label ->
             val path = "$CORES/$label/sing-box"
             if (versionOf(path) != null) return Active(path, label, false)
