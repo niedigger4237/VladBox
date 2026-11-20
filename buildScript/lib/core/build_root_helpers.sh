@@ -39,7 +39,7 @@ build_hev() { # abi triple
   ( cd "$HEV" && make clean >/dev/null 2>&1 || true
     make -j"$(nproc)" REV_ID="$HEV_TAG" \
       CC="$cc -fPIE -pie" PP="$cc -E" AR="$TOOLCHAIN/llvm-ar" STRIP="$TOOLCHAIN/llvm-strip" \
-      CFLAGS="-fPIE -Wno-error" bin/hev-socks5-tunnel )
+      CFLAGS="-fPIE -Wno-error -DFD_SET_DEFINED" bin/hev-socks5-tunnel )
   mkdir -p "$ROOT/app/src/main/jniLibs/$abi"
   cp "$HEV/bin/hev-socks5-tunnel" "$ROOT/app/src/main/jniLibs/$abi/libhevtun.so"
   "$TOOLCHAIN/llvm-strip" "$ROOT/app/src/main/jniLibs/$abi/libhevtun.so"
