@@ -122,7 +122,7 @@ class SagerNet : Application(),
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
 
-        Libcore.forceGc()
+        if (isMainProcess || isBgProcess) Libcore.forceGc()
     }
 
     @SuppressLint("InlinedApi")

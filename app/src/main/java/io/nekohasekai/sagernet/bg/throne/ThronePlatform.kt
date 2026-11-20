@@ -6,10 +6,11 @@ import android.os.Build
 import android.os.Process
 import android.system.OsConstants
 import io.nekohasekai.sagernet.SagerNet
-import io.nekohasekai.sagernet.database.DataStore
-import io.nekohasekai.sagernet.ktx.Logs
+import android.content.pm.PackageManager
+import android.os.ParcelFileDescriptor
+import io.nekohasekai.sagernet.aidl.IThroneCallback
+import android.util.Log
 import io.nekohasekai.sagernet.utils.DefaultNetworkListener
-import io.nekohasekai.sagernet.utils.PackageCache
 import io.throneproj.mobile.ConnectionOwner
 import io.throneproj.mobile.InterfaceUpdateListener
 import io.throneproj.mobile.LocalDNSTransport
@@ -30,7 +31,7 @@ import io.throneproj.mobile.NetworkInterface as CoreNetworkInterface
 import io.throneproj.mobile.Notification as CoreNotification
 
 /** Android side of Throne's core, adapted from ThroneForAndroid's NativeInterface to VladBox's VpnService. */
-class ThronePlatform : PlatformInterface {
+class ThronePlatform(private val callback: IThroneCallback) : PlatformInterface {
 
     override fun localDNSTransport(): LocalDNSTransport? = try {
         ThroneResolver
@@ -41,13 +42,14 @@ class ThronePlatform : PlatformInterface {
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
     override fun autoDetectInterfaceControl(fd: Int) {
-        DataStore.vpnService?.protect(fd)
+        // the VpnService lives in :bg: hand it a duplicate of the socket
+        ParcelFileDescriptor.fromFd(fd).use { callback.protect(it) }
     }
 
     // The tun is configured by VpnService.startVpn (addresses, routes, per-app lists, MTU come from VladBox's settings).
     override fun openTun(options: TunOptions): Int {
-        val service = DataStore.vpnService ?: error("android: no VpnService")
-        return service.startVpn("", "")
+        val pfd = callback.openTun() ?: error("android: no tun")
+        return pfd.detachFd()
     }
 
     override fun useProcFS(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
@@ -78,8 +80,7 @@ class ThronePlatform : PlatformInterface {
 
     private fun packageNamesOf(uid: Int): List<String> {
         if (uid <= 1000) return listOf("android")
-        PackageCache.awaitLoadSync()
-        return PackageCache.uidMap[uid]?.toList().orEmpty()
+        return SagerNet.application.packageManager.getPackagesForUid(uid)?.toList().orEmpty()
     }
 
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
@@ -149,7 +150,7 @@ class ThronePlatform : PlatformInterface {
             listener.updateDefaultInterface(linkProperties.interfaceName, interfaceIndex, isExpensive, false)
             return
         }
-        Logs.w("checkDefaultInterfaceUpdate exhausted retries for $network")
+        Log.w("Throne", "checkDefaultInterfaceUpdate exhausted retries for $network")
         clearInterface(listener, state)
     }
 
@@ -165,7 +166,7 @@ class ThronePlatform : PlatformInterface {
             boxInterface.name = linkProperties.interfaceName
             boxInterface.index = networkInterface.index
             runCatching { boxInterface.mtu = networkInterface.mtu }
-                .onFailure { Logs.w("failed to get mtu for interface ${boxInterface.name}: $it") }
+                .onFailure { Log.w("Throne", "failed to get mtu for interface ${boxInterface.name}: $it") }
             boxInterface.addresses = networkInterface.interfaceAddresses.map { it.toPrefix() }.toStringIterator()
             boxInterface.dnsServer = linkProperties.dnsServers.mapNotNull { it.hostAddress }.toStringIterator()
             boxInterface.gateway = linkProperties.routes.filter { it.isDefaultRoute }
