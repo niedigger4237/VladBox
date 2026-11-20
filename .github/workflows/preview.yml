@@ -80,6 +80,8 @@ jobs:
             bash $T "$PWD/sb-patched" "$PWD/awg-$ref" "ref-$ref/default" '{}' 1420 || fail=1
             bash $T "$PWD/sb-patched" "$PWD/awg-$ref" "ref-$ref/no-s3s4" '{"s3":0,"s4":0}' 1420 || fail=1
             bash $T "$PWD/sb-patched" "$PWD/awg-$ref" "ref-$ref/mtu1280" '{}' 1280 || fail=1
+            bash $T "$PWD/sb-patched" "$PWD/awg-$ref" "ref-$ref/user-params" '{"jc":3,"jmin":1,"jmax":3,"s1":1,"s2":2,"s3":0,"s4":0,"h1":"1","h2":"2","h3":"3","h4":"4"}' 1280 || fail=1
+            bash $T "$PWD/sb-patched" "$PWD/awg-$ref" "ref-$ref/user-params-i1" '{"jc":3,"jmin":1,"jmax":3,"s1":1,"s2":2,"s3":0,"s4":0,"h1":"1","h2":"2","h3":"3","h4":"4","i1":"<b 0xc400000001015c0000><r 40>"}' 1280 || fail=1
             bash $T "$PWD/sb-patched" "$PWD/awg-$ref" "ref-$ref/h-single" '{"h1":"1020325451","h2":"3288052141","h3":"1766607858","h4":"2528465083"}' 1420 || fail=1
           done
           exit $fail

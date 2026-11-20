@@ -50,7 +50,8 @@ abstract class BoxInstance(
 
     protected open fun buildConfig() {
         config = buildConfig(profile)
-        if (DataStore.coreEngine == io.nekohasekai.sagernet.Key.ENGINE_THRONE) {
+        // URL tests always run on libcore with the plain config
+        if (DataStore.coreEngine == io.nekohasekai.sagernet.Key.ENGINE_THRONE && this !is TestInstance) {
             val inProcess = DataStore.serviceMode == io.nekohasekai.sagernet.Key.MODE_VPN
             val app = SagerNet.application
             config.config = io.nekohasekai.sagernet.bg.throne.ThroneConfig.adapt(
