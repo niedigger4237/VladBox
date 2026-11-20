@@ -500,4 +500,21 @@
     <string name="root_core_import">Импортировать файл ядра sing-box (root)</string>
     <string name="root_core_rollback">Откатить на предыдущее ядро</string>
     <string name="root_core_summary">Активное ядро: %1$s</string>
+    <string name="transport_method">HTTP-метод</string>
+    <string name="transport_headers">Заголовки (Имя: значение, по строке)</string>
+    <string name="grpc_idle_timeout">gRPC idle timeout (с)</string>
+    <string name="grpc_ping_timeout">gRPC ping timeout (с)</string>
+    <string name="global_padding">Global padding</string>
+    <string name="authenticated_length">Authenticated length</string>
+    <string name="tls_disable_sni">Отключить SNI</string>
+    <string name="tls_pubkey_sha256">SHA-256 публичного ключа (через запятую/строку)</string>
+    <string name="tls_cipher_suites">Шифронаборы (через запятую/строку)</string>
+    <string name="tls_fragment">TLS-фрагментация</string>
+    <string name="tls_fragment_fallback_delay">Задержка fallback фрагментации (напр. 500ms)</string>
+    <string name="tls_record_fragment">Фрагментация TLS-записей</string>
+    <string name="mux_max_connections">Mux: макс. соединений</string>
+    <string name="mux_min_streams">Mux: мин. потоков</string>
+    <string name="mux_brutal">Mux Brutal</string>
+    <string name="mux_brutal_up">Brutal вверх (Мбит/с)</string>
+    <string name="mux_brutal_down">Brutal вниз (Мбит/с)</string>
 </resources>

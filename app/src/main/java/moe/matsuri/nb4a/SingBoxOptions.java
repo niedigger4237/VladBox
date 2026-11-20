@@ -958,6 +958,18 @@ public class SingBoxOptions {
 
         public Boolean padding;
 
+        public OutboundBrutalOptions brutal;
+
+    }
+
+    public static class OutboundBrutalOptions extends SingBoxOption {
+
+        public Boolean enabled;
+
+        public Integer up_mbps;
+
+        public Integer down_mbps;
+
     }
 
     public static class OnDemandOptions extends SingBoxOption {
@@ -1911,6 +1923,15 @@ public class SingBoxOptions {
         public String certificate;
 
         public String certificate_path;
+
+        // Generate note: Listable
+        public List<String> certificate_public_key_sha256;
+
+        public Boolean fragment;
+
+        public String fragment_fallback_delay;
+
+        public Boolean record_fragment;
 
         public OutboundECHOptions ech;
 
@@ -4723,6 +4744,8 @@ public class SingBoxOptions {
         public String host;
 
         public String path;
+
+        public Map<String, String> headers;
 
 
     }

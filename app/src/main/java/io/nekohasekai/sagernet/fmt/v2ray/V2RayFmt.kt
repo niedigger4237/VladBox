@@ -543,6 +543,7 @@ fun buildSingBoxOutboundStreamSettings(bean: StandardV2RayBean): V2RayTransportO
             return V2RayTransportOptions_WebsocketOptions().apply {
                 type = "ws"
                 headers = mutableMapOf()
+                headers.putAll(bean.parseTransportHeaders())
 
                 if (bean.host.isNotBlank()) {
                     headers["Host"] = bean.host
@@ -569,7 +570,9 @@ fun buildSingBoxOutboundStreamSettings(bean: StandardV2RayBean): V2RayTransportO
         "http" -> {
             return V2RayTransportOptions_HTTPOptions().apply {
                 type = "http"
-                if (!bean.isTLS()) method = "GET" // v2ray tcp header
+                if (bean.httpMethod.isNotBlank()) method = bean.httpMethod
+                else if (!bean.isTLS()) method = "GET" // v2ray tcp header
+                bean.parseTransportHeaders().takeIf { it.isNotEmpty() }?.let { headers = it }
                 if (bean.host.isNotBlank()) {
                     host = bean.host.split(",")
                 }
@@ -587,6 +590,8 @@ fun buildSingBoxOutboundStreamSettings(bean: StandardV2RayBean): V2RayTransportO
             return V2RayTransportOptions_GRPCOptions().apply {
                 type = "grpc"
                 service_name = bean.path
+                if (bean.grpcIdleTimeout > 0) idle_timeout = bean.grpcIdleTimeout.toLong() * 1_000_000_000L
+                if (bean.grpcPingTimeout > 0) ping_timeout = bean.grpcPingTimeout.toLong() * 1_000_000_000L
             }
         }
 
@@ -595,6 +600,7 @@ fun buildSingBoxOutboundStreamSettings(bean: StandardV2RayBean): V2RayTransportO
                 type = "httpupgrade"
                 host = bean.host
                 path = bean.path
+                bean.parseTransportHeaders().takeIf { it.isNotEmpty() }?.let { headers = it }
             }
         }
 
@@ -618,6 +624,16 @@ fun buildSingBoxOutboundStreamSettings(bean: StandardV2RayBean): V2RayTransportO
     return null
 }
 
+/** "Name: value" lines -> header map */
+fun StandardV2RayBean.parseTransportHeaders(): MutableMap<String, String> {
+    val map = linkedMapOf<String, String>()
+    transportHeaders.lines().forEach { line ->
+        val i = line.indexOf(':')
+        if (i > 0) map[line.substring(0, i).trim()] = line.substring(i + 1).trim()
+    }
+    return map
+}
+
 fun buildSingBoxOutboundTLS(bean: StandardV2RayBean): OutboundTLSOptions? {
     if (bean.security != "tls") return null
     return OutboundTLSOptions().apply {
@@ -626,6 +642,14 @@ fun buildSingBoxOutboundTLS(bean: StandardV2RayBean): OutboundTLSOptions? {
         if (bean.sni.isNotBlank()) server_name = bean.sni
         if (bean.alpn.isNotBlank()) alpn = bean.alpn.listByLineOrComma()
         if (bean.certificates.isNotBlank()) certificate = bean.certificates
+        if (bean.tlsDisableSni) disable_sni = true
+        if (bean.tlsPubKeySha256.isNotBlank()) certificate_public_key_sha256 = bean.tlsPubKeySha256.listByLineOrComma()
+        if (bean.tlsCipherSuites.isNotBlank()) cipher_suites = bean.tlsCipherSuites.listByLineOrComma()
+        if (bean.tlsFragment) {
+            fragment = true
+            if (bean.tlsFragmentFallbackDelay.isNotBlank()) fragment_fallback_delay = bean.tlsFragmentFallbackDelay
+        }
+        if (bean.tlsRecordFragment) record_fragment = true
         var fp = bean.utlsFingerprint
         if (bean.realityPubKey.isNotBlank()) {
             reality = OutboundRealityOptions().apply {
@@ -688,6 +712,8 @@ fun buildSingBoxOutboundStandardV2RayBean(bean: StandardV2RayBean): Outbound {
                 server_port = bean.serverPort
                 uuid = bean.uuid
                 alter_id = bean.alterId
+                if (bean.globalPadding) global_padding = true
+                if (bean.authenticatedLength) authenticated_length = true
                 security = bean.encryption.takeIf { it.isNotBlank() } ?: "auto"
                 when (bean.packetEncoding) {
                     0 -> packet_encoding = ""
