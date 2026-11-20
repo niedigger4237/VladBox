@@ -13,6 +13,7 @@ import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.aidl.ISagerNetService
 import io.nekohasekai.sagernet.aidl.ISagerNetServiceCallback
 import io.nekohasekai.sagernet.bg.proto.ProxyInstance
+import io.nekohasekai.sagernet.Key
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.database.SagerDatabase
@@ -214,7 +215,8 @@ class BaseService {
 
         suspend fun startProcesses() {
             // off the main thread: Throne's binder callbacks are delivered on it
-            withContext(Dispatchers.IO) { data.proxy!!.launch() }
+            if (DataStore.coreEngine == Key.ENGINE_THRONE) withContext(Dispatchers.IO) { data.proxy!!.launch() }
+            else data.proxy!!.launch()
         }
 
         fun startRunner() {
