@@ -57,7 +57,6 @@
     <string name="wireguard_system">System interface</string>
     <string name="wireguard_worker_count">Worker count</string>
     <string name="wireguard_udp_timeout">UDP timeout</string>
-    <string name="core_engine">Core engine</string>
     <string name="root_tproxy_port">TPROXY port</string>
     <string name="root_core_update">Update sing-box core (root)</string>
     <string name="root_core_import">Import sing-box core file (root)</string>

@@ -81,14 +81,6 @@
             app:key="acquireWakeLock"
             app:summary="@string/acquire_wake_lock_summary"
             app:title="@string/acquire_wake_lock" />
-        <ListPreference
-            app:defaultValue="extended"
-            app:entries="@array/root_engine_names"
-            app:entryValues="@array/root_engine_values"
-            app:icon="@drawable/ic_baseline_layers_24"
-            app:key="coreEngine"
-            app:title="@string/core_engine"
-            app:useSimpleSummaryProvider="true" />
         <moe.matsuri.nb4a.ui.LongClickListPreference
             app:defaultValue="2"
             app:entries="@array/log_level"

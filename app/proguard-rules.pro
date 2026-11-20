@@ -3,8 +3,6 @@
 
 -keep class io.nekohasekai.sagernet.** { *;}
 -keep class moe.matsuri.nb4a.** { *;}
--keep class gt.** { *;}
--keep class io.throneproj.** { *;}
 
 # Clean Kotlin
 -assumenosideeffects class kotlin.jvm.internal.Intrinsics {

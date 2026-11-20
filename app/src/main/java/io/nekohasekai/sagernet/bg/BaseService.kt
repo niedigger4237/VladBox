@@ -214,9 +214,7 @@ class BaseService {
         }
 
         suspend fun startProcesses() {
-            // off the main thread: Throne's binder callbacks are delivered on it
-            if (DataStore.coreEngine == Key.ENGINE_THRONE) withContext(Dispatchers.IO) { data.proxy!!.launch() }
-            else data.proxy!!.launch()
+            data.proxy!!.launch()
         }
 
         fun startRunner() {
