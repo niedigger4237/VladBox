@@ -1,22 +1,21 @@
 package io.nekohasekai.sagernet.bg.throne
 
 import android.app.Application
-import io.nekohasekai.sagernet.database.DataStore
-import io.nekohasekai.sagernet.ktx.Logs
+import io.nekohasekai.sagernet.aidl.IThroneCallback
 import io.throneproj.mobile.LogSink
 import io.throneproj.mobile.Mobile
 import io.throneproj.mobile.SetupOptions
-import libcore.Libcore
 import java.io.File
 
-/** Loads Throne's core (ThroneCore.aar, libthrone.so) lazily, only when that engine is selected. */
+/** Runs in the :throne process only (libthrone.so, the only Go runtime of that process). */
 object ThroneRuntime {
 
     const val WORKING_DIR = "throne"
 
     private var ready = false
 
-    val platform: ThronePlatform by lazy { ThronePlatform() }
+    @Volatile
+    var callback: IThroneCallback? = null
 
     @Synchronized
     fun ensureSetup(app: Application) {
@@ -31,27 +30,16 @@ object ThroneRuntime {
             logMaxLines = 1024
             debug = false
         })
-        Libcore.nekoLogPrintln("[Info] [Throne] core: sing-box ${Mobile.version()}, xray ${Mobile.xrayVersion()}, ${Mobile.goVersion()}")
         Mobile.setLogSink(Sink)
+        callback?.log(Mobile.LogLevelInfo.toInt(), "[Throne] core: sing-box ${Mobile.version()}, xray ${Mobile.xrayVersion()}, ${Mobile.goVersion()}")
         ready = true
     }
 
     private object Sink : LogSink {
         override fun write(level: Int, message: String) {
-            if (DataStore.logLevel == 0) return
-            val name = when (level) {
-                Mobile.LogLevelPanic -> "Panic"
-                Mobile.LogLevelFatal -> "Fatal"
-                Mobile.LogLevelError -> "Error"
-                Mobile.LogLevelWarn -> "Warning"
-                Mobile.LogLevelDebug -> "Debug"
-                Mobile.LogLevelTrace -> "Trace"
-                else -> "Info"
-            }
             try {
-                Libcore.nekoLogPrintln("[$name] $message")
-            } catch (e: Throwable) {
-                Logs.w("throne log: $e")
+                callback?.log(level, message)
+            } catch (_: Throwable) {
             }
         }
     }

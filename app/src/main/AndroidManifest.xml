@@ -273,6 +273,10 @@
             android:theme="@style/Theme.SagerNet.Dialog" />
 
         <service
+            android:name="io.nekohasekai.sagernet.bg.throne.ThroneService"
+            android:exported="false"
+            android:process=":throne" />
+        <service
             android:name="io.nekohasekai.sagernet.bg.ProxyService"
             android:exported="false"
             android:foregroundServiceType="systemExempted"

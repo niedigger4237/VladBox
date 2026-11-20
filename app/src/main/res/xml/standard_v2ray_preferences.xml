@@ -38,6 +38,14 @@
             app:key="alterId"
             app:title="@string/alter_id"
             app:useSimpleSummaryProvider="true" />
+        <SwitchPreference
+            app:icon="@drawable/ic_baseline_security_24"
+            app:key="globalPadding"
+            app:title="@string/global_padding" />
+        <SwitchPreference
+            app:icon="@drawable/ic_baseline_security_24"
+            app:key="authenticatedLength"
+            app:title="@string/authenticated_length" />
         <moe.matsuri.nb4a.ui.SimpleMenuPreference
             app:entries="@array/vmess_encryption_value"
             app:entryValues="@array/vmess_encryption_value"
@@ -68,6 +76,28 @@
             app:icon="@drawable/ic_baseline_format_align_left_24"
             app:key="path"
             app:title="@string/http_path"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:icon="@drawable/ic_baseline_texture_24"
+            app:key="httpMethod"
+            app:title="@string/transport_method"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:icon="@drawable/ic_baseline_texture_24"
+            app:key="transportHeaders"
+            app:title="@string/transport_headers"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:defaultValue="0"
+            app:icon="@drawable/ic_baseline_texture_24"
+            app:key="grpcIdleTimeout"
+            app:title="@string/grpc_idle_timeout"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:defaultValue="0"
+            app:icon="@drawable/ic_baseline_texture_24"
+            app:key="grpcPingTimeout"
+            app:title="@string/grpc_ping_timeout"
             app:useSimpleSummaryProvider="true" />
         <moe.matsuri.nb4a.ui.SimpleMenuPreference
             app:entries="@array/xhttp_mode_value"
@@ -130,6 +160,33 @@
             app:key="allowInsecure"
             app:summary="@string/allow_insecure_sum"
             app:title="@string/allow_insecure" />
+        <SwitchPreference
+            app:icon="@drawable/ic_baseline_security_24"
+            app:key="tlsDisableSni"
+            app:title="@string/tls_disable_sni" />
+        <EditTextPreference
+            app:icon="@drawable/ic_baseline_vpn_key_24"
+            app:key="tlsPubKeySha256"
+            app:title="@string/tls_pubkey_sha256"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:icon="@drawable/ic_baseline_vpn_key_24"
+            app:key="tlsCipherSuites"
+            app:title="@string/tls_cipher_suites"
+            app:useSimpleSummaryProvider="true" />
+        <SwitchPreference
+            app:icon="@drawable/ic_baseline_security_24"
+            app:key="tlsFragment"
+            app:title="@string/tls_fragment" />
+        <EditTextPreference
+            app:icon="@drawable/ic_baseline_texture_24"
+            app:key="tlsFragmentFallbackDelay"
+            app:title="@string/tls_fragment_fallback_delay"
+            app:useSimpleSummaryProvider="true" />
+        <SwitchPreference
+            app:icon="@drawable/ic_baseline_security_24"
+            app:key="tlsRecordFragment"
+            app:title="@string/tls_record_fragment" />
     </PreferenceCategory>
 
     <PreferenceCategory
@@ -180,6 +237,34 @@
             app:icon="@drawable/baseline_developer_board_24"
             app:key="muxPadding"
             app:title="@string/padding" />
+        <EditTextPreference
+            app:defaultValue="0"
+            app:icon="@drawable/ic_baseline_low_priority_24"
+            app:key="muxMaxConnections"
+            app:title="@string/mux_max_connections"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:defaultValue="0"
+            app:icon="@drawable/ic_baseline_low_priority_24"
+            app:key="muxMinStreams"
+            app:title="@string/mux_min_streams"
+            app:useSimpleSummaryProvider="true" />
+        <SwitchPreference
+            app:icon="@drawable/ic_baseline_compare_arrows_24"
+            app:key="muxBrutal"
+            app:title="@string/mux_brutal" />
+        <EditTextPreference
+            app:defaultValue="0"
+            app:icon="@drawable/ic_baseline_low_priority_24"
+            app:key="muxBrutalUp"
+            app:title="@string/mux_brutal_up"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:defaultValue="0"
+            app:icon="@drawable/ic_baseline_low_priority_24"
+            app:key="muxBrutalDown"
+            app:title="@string/mux_brutal_down"
+            app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
 
     <PreferenceCategory

@@ -31,7 +31,9 @@ import io.nekohasekai.sagernet.fmt.v2ray.*
 import io.nekohasekai.sagernet.fmt.wireguard.WireGuardBean
 import io.nekohasekai.sagernet.ktx.app
 import io.nekohasekai.sagernet.ui.profile.*
+import io.nekohasekai.sagernet.fmt.v2ray.StandardV2RayBean
 import moe.matsuri.nb4a.SingBoxOptions.MultiplexOptions
+import moe.matsuri.nb4a.SingBoxOptions.OutboundBrutalOptions
 import moe.matsuri.nb4a.proxy.anytls.AnyTLSBean
 import moe.matsuri.nb4a.proxy.anytls.AnyTLSSettingsActivity
 import moe.matsuri.nb4a.proxy.anytls.toUri
@@ -314,29 +316,29 @@ data class ProxyEntity(
         }
     }
 
+    private fun StandardV2RayBean.toMux() = MultiplexOptions().also {
+        it.enabled = enableMux
+        it.padding = muxPadding
+        it.max_streams = muxConcurrency
+        if (muxMaxConnections > 0) it.max_connections = muxMaxConnections
+        if (muxMinStreams > 0) it.min_streams = muxMinStreams
+        it.protocol = when (muxType) {
+            1 -> "smux"
+            2 -> "yamux"
+            else -> "h2mux"
+        }
+        if (muxBrutal) it.brutal = OutboundBrutalOptions().apply {
+            enabled = true
+            up_mbps = muxBrutalUp
+            down_mbps = muxBrutalDown
+        }
+    }
+
     fun singMux(): MultiplexOptions? {
         return when (type) {
-            TYPE_VMESS -> MultiplexOptions().apply {
-                enabled = vmessBean!!.enableMux
-                padding = vmessBean!!.muxPadding
-                max_streams = vmessBean!!.muxConcurrency
-                protocol = when (vmessBean!!.muxType) {
-                    1 -> "smux"
-                    2 -> "yamux"
-                    else -> "h2mux"
-                }
-            }
+            TYPE_VMESS -> vmessBean!!.toMux()
 
-            TYPE_TROJAN -> MultiplexOptions().apply {
-                enabled = trojanBean!!.enableMux
-                padding = trojanBean!!.muxPadding
-                max_streams = trojanBean!!.muxConcurrency
-                protocol = when (trojanBean!!.muxType) {
-                    1 -> "smux"
-                    2 -> "yamux"
-                    else -> "h2mux"
-                }
-            }
+            TYPE_TROJAN -> trojanBean!!.toMux()
 
             else -> null
         }

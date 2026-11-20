@@ -53,6 +53,24 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
     private val muxPadding = pbm.add(PreferenceBinding(Type.Bool, "muxPadding"))
     private val muxType = pbm.add(PreferenceBinding(Type.TextToInt, "muxType"))
     private val muxConcurrency = pbm.add(PreferenceBinding(Type.TextToInt, "muxConcurrency"))
+    private val muxMaxConnections = pbm.add(PreferenceBinding(Type.TextToInt, "muxMaxConnections"))
+    private val muxMinStreams = pbm.add(PreferenceBinding(Type.TextToInt, "muxMinStreams"))
+    private val muxBrutal = pbm.add(PreferenceBinding(Type.Bool, "muxBrutal"))
+    private val muxBrutalUp = pbm.add(PreferenceBinding(Type.TextToInt, "muxBrutalUp"))
+    private val muxBrutalDown = pbm.add(PreferenceBinding(Type.TextToInt, "muxBrutalDown"))
+
+    private val tlsDisableSni = pbm.add(PreferenceBinding(Type.Bool, "tlsDisableSni"))
+    private val tlsPubKeySha256 = pbm.add(PreferenceBinding(Type.Text, "tlsPubKeySha256"))
+    private val tlsCipherSuites = pbm.add(PreferenceBinding(Type.Text, "tlsCipherSuites"))
+    private val tlsFragment = pbm.add(PreferenceBinding(Type.Bool, "tlsFragment"))
+    private val tlsFragmentFallbackDelay = pbm.add(PreferenceBinding(Type.Text, "tlsFragmentFallbackDelay"))
+    private val tlsRecordFragment = pbm.add(PreferenceBinding(Type.Bool, "tlsRecordFragment"))
+    private val httpMethod = pbm.add(PreferenceBinding(Type.Text, "httpMethod"))
+    private val transportHeaders = pbm.add(PreferenceBinding(Type.Text, "transportHeaders"))
+    private val grpcIdleTimeout = pbm.add(PreferenceBinding(Type.TextToInt, "grpcIdleTimeout"))
+    private val grpcPingTimeout = pbm.add(PreferenceBinding(Type.TextToInt, "grpcPingTimeout"))
+    private val globalPadding = pbm.add(PreferenceBinding(Type.Bool, "globalPadding"))
+    private val authenticatedLength = pbm.add(PreferenceBinding(Type.Bool, "authenticatedLength"))
 
     override fun StandardV2RayBean.init() {
         if (this is TrojanBean) {
@@ -106,6 +124,8 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
         uuid.preference.isVisible = !isHttp
         packetEncoding.preference.isVisible = isVmess || isVless
         alterId.preference.isVisible = isVmess
+        globalPadding.preference.isVisible = isVmess
+        authenticatedLength.preference.isVisible = isVmess
         encryption.preference.isVisible = isVmess || isVless
         username.preference.isVisible = isHttp
         password.preference.isVisible = isHttp
@@ -154,6 +174,10 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
         xhttpMode.preference.isVisible = false
         xhttpExtra.preference.isVisible = false
         wsCategory.isVisible = false
+        httpMethod.preference.isVisible = network == "http"
+        transportHeaders.preference.isVisible = network in setOf("http", "ws", "httpupgrade")
+        grpcIdleTimeout.preference.isVisible = network == "grpc"
+        grpcPingTimeout.preference.isVisible = network == "grpc"
 
         when (network) {
             "tcp" -> {

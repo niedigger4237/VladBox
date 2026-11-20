@@ -1,10 +1,18 @@
 package io.nekohasekai.sagernet.ktx
 
+import io.nekohasekai.sagernet.SagerNet
 import libcore.Libcore
 import java.io.InputStream
 import java.io.OutputStream
 
 object Logs {
+
+    // the :throne process hosts a different Go runtime and must never load libcore
+    private fun emit(line: String) {
+        if (SagerNet.application.process.endsWith(":throne")) android.util.Log.w("VladBox", line)
+        else Libcore.nekoLogPrintln(line)
+    }
+
 
     private fun mkTag(): String {
         val stackTrace = Thread.currentThread().stackTrace
@@ -14,43 +22,43 @@ object Logs {
     // level int use logrus.go
 
     fun d(message: String) {
-        Libcore.nekoLogPrintln("[Debug] [${mkTag()}] $message")
+        emit("[Debug] [${mkTag()}] $message")
     }
 
     fun d(message: String, exception: Throwable) {
-        Libcore.nekoLogPrintln("[Debug] [${mkTag()}] $message" + "\n" + exception.stackTraceToString())
+        emit("[Debug] [${mkTag()}] $message" + "\n" + exception.stackTraceToString())
     }
 
     fun i(message: String) {
-        Libcore.nekoLogPrintln("[Info] [${mkTag()}] $message")
+        emit("[Info] [${mkTag()}] $message")
     }
 
     fun i(message: String, exception: Throwable) {
-        Libcore.nekoLogPrintln("[Info] [${mkTag()}] $message" + "\n" + exception.stackTraceToString())
+        emit("[Info] [${mkTag()}] $message" + "\n" + exception.stackTraceToString())
     }
 
     fun w(message: String) {
-        Libcore.nekoLogPrintln("[Warning] [${mkTag()}] $message")
+        emit("[Warning] [${mkTag()}] $message")
     }
 
     fun w(message: String, exception: Throwable) {
-        Libcore.nekoLogPrintln("[Warning] [${mkTag()}] $message" + "\n" + exception.stackTraceToString())
+        emit("[Warning] [${mkTag()}] $message" + "\n" + exception.stackTraceToString())
     }
 
     fun w(exception: Throwable) {
-        Libcore.nekoLogPrintln("[Warning] [${mkTag()}] " + exception.stackTraceToString())
+        emit("[Warning] [${mkTag()}] " + exception.stackTraceToString())
     }
 
     fun e(message: String) {
-        Libcore.nekoLogPrintln("[Error] [${mkTag()}] $message")
+        emit("[Error] [${mkTag()}] $message")
     }
 
     fun e(message: String, exception: Throwable) {
-        Libcore.nekoLogPrintln("[Error] [${mkTag()}] $message" + "\n" + exception.stackTraceToString())
+        emit("[Error] [${mkTag()}] $message" + "\n" + exception.stackTraceToString())
     }
 
     fun e(exception: Throwable) {
-        Libcore.nekoLogPrintln("[Error] [${mkTag()}] " + exception.stackTraceToString())
+        emit("[Error] [${mkTag()}] " + exception.stackTraceToString())
     }
 
 }

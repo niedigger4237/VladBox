@@ -64,6 +64,26 @@ public abstract class StandardV2RayBean extends AbstractBean {
     public Boolean muxPadding;
     public Integer muxType;
     public Integer muxConcurrency;
+    public Integer muxMaxConnections;
+    public Integer muxMinStreams;
+    public Boolean muxBrutal;
+    public Integer muxBrutalUp;
+    public Integer muxBrutalDown;
+
+    // --------------------------------------- Throne parity (version 5)
+
+    public Boolean tlsDisableSni;
+    public String tlsPubKeySha256;
+    public String tlsCipherSuites;
+    public Boolean tlsFragment;
+    public String tlsFragmentFallbackDelay;
+    public Boolean tlsRecordFragment;
+    public String transportHeaders; // "Name: value" per line
+    public String httpMethod;
+    public Integer grpcIdleTimeout;
+    public Integer grpcPingTimeout;
+    public Boolean globalPadding; // VMess
+    public Boolean authenticatedLength; // VMess
 
 
     // --------------------------------------- //
@@ -114,11 +134,29 @@ public abstract class StandardV2RayBean extends AbstractBean {
         if (muxPadding == null) muxPadding = false;
         if (muxType == null) muxType = 0;
         if (muxConcurrency == null) muxConcurrency = 1;
+        if (muxMaxConnections == null) muxMaxConnections = 0;
+        if (muxMinStreams == null) muxMinStreams = 0;
+        if (muxBrutal == null) muxBrutal = false;
+        if (muxBrutalUp == null) muxBrutalUp = 0;
+        if (muxBrutalDown == null) muxBrutalDown = 0;
+
+        if (tlsDisableSni == null) tlsDisableSni = false;
+        if (tlsPubKeySha256 == null) tlsPubKeySha256 = "";
+        if (tlsCipherSuites == null) tlsCipherSuites = "";
+        if (tlsFragment == null) tlsFragment = false;
+        if (tlsFragmentFallbackDelay == null) tlsFragmentFallbackDelay = "";
+        if (tlsRecordFragment == null) tlsRecordFragment = false;
+        if (transportHeaders == null) transportHeaders = "";
+        if (httpMethod == null) httpMethod = "";
+        if (grpcIdleTimeout == null) grpcIdleTimeout = 0;
+        if (grpcPingTimeout == null) grpcPingTimeout = 0;
+        if (globalPadding == null) globalPadding = false;
+        if (authenticatedLength == null) authenticatedLength = false;
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(4);
+        output.writeInt(5);
         super.serialize(output);
         output.writeString(uuid);
         output.writeString(encryption);
@@ -178,6 +216,24 @@ public abstract class StandardV2RayBean extends AbstractBean {
         output.writeBoolean(muxPadding);
         output.writeInt(muxType);
         output.writeInt(muxConcurrency);
+
+        output.writeInt(muxMaxConnections);
+        output.writeInt(muxMinStreams);
+        output.writeBoolean(muxBrutal);
+        output.writeInt(muxBrutalUp);
+        output.writeInt(muxBrutalDown);
+        output.writeBoolean(tlsDisableSni);
+        output.writeString(tlsPubKeySha256);
+        output.writeString(tlsCipherSuites);
+        output.writeBoolean(tlsFragment);
+        output.writeString(tlsFragmentFallbackDelay);
+        output.writeBoolean(tlsRecordFragment);
+        output.writeString(transportHeaders);
+        output.writeString(httpMethod);
+        output.writeInt(grpcIdleTimeout);
+        output.writeInt(grpcPingTimeout);
+        output.writeBoolean(globalPadding);
+        output.writeBoolean(authenticatedLength);
     }
 
     @Override
@@ -275,6 +331,26 @@ public abstract class StandardV2RayBean extends AbstractBean {
             muxPadding = input.readBoolean();
             muxType = input.readInt();
             muxConcurrency = input.readInt();
+        }
+
+        if (version >= 5) {
+            muxMaxConnections = input.readInt();
+            muxMinStreams = input.readInt();
+            muxBrutal = input.readBoolean();
+            muxBrutalUp = input.readInt();
+            muxBrutalDown = input.readInt();
+            tlsDisableSni = input.readBoolean();
+            tlsPubKeySha256 = input.readString();
+            tlsCipherSuites = input.readString();
+            tlsFragment = input.readBoolean();
+            tlsFragmentFallbackDelay = input.readString();
+            tlsRecordFragment = input.readBoolean();
+            transportHeaders = input.readString();
+            httpMethod = input.readString();
+            grpcIdleTimeout = input.readInt();
+            grpcPingTimeout = input.readInt();
+            globalPadding = input.readBoolean();
+            authenticatedLength = input.readBoolean();
         }
     }
 

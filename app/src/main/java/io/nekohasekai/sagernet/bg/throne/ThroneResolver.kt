@@ -6,7 +6,7 @@ import android.os.CancellationSignal
 import android.system.ErrnoException
 import androidx.annotation.RequiresApi
 import io.nekohasekai.sagernet.SagerNet
-import io.nekohasekai.sagernet.ktx.Logs
+import android.util.Log
 import io.throneproj.mobile.ExchangeContext
 import io.throneproj.mobile.LocalDNSTransport
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +45,7 @@ object ThroneResolver : LocalDNSTransport {
                 if (cause is ErrnoException) {
                     ctx.errnoCode(cause.errno)
                 } else {
-                    Logs.w(error)
+                    Log.w("Throne", error)
                     ctx.errnoCode(114514)
                 }
                 done.countDown()
@@ -74,7 +74,7 @@ object ThroneResolver : LocalDNSTransport {
         } catch (e: UnknownHostException) {
             ctx.errorCode(RCODE_NXDOMAIN)
         } catch (e: Exception) {
-            Logs.w(e)
+            Log.w("Throne", e)
             ctx.errnoCode(114514)
         }
     }

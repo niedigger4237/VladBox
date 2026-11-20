@@ -600,4 +600,21 @@
     <string name="minimize">Minimize</string>
     <string name="app_list_permission_denied">Unable to read installed apps.\nThis is usually because the system has restricted app read permissions.\nPlease grant permissions in the system settings.</string>
     <string name="open_app_settings">Open System Settings</string>
+    <string name="transport_method">HTTP method</string>
+    <string name="transport_headers">Headers (Name: value per line)</string>
+    <string name="grpc_idle_timeout">gRPC idle timeout (s)</string>
+    <string name="grpc_ping_timeout">gRPC ping timeout (s)</string>
+    <string name="global_padding">Global padding</string>
+    <string name="authenticated_length">Authenticated length</string>
+    <string name="tls_disable_sni">Disable SNI</string>
+    <string name="tls_pubkey_sha256">Pinned public key SHA-256 (comma/line)</string>
+    <string name="tls_cipher_suites">Cipher suites (comma/line)</string>
+    <string name="tls_fragment">TLS fragment</string>
+    <string name="tls_fragment_fallback_delay">Fragment fallback delay (e.g. 500ms)</string>
+    <string name="tls_record_fragment">TLS record fragment</string>
+    <string name="mux_max_connections">Mux max connections</string>
+    <string name="mux_min_streams">Mux min streams</string>
+    <string name="mux_brutal">Mux Brutal</string>
+    <string name="mux_brutal_up">Brutal up (Mbps)</string>
+    <string name="mux_brutal_down">Brutal down (Mbps)</string>
 </resources>
