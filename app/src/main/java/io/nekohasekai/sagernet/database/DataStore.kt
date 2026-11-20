@@ -115,6 +115,8 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var globalCustomConfig by configurationStore.string(Key.GLOBAL_CUSTOM_CONFIG) { "" }
 
     var remoteDns by configurationStore.string(Key.REMOTE_DNS) { "https://dns.google/dns-query" }
+    /** which DNS server answers everything no rule matches: "remote" (through the proxy) or "direct" */
+    var dnsMain by configurationStore.string(Key.DNS_MAIN) { "remote" }
     var directDns by configurationStore.string(Key.DIRECT_DNS) { "https://223.5.5.5/dns-query" }
     var enableDnsRouting by configurationStore.boolean(Key.ENABLE_DNS_ROUTING) { true }
     var enableFakeDns by configurationStore.boolean(Key.ENABLE_FAKEDNS) { true }

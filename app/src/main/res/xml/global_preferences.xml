@@ -161,6 +161,14 @@
             app:title="@string/direct_dns"
             app:useSimpleSummaryProvider="true" />
         <moe.matsuri.nb4a.ui.SimpleMenuPreference
+            app:defaultValue="remote"
+            app:entries="@array/dns_main_names"
+            app:entryValues="@array/dns_main_values"
+            app:icon="@drawable/ic_action_dns"
+            app:key="dnsMain"
+            app:title="@string/dns_main"
+            app:useSimpleSummaryProvider="true" />
+        <moe.matsuri.nb4a.ui.SimpleMenuPreference
             app:defaultValue="auto"
             app:entries="@array/dns_network_select"
             app:entryValues="@array/dns_network_select"

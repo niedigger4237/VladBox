@@ -30,7 +30,13 @@ object RootDaemon {
     val logDir get() = "$runDir/logs"
     val logPath get() = "$logDir/asteriskd.log"
 
-    enum class Mode(val wire: String) { TUN("tun"), TPROXY("tproxy") }
+    enum class Mode(val wire: String) { TUN("tun"), TPROXY("tproxy"), TUN2SOCKS("tun2socks"), BPF2SOCKS("bpf2socks") }
+
+    /** the helpers are built next to asteriskd and packaged as native libraries */
+    val hevBinary: File get() = File(SagerNet.application.applicationInfo.nativeLibraryDir, "libhevtun.so")
+    val bpfBinary: File get() = File(SagerNet.application.applicationInfo.nativeLibraryDir, "libbpf2socks.so")
+    const val HEV_TUN_DEVICE = "hevtun0"
+    const val BPF_BRIDGE_PORT = 9899
 
     private val PHASE = Regex("\"phase\"\\s*:\\s*\"([a-z-]+)\"")
     private val gson = GsonBuilder().serializeNulls().setPrettyPrinting().create()
@@ -64,7 +70,7 @@ object RootDaemon {
         })
 
         // TUN mode: asteriskd requires the plain "global" policy, sing-box's auto_route/auto_redirect does the routing
-        val perApp = mode == Mode.TPROXY && DataStore.proxyApps
+        val perApp = mode != Mode.TUN && DataStore.proxyApps
         val uids = if (perApp) appUids() else emptyList()
         root.add("network", JsonObject().apply {
             addProperty("enableIpv6", ipv6)
@@ -94,7 +100,43 @@ object RootDaemon {
             if (mode == Mode.TUN) addProperty("tunnelName", TUN_DEVICE) else add("tunnelName", JsonNull.INSTANCE)
         })
         root.add("matcher", JsonNull.INSTANCE)
-        root.add("helper", JsonNull.INSTANCE)
+        root.add("helper", when (mode) {
+            Mode.TUN2SOCKS -> JsonObject().apply {
+                addProperty("type", "hev-socks5-tunnel")
+                addProperty("executablePath", hevBinary.absolutePath)
+                addProperty("socksHost", "127.0.0.1")
+                addProperty("socksPort", DataStore.mixedPort)
+                addProperty("tunnelName", HEV_TUN_DEVICE)
+                addProperty("mtu", DataStore.mtu.coerceIn(1280, 65535))
+                addProperty("ipv4Address", "198.18.0.1")
+                if (ipv6) addProperty("ipv6Address", "fc00:18::1") else add("ipv6Address", JsonNull.INSTANCE)
+                addProperty("multiQueue", false)
+                addProperty("tcpFastOpen", false)
+                addProperty("tcpReadWriteTimeoutMilliseconds", 300000)
+                addProperty("udpReadWriteTimeoutMilliseconds", 60000)
+            }
+            Mode.BPF2SOCKS -> JsonObject().apply {
+                addProperty("type", "bpf2socks")
+                addProperty("executablePath", bpfBinary.absolutePath)
+                addProperty("bridgeListenAddress", "0.0.0.0")
+                addProperty("bridgePort", BPF_BRIDGE_PORT)
+                addProperty("socksHost", "127.0.0.1")
+                addProperty("socksPort", DataStore.mixedPort)
+                addProperty("workerCount", 0)
+                addProperty("tcpBufferSize", 0)
+                addProperty("maxTcpSessions", 4096)
+                addProperty("connectTimeoutMilliseconds", 10000)
+                addProperty("tcpIdleTimeoutMilliseconds", 300000)
+                addProperty("udpSocketBufferSize", 262144)
+                addProperty("udpBatchSize", 32)
+                addProperty("maxUdpSessions", 4096)
+                addProperty("maxUdpBindings", 16384)
+                addProperty("udpIdleTimeoutMilliseconds", 60000)
+                addProperty("maxUdpPendingBytes", 4194304)
+                addProperty("dnsTransactionTimeoutMilliseconds", 5000)
+            }
+            else -> JsonNull.INSTANCE
+        })
 
         fun wifiRule() = JsonObject().apply {
             addProperty("enabled", false)
@@ -177,6 +219,8 @@ object RootDaemon {
      */
     fun start(mode: Mode, core: RootCore.Active, singBoxConfig: String, tproxyPort: Int, ipv6: Boolean): String? {
         if (!binary.exists()) return "libasteriskd.so is not part of this build"
+        if (mode == Mode.TUN2SOCKS && !hevBinary.exists()) return "libhevtun.so (hev-socks5-tunnel) is not part of this build"
+        if (mode == Mode.BPF2SOCKS && !bpfBinary.exists()) return "libbpf2socks.so is not part of this build"
 
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
         val cfg = File(stage, "config.json").apply { writeText(withLogFile(singBoxConfig)) }
@@ -190,7 +234,7 @@ object RootDaemon {
                 "for f in geoip.db geosite.db; do [ -f ${RootShell.q(assets)}/\$f ] && cp -f ${RootShell.q(assets)}/\$f ${RootShell.q(runDir)}/\$f; done",
                 "cp -f ${RootShell.q(cfg)} ${RootShell.q(configPath)} && chmod 600 ${RootShell.q(configPath)}",
                 "cp -f ${RootShell.q(dcfg)} ${RootShell.q(daemonConfigPath)} && chmod 600 ${RootShell.q(daemonConfigPath)}",
-                "chmod 755 ${RootShell.q(binary)} 2>/dev/null; true",
+                "chmod 755 ${RootShell.q(binary)} ${RootShell.q(hevBinary)} ${RootShell.q(bpfBinary)} 2>/dev/null; true",
             )
             if (!prep.ok) return prep.err.ifBlank { "cannot prepare $runDir" }
         } finally {

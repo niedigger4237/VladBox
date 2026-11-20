@@ -23,7 +23,7 @@ Fork of NekoBoxForAndroid on top of **sing-box-extended v1.14.3-extended-2.7.3**
 ## Known limitations
 - WARP `reserved` bytes are not supported by sing-box-extended's WireGuard endpoint (field removed from UI).
 - `sniff_override_destination` has no equivalent in 1.13+; "sniff + override" now behaves like "sniff".
-- **bpf2socks is not implemented** (needs a compiled eBPF program + loader; see issue notes).
+- bpf2socks needs a kernel with cgroup eBPF + TC (most Android 11+ kernels); asteriskd verifies this on start and reports a readable error.
 - This tree was written without being able to run Gradle/NDK/Go modules in the authoring sandbox:
   **it has never been compiled**. Expect to fix compile errors on the first CI run.
 
