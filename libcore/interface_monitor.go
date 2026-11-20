@@ -1,8 +1,6 @@
 package libcore
 
 import (
-	"net"
-
 	tun "github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/control"
 	"github.com/sagernet/sing/common/x/list"
@@ -20,13 +18,8 @@ func (s *interfaceMonitorStub) Close() error {
 	return nil
 }
 
-// The platform (Android) owns the real default network: sockets are protected through VpnService and
-// are not bound by name. A nil here makes the network manager report "missing default interface" and
-// pause every WireGuard/AWG endpoint right after start, so hand out a placeholder instead.
-var placeholderInterface = &control.Interface{Index: 1, MTU: 1500, Name: "android-default", Flags: net.FlagUp}
-
 func (s *interfaceMonitorStub) DefaultInterface() *control.Interface {
-	return placeholderInterface
+	return nil
 }
 
 func (s *interfaceMonitorStub) OverrideAndroidVPN() bool {
