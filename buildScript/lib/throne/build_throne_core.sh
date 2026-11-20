@@ -31,6 +31,7 @@ echo "--- remaining go.* runtime references:"
 grep -rn 'go\.Seq\|go/Seq\|go\.Universe\|go/Universe\|Java_go_' bind cmd | grep -v '_test\|Test\.\|Bench' || true
 GOFLAGS=-mod=mod go install ./cmd/gomobile ./cmd/gobind
 popd >/dev/null
+PATCHED_GOMOBILE="$WORK/gomobile"
 export PATH="$(go env GOPATH)/bin:$PATH"
 
 # --- bind
@@ -39,6 +40,8 @@ go mod edit -replace "github.com/sagernet/gomobile=$WORK/gomobile"
 TAGS=$(sed -n 's/^TAGS="\(.*\)"$/\1/p' ../script/build_android.sh)
 VERSION_SINGBOX=$(go list -m -f '{{.Version}}' github.com/sagernet/sing-box)
 gomobile init
+# `gomobile init` reinstalls the stock gobind: put the patched one back
+( cd "$PATCHED_GOMOBILE" && GOFLAGS=-mod=mod go install ./cmd/gobind )
 gomobile bind -v -o "$DEST/ThroneCore.aar" -target "$TARGETS" -androidapi 21 -javapkg=io.throneproj -libname=throne -trimpath \
   -ldflags "-s -w -checklinkname=0 -X github.com/sagernet/sing-box/constant.Version=${VERSION_SINGBOX} -X runtime.godebugDefault=multipathtcp=0" \
   -tags "$TAGS" ./mobile

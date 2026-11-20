@@ -20,7 +20,7 @@ cp "$ROOT/buildScript/lib/core/throne/vladbox_run.go" "$TD/core/cmd/vladbox-run/
 TAGS=$(sed -n 's/^TAGS="\(.*\)"$/\1/p' "$TD/script/build_android.sh")
 test -n "$TAGS"
 API=24
-TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+TOOLCHAIN="${THRONE_NDK_HOME:-$ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
 build() { # abi goarch cc-prefix [GOARM]
   local abi=$1 goarch=$2 cc=$3 goarm=$4
