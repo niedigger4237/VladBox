@@ -206,17 +206,30 @@
         <item>xchacha20</item>
     </string-array>
 
+    <string-array name="dns_main_names" translatable="false">
+        <item>Remote (through the proxy)</item>
+        <item>Direct</item>
+    </string-array>
+    <string-array name="dns_main_values" translatable="false">
+        <item>remote</item>
+        <item>direct</item>
+    </string-array>
+
     <string-array name="service_modes">
         <item>@string/service_mode_vpn</item>
         <item>@string/service_mode_proxy</item>
         <item>@string/service_mode_root_tun</item>
         <item>@string/service_mode_root_tproxy</item>
+        <item>@string/service_mode_root_tun2socks</item>
+        <item>@string/service_mode_root_bpf2socks</item>
     </string-array>
     <string-array name="service_mode_values">
         <item>vpn</item>
         <item>proxy</item>
         <item>root_tun</item>
         <item>root_tproxy</item>
+        <item>root_tun2socks</item>
+        <item>root_bpf2socks</item>
     </string-array>
 
     <string-array name="route_protocol_entry">

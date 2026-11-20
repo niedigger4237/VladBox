@@ -700,9 +700,10 @@ fun buildConfig(
             )
         }
 
-        dns.final_ = if (forTest) "dns-direct" else "dns-remote"
+        val dnsMainDirect = forTest || DataStore.dnsMain == "direct"
+        dns.final_ = if (dnsMainDirect) "dns-direct" else "dns-remote"
         // default strategy (the former per-server `strategy`)
-        dns.strategy = if (forTest) directDnsStrategy else remoteDnsStrategy
+        dns.strategy = if (dnsMainDirect) directDnsStrategy else remoteDnsStrategy
 
         // dns object user rules
         if (enableDnsRouting) {

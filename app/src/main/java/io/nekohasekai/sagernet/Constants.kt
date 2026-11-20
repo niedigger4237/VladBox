@@ -17,12 +17,15 @@ object Key {
     const val MODE_PROXY = "proxy"
     const val MODE_ROOT_TUN = "root_tun"
     const val MODE_ROOT_TPROXY = "root_tproxy"
+    const val MODE_ROOT_TUN2SOCKS = "root_tun2socks"
+    const val MODE_ROOT_BPF2SOCKS = "root_bpf2socks"
     const val ROOT_TPROXY_PORT = "rootTproxyPort"
 
     const val GLOBAL_CUSTOM_CONFIG = "globalCustomConfig"
 
     const val REMOTE_DNS = "remoteDns"
     const val DIRECT_DNS = "directDns"
+    const val DNS_MAIN = "dnsMain"
     const val ENABLE_DNS_ROUTING = "enableDnsRouting"
     const val ENABLE_FAKEDNS = "enableFakeDns"
 

@@ -65,6 +65,9 @@
     <string name="service_mode_proxy">Proxy only</string>
     <string name="service_mode_root_tun">Root: TUN (tun2socks-style, no VpnService)</string>
     <string name="service_mode_root_tproxy">Root: TPROXY (iptables)</string>
+    <string name="service_mode_root_tun2socks">Root: TUN2SOCKS (hev-socks5-tunnel)</string>
+    <string name="service_mode_root_bpf2socks">Root: BPF2SOCKS (eBPF)</string>
+    <string name="dns_main">Main DNS (final)</string>
     <string name="service_mode_vpn" translatable="false">VPN</string>
     <string name="port_proxy">Proxy Port</string>
     <string name="port_http">HTTP Proxy Port</string>

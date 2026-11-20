@@ -144,6 +144,8 @@ jobs:
             app/libs/libcore.aar
             app/src/main/jniLibs/*/libsingbox.so
             app/src/main/jniLibs/*/libasteriskd.so
+            app/src/main/jniLibs/*/libhevtun.so
+            app/src/main/jniLibs/*/libbpf2socks.so
           key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}-${{ inputs.fast }}
       - name: Go cache
         uses: actions/cache@v4
@@ -190,6 +192,8 @@ jobs:
             app/libs/libcore.aar
             app/src/main/jniLibs/*/libsingbox.so
             app/src/main/jniLibs/*/libasteriskd.so
+            app/src/main/jniLibs/*/libhevtun.so
+            app/src/main/jniLibs/*/libbpf2socks.so
           key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}-${{ inputs.fast }}
       - name: Set up JDK 17
         uses: actions/setup-java@v4

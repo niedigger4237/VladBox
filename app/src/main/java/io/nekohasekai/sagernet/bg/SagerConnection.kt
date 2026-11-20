@@ -24,7 +24,7 @@ class SagerConnection(
         val serviceClass
             get() = when (DataStore.serviceMode) {
                 Key.MODE_PROXY -> ProxyService::class
-                Key.MODE_ROOT_TUN, Key.MODE_ROOT_TPROXY -> RootService::class
+                Key.MODE_ROOT_TUN, Key.MODE_ROOT_TPROXY, Key.MODE_ROOT_TUN2SOCKS, Key.MODE_ROOT_BPF2SOCKS -> RootService::class
                 Key.MODE_VPN -> VpnService::class
                 else -> throw UnknownError()
             }.java
