@@ -58,6 +58,7 @@ abstract class BoxInstance(
                 tun = inProcess,
                 cachePath = if (inProcess) "cache.db" else "${io.nekohasekai.sagernet.bg.root.RootDaemon.runDir}/cache.db",
                 uiDir = File(app.filesDir, "yacd").absolutePath,
+                ruleSetDir = File(app.filesDir, "throne/ruleset"),
             )
         }
     }
