@@ -58,6 +58,11 @@ class SagerNet : Application(),
 
         if (isMainProcess || isBgProcess) {
             externalAssets.mkdirs()
+            // earlier builds defaulted the log level to "none" and the settings screen persisted it
+            if (!DataStore.configurationStore.getBoolean("logLevelDefaultInfo", false)) {
+                if (DataStore.logLevel == 0) DataStore.logLevel = 2
+                DataStore.configurationStore.putBoolean("logLevelDefaultInfo", true)
+            }
             Seq.setContext(this)
             Libcore.initCore(
                 process,
