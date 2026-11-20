@@ -213,7 +213,8 @@ class BaseService {
         }
 
         suspend fun startProcesses() {
-            data.proxy!!.launch()
+            // off the main thread: Throne's binder callbacks are delivered on it
+            withContext(Dispatchers.IO) { data.proxy!!.launch() }
         }
 
         fun startRunner() {
