@@ -9,6 +9,7 @@ import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
 import io.nekohasekai.sagernet.ktx.tryResume
 import io.nekohasekai.sagernet.ktx.tryResumeWithException
 import kotlinx.coroutines.delay
+import io.nekohasekai.sagernet.bg.core.LibcoreBox
 import libcore.Libcore
 import moe.matsuri.nb4a.net.LocalResolverImpl
 import kotlin.coroutines.suspendCoroutine
@@ -31,7 +32,7 @@ class TestInstance(profile: ProxyEntity, val link: String, private val timeout: 
                             // wait for plugin start
                             delay(500)
                         }
-                        c.tryResume(Libcore.urlTest(box, link, timeout))
+                        c.tryResume(box.urlTest(link, timeout))
                     } catch (e: Exception) {
                         c.tryResumeWithException(e)
                     }
@@ -47,7 +48,7 @@ class TestInstance(profile: ProxyEntity, val link: String, private val timeout: 
     override suspend fun loadConfig() {
         // don't call destroyAllJsi here
         if (BuildConfig.DEBUG) Logs.d(config.config)
-        box = Libcore.newSingBoxInstance(config.config, LocalResolverImpl)
+        box = LibcoreBox(Libcore.newSingBoxInstance(config.config, LocalResolverImpl))
     }
 
 }

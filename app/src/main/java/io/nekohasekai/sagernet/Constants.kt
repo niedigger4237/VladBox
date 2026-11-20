@@ -18,6 +18,9 @@ object Key {
     const val MODE_ROOT_TUN = "root_tun"
     const val MODE_ROOT_TPROXY = "root_tproxy"
     const val ROOT_TPROXY_PORT = "rootTproxyPort"
+    const val CORE_ENGINE = "coreEngine"
+    const val ENGINE_EXTENDED = "extended"
+    const val ENGINE_THRONE = "throne"
 
     const val GLOBAL_CUSTOM_CONFIG = "globalCustomConfig"
 

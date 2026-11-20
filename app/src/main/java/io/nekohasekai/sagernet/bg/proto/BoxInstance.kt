@@ -19,7 +19,10 @@ import io.nekohasekai.sagernet.fmt.trojan_go.buildTrojanGoConfig
 import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.plugin.PluginManager
 import kotlinx.coroutines.*
-import libcore.BoxInstance
+import io.nekohasekai.sagernet.bg.core.CoreBox
+import io.nekohasekai.sagernet.bg.core.LibcoreBox
+import io.nekohasekai.sagernet.bg.throne.ThroneBox
+import io.nekohasekai.sagernet.bg.throne.ThroneRuntime
 import libcore.Libcore
 import moe.matsuri.nb4a.net.LocalResolverImpl
 import java.io.File
@@ -29,7 +32,7 @@ abstract class BoxInstance(
 ) : AbstractInstance {
 
     lateinit var config: ConfigBuildResult
-    lateinit var box: BoxInstance
+    lateinit var box: CoreBox
     fun isBoxInitialized() = ::box.isInitialized
 
     val pluginPath = hashMapOf<String, PluginManager.InitResult>()
@@ -47,10 +50,24 @@ abstract class BoxInstance(
 
     protected open fun buildConfig() {
         config = buildConfig(profile)
+        if (DataStore.coreEngine == io.nekohasekai.sagernet.Key.ENGINE_THRONE) {
+            val inProcess = DataStore.serviceMode == io.nekohasekai.sagernet.Key.MODE_VPN
+            val app = SagerNet.application
+            config.config = io.nekohasekai.sagernet.bg.throne.ThroneConfig.adapt(
+                config.config,
+                tun = inProcess,
+                cachePath = if (inProcess) "cache.db" else "${io.nekohasekai.sagernet.bg.root.RootDaemon.runDir}/cache.db",
+                uiDir = File(app.filesDir, "yacd").absolutePath,
+            )
+        }
     }
 
     protected open suspend fun loadConfig() {
-        box = Libcore.newSingBoxInstance(config.config, LocalResolverImpl)
+        box = if (DataStore.coreEngine == io.nekohasekai.sagernet.Key.ENGINE_THRONE && this !is TestInstance) {
+            ThroneBox.create(config.config)
+        } else {
+            LibcoreBox(Libcore.newSingBoxInstance(config.config, LocalResolverImpl))
+        }
     }
 
     open suspend fun init() {

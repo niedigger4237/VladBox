@@ -46,6 +46,12 @@ public class WireGuardBean extends AbstractBean {
     public Boolean awgRandomTrailers;
     public Boolean awgDisableCookies;
 
+    // Throne parity
+    public Integer persistentKeepalive;
+    public Boolean system;
+    public Integer workers;
+    public String udpTimeout;
+
     @Override
     public void initializeDefaultValues() {
         super.initializeDefaultValues();
@@ -80,6 +86,10 @@ public class WireGuardBean extends AbstractBean {
         if (awgMaxHandshake == null) awgMaxHandshake = "";
         if (awgRandomTrailers == null) awgRandomTrailers = false;
         if (awgDisableCookies == null) awgDisableCookies = false;
+        if (persistentKeepalive == null) persistentKeepalive = 25;
+        if (system == null) system = false;
+        if (workers == null) workers = 0;
+        if (udpTimeout == null) udpTimeout = "";
     }
 
     /** true when any AmneziaWG obfuscation parameter is set */
@@ -100,7 +110,7 @@ public class WireGuardBean extends AbstractBean {
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(4);
+        output.writeInt(5);
         super.serialize(output);
         output.writeString(localAddress);
         output.writeString(privateKey);
@@ -135,6 +145,11 @@ public class WireGuardBean extends AbstractBean {
         output.writeString(awgMaxHandshake);
         output.writeBoolean(awgRandomTrailers);
         output.writeBoolean(awgDisableCookies);
+        // version 5
+        output.writeInt(persistentKeepalive);
+        output.writeBoolean(system);
+        output.writeInt(workers);
+        output.writeString(udpTimeout);
     }
 
     @Override
@@ -175,6 +190,12 @@ public class WireGuardBean extends AbstractBean {
             awgMaxHandshake = input.readString();
             awgRandomTrailers = input.readBoolean();
             awgDisableCookies = input.readBoolean();
+        }
+        if (version >= 5) {
+            persistentKeepalive = input.readInt();
+            system = input.readBoolean();
+            workers = input.readInt();
+            udpTimeout = input.readString();
         }
     }
 

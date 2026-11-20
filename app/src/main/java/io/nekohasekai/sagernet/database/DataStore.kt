@@ -98,6 +98,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var appTheme by configurationStore.int(Key.APP_THEME)
     var nightTheme by configurationStore.stringToInt(Key.NIGHT_THEME)
     var serviceMode by configurationStore.string(Key.SERVICE_MODE) { Key.MODE_VPN }
+    var coreEngine by configurationStore.string(Key.CORE_ENGINE) { Key.ENGINE_EXTENDED }
     var rootTproxyPort by configurationStore.stringToInt(Key.ROOT_TPROXY_PORT) { 9898 }
 
     var trafficSniffing by configurationStore.stringToInt(Key.TRAFFIC_SNIFFING) { 1 }
@@ -120,7 +121,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var enableFakeDns by configurationStore.boolean(Key.ENABLE_FAKEDNS) { true }
 
     var rulesProvider by configurationStore.stringToInt(Key.RULES_PROVIDER)
-    var logLevel by configurationStore.stringToInt(Key.LOG_LEVEL)
+    var logLevel by configurationStore.stringToInt(Key.LOG_LEVEL) { 2 }
     var logBufSize by configurationStore.int(Key.LOG_BUF_SIZE) { 0 }
     var acquireWakeLock by configurationStore.boolean(Key.ACQUIRE_WAKE_LOCK)
 

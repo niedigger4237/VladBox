@@ -59,14 +59,14 @@ class BaseService {
                         } else {
                             if (proxy?.isInitialized() == true) proxy?.box?.wake()
                             if (DataStore.wakeResetConnections) {
-                                Libcore.resetAllConnections(true)
+                                io.nekohasekai.sagernet.bg.core.resetCoreConnections()
                             }
                         }
                     }
                 }
 
                 Action.RESET_UPSTREAM_CONNECTIONS -> runOnDefaultDispatcher {
-                    Libcore.resetAllConnections(true)
+                    io.nekohasekai.sagernet.bg.core.resetCoreConnections()
                     runOnMainDispatcher {
                         Util.collapseStatusBar(ctx)
                         Toast.makeText(ctx, "Reset upstream connections done", Toast.LENGTH_SHORT)
@@ -145,9 +145,7 @@ class BaseService {
                 error("core not started")
             }
             try {
-                return Libcore.urlTest(
-                    data!!.proxy!!.box, DataStore.connectionTestURL, 3000
-                )
+                return data!!.proxy!!.box.urlTest(DataStore.connectionTestURL, 3000)
             } catch (e: Exception) {
                 error(Protocols.genFriendlyMsg(e.readableMessage))
             }
@@ -288,7 +286,7 @@ class BaseService {
                     if (oldName != null && upstreamInterfaceName != null && oldName != upstreamInterfaceName) {
                         Logs.d("Network changed: $oldName -> $upstreamInterfaceName")
                         if (DataStore.networkChangeResetConnections) {
-                            Libcore.resetAllConnections(true)
+                            io.nekohasekai.sagernet.bg.core.resetCoreConnections()
                         }
                     }
                 }
