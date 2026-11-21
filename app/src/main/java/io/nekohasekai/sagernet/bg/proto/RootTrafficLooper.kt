@@ -3,6 +3,7 @@ package io.nekohasekai.sagernet.bg.proto
 import io.nekohasekai.sagernet.aidl.SpeedDisplayData
 import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.SagerConnection
+import io.nekohasekai.sagernet.bg.root.RootShell
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.fmt.TAG_PROXY
 import io.nekohasekai.sagernet.ktx.Logs
@@ -20,8 +21,49 @@ object RootClashApi {
     const val PORT = 9090
     private const val BASE = "http://127.0.0.1:$PORT"
 
+    /**
+     * В TProxy-режиме правила перехвата ловят и loopback-трафик приложения (соединение с 127.0.0.1:9090 висит),
+     * поэтому после первой неудачи ходим к API от имени root (curl или toybox nc), его трафик не перехватывается.
+     */
+    @Volatile
+    var viaRoot = false
+
+    private fun rootScript(path: String, seconds: Int): String =
+        "if command -v curl >/dev/null 2>&1; then curl -s -N -m $seconds ${RootShell.q("$BASE$path")}; else " +
+            "(printf 'GET $path HTTP/1.0\\r\\nHost: 127.0.0.1\\r\\n\\r\\n'; sleep $seconds) | nc 127.0.0.1 $PORT; fi"
+
+    private fun rootGet(path: String, seconds: Int): String {
+        // read until nc/curl closes stdout (the helper `sleep` keeps the shell alive longer, so don't wait for su itself)
+        val p = ProcessBuilder("su", "-c", rootScript(path, seconds)).redirectErrorStream(true).start()
+        val out = try {
+            p.inputStream.bufferedReader().readText().trim()
+        } finally {
+            p.destroyForcibly()
+        }
+        if (out.isBlank()) error("no response from the core API")
+        // nc returns the raw HTTP response, curl only the body
+        return if (out.startsWith("HTTP/")) out.substringAfter("\r\n\r\n", out.substringAfter("\n\n", "")) else out
+    }
+
     /** Задержка (мс) основного outbound до [url]; бросает исключение при ошибке. */
     fun urlTest(url: String, timeoutMs: Int): Int {
+        if (viaRoot) return urlTestRoot(url, timeoutMs)
+        return try {
+            urlTestDirect(url, timeoutMs)
+        } catch (e: java.io.IOException) {
+            viaRoot = true
+            urlTestRoot(url, timeoutMs)
+        }
+    }
+
+    private fun urlTestRoot(url: String, timeoutMs: Int): Int {
+        val path = "/proxies/$TAG_PROXY/delay?url=" + URLEncoder.encode(url, "UTF-8") + "&timeout=$timeoutMs"
+        val j = JSONObject(rootGet(path, timeoutMs / 1000 + 2))
+        if (!j.has("delay")) error(j.optString("message").ifBlank { "delay test failed" })
+        return j.getInt("delay")
+    }
+
+    private fun urlTestDirect(url: String, timeoutMs: Int): Int {
         val u = "$BASE/proxies/$TAG_PROXY/delay?url=" + URLEncoder.encode(url, "UTF-8") + "&timeout=$timeoutMs"
         val c = URL(u).openConnection() as HttpURLConnection
         try {
@@ -41,6 +83,31 @@ object RootClashApi {
 
     /** Поток {"up":N,"down":M} раз в секунду (байт/с); [onSample] вызывается на каждую строку. */
     fun streamTraffic(onSample: (up: Long, down: Long) -> Unit) {
+        if (!viaRoot) {
+            try {
+                streamTrafficDirect(onSample)
+                return
+            } catch (e: java.io.IOException) {
+                if (e is java.net.SocketTimeoutException && !e.message.orEmpty().contains("connect")) throw e
+                viaRoot = true
+            }
+        }
+        val p = ProcessBuilder("su", "-c", rootScript("/traffic", 3600)).redirectErrorStream(true).start()
+        try {
+            p.inputStream.bufferedReader().use { r ->
+                while (true) {
+                    val line = r.readLine() ?: break
+                    if (!line.startsWith("{")) continue
+                    val j = JSONObject(line)
+                    onSample(j.optLong("up"), j.optLong("down"))
+                }
+            }
+        } finally {
+            p.destroyForcibly()
+        }
+    }
+
+    private fun streamTrafficDirect(onSample: (up: Long, down: Long) -> Unit) {
         val c = URL("$BASE/traffic").openConnection() as HttpURLConnection
         try {
             c.connectTimeout = 2000
@@ -62,6 +129,7 @@ class RootTrafficLooper(private val data: BaseService.Data, private val sc: Coro
     private var job: Job? = null
 
     fun start() {
+        RootClashApi.viaRoot = false
         job = sc.launch(Dispatchers.IO) { loop() }
     }
 
