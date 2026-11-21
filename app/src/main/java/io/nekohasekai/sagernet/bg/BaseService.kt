@@ -142,6 +142,14 @@ class BaseService {
         }
 
         override fun urlTest(): Int {
+            val root = data?.proxy as? io.nekohasekai.sagernet.bg.proto.RootProxyInstance
+            if (root != null) {
+                try {
+                    return root.urlTest(DataStore.connectionTestURL, 3000)
+                } catch (e: Exception) {
+                    error(Protocols.genFriendlyMsg(e.readableMessage))
+                }
+            }
             if (data?.proxy?.isInitialized() != true) {
                 error("core not started")
             }
