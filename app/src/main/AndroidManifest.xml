@@ -240,6 +240,11 @@
             android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity
+            android:name="io.nekohasekai.sagernet.ui.ServiceControlActivity"
+            android:exported="false"
+            android:label="@string/service_control" />
+
+        <activity
             android:name="io.nekohasekai.sagernet.ui.AppManagerActivity"
             android:configChanges="uiMode"
             android:excludeFromRecents="true"

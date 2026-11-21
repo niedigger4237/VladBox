@@ -218,6 +218,34 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         enableFakeDns.onPreferenceChangeListener = reloadListener
         remoteDns.onPreferenceChangeListener = reloadListener
         directDns.onPreferenceChangeListener = reloadListener
+
+        // готовые DNS: поле своего адреса видно только при выборе «Свой…»
+        val remotePreset = findPreference<Preference>("remoteDnsPreset")!!
+        val directPreset = findPreference<Preference>("directDnsPreset")!!
+        remoteDns.isVisible = DataStore.remoteDnsPreset == "custom"
+        directDns.isVisible = DataStore.directDnsPreset == "custom"
+        remotePreset.setOnPreferenceChangeListener { _, v -> remoteDns.isVisible = v == "custom"; needReload(); true }
+        directPreset.setOnPreferenceChangeListener { _, v -> directDns.isVisible = v == "custom"; needReload(); true }
+        findPreference<Preference>("hijackDns")!!.onPreferenceChangeListener = reloadListener
+        for (k in listOf("socksPort", "bpfBridgePort")) findPreference<EditTextPreference>(k)!!.apply {
+            setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
+            onPreferenceChangeListener = reloadListener
+        }
+        for (k in listOf("tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet", "tetherCustom")) {
+            findPreference<Preference>(k)!!.onPreferenceChangeListener = reloadListener
+        }
+        findPreference<Preference>("serviceControl")!!.setOnPreferenceClickListener {
+            startActivity(android.content.Intent(requireContext(), ServiceControlActivity::class.java)); true
+        }
+        findPreference<Preference>("startOnBoot")!!.setOnPreferenceChangeListener { _, v ->
+            io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher {
+                val err = io.nekohasekai.sagernet.bg.root.RootBoot.apply(v as Boolean)
+                if (err != null) io.nekohasekai.sagernet.ktx.onMainDispatcher {
+                    android.widget.Toast.makeText(requireContext(), err, android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+            true
+        }
         enableDnsRouting.onPreferenceChangeListener = reloadListener
 
         ipv6Mode.onPreferenceChangeListener = reloadListener
