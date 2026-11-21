@@ -52,10 +52,13 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
     }
 
     private var rootLooper: RootTrafficLooper? = null
+    private var rootScope: kotlinx.coroutines.CoroutineScope? = null
 
     override fun launch() {
         super.launch()
-        rootLooper = service?.let { RootTrafficLooper(it.data, this) }
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+        rootScope = scope
+        rootLooper = service?.let { RootTrafficLooper(it.data, scope) }
         rootLooper?.start()
     }
 
@@ -64,6 +67,8 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
     override fun close() {
         rootLooper?.stop()
         rootLooper = null
+        rootScope?.coroutineContext?.get(kotlinx.coroutines.Job)?.cancel()
+        rootScope = null
         // asteriskd removes its rules before it stops the core
         if (started) {
             RootDaemon.shutdown()
