@@ -627,7 +627,6 @@
     <string name="route_asset_files">Asset Files</string>
     <string name="route_dns_tunnel">DNS Tunnel</string>
     <string name="route_direct">Direct</string>
-    <string name="route_proxy">Proxy</string>
     <string name="route_remote">Remote</string>
     <string name="route_rules_custom">Custom URLs</string>
     <string name="route_custom_url_empty">Set the %1$s URL in Custom URLs first</string>
@@ -636,8 +635,8 @@
     <string name="awg_enable">Enable AmneziaWG</string>
     <string name="awg_enable_sum">Turn on to edit obfuscation parameters; off = plain WireGuard</string>
     <string name="cat_general">General</string>
-    <string name="cat_service">Service & network</string>
+    <string name="cat_service">Service &amp; network</string>
     <string name="cat_stats">Statistics</string>
-    <string name="cat_security">Connections & security</string>
+    <string name="cat_security">Connections &amp; security</string>
     <string name="cat_advanced">Advanced</string>
 </resources>

@@ -527,7 +527,6 @@
     <string name="route_asset_files">Asset Files</string>
     <string name="route_dns_tunnel">DNS Tunnel</string>
     <string name="route_direct">Direct</string>
-    <string name="route_proxy">Proxy</string>
     <string name="route_remote">Remote</string>
     <string name="route_rules_custom">Свои ссылки</string>
     <string name="route_custom_url_empty">Сначала укажите ссылку на %1$s в «Свои ссылки»</string>
