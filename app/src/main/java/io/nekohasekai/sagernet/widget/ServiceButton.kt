@@ -55,8 +55,8 @@ class ServiceButton @JvmOverloads constructor(
     }
 
     private companion object {
-        val COLOR_IDLE = Color.parseColor("#757575")
-        val COLOR_CONNECTED = Color.parseColor("#2E7D32")
+        val COLOR_IDLE = Color.parseColor("#4C3A78")
+        val COLOR_CONNECTED = Color.parseColor("#8B5CF6")
         val COLOR_BUSY = Color.parseColor("#F9A825")
     }
 }

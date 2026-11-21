@@ -63,4 +63,4 @@ fun mkPort(): Int {
     return port
 }
 
-const val USER_AGENT = "VladBox/Android/" + BuildConfig.VERSION_NAME + " (Prefer ClashMeta Format)"
+const val USER_AGENT = "NieFiggerHub/Android/" + BuildConfig.VERSION_NAME + " (Prefer ClashMeta Format)"

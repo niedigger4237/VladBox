@@ -197,10 +197,10 @@ fun Project.setupApp() {
                 outputFileName = if (isPreview) {
                     outputFileName.replace(
                         project.name,
-                        "VladBox-" + requireMetadata().getProperty("PRE_VERSION_NAME")
+                        "NieFigger-Hub-" + requireMetadata().getProperty("PRE_VERSION_NAME")
                     ).replace("-preview", "")
                 } else {
-                    outputFileName.replace(project.name, "VladBox-$versionName")
+                    outputFileName.replace(project.name, "NieFigger-Hub-$versionName")
                         .replace("-release", "")
                         .replace("-oss", "")
                 }
