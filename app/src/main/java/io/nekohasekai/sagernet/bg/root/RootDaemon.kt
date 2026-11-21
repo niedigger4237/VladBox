@@ -66,19 +66,19 @@ object RootDaemon {
     /** Android tethering interface names / prefixes for asteriskd `hotspotInterfaces`. */
     fun tetherInterfaces(): List<String> {
         val l = LinkedHashSet<String>()
-        if (DataStore.tetherWifi) l += listOf("ap+", "swlan+", "softap+", "wlan1", "wlan2")
+        if (DataStore.tetherWifi) l += listOf("ap+", "swlan+", "softap+")
         if (DataStore.tetherBluetooth) l += "bt-pan"
-        if (DataStore.tetherUsb) l += listOf("rndis+", "usb+")
-        if (DataStore.tetherEthernet) l += "eth+"
+        if (DataStore.tetherUsb) l += "rndis+"
+        
         DataStore.tetherCustom.split(',', '\n', ' ').map { it.trim() }.filter { it.isNotEmpty() }.forEach { l += it }
         // interfaces that exist right now (the hotspot may already be up under a vendor-specific name)
         if (l.isNotEmpty()) runCatching {
             val live = RootShell.run("ls /sys/class/net", timeoutMs = 4_000).out.split(Regex("\\s+")).filter { it.isNotEmpty() }
             val pats = ArrayList<Regex>()
-            if (DataStore.tetherWifi) pats += Regex("(ap|swlan|softap|wlan)[0-9]+")
+            if (DataStore.tetherWifi) pats += Regex("(ap|swlan|softap)[0-9]+")
             if (DataStore.tetherUsb) pats += Regex("(rndis|usb|ncm)[0-9]+")
             if (DataStore.tetherBluetooth) pats += Regex("bt-pan|bnep[0-9]+")
-            if (DataStore.tetherEthernet) pats += Regex("eth[0-9]+")
+            if (DataStore.tetherEthernet) pats += Regex("eth[1-9][0-9]*")
             live.filter { n -> pats.any { it.matches(n) } && n != "wlan0" && n != "eth0" }.forEach { l += it }
         }
         return l.filter { Regex("[A-Za-z0-9_.\\-]+\\+?").matches(it) }.take(32)
