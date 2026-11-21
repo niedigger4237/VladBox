@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proton → AWG</title>
+<style>
+:root{
+  --bg:#f4f3fa; --panel:#ffffff; --ink:#1c1b29; --muted:#6b6a80; --line:#dcdaea;
+  --accent:#6d4aff; --accent-ink:#ffffff; --ok:#16a06a; --field:#f0eff8;
+  --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
+  font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#16152a;--panel:#1f1e38;--ink:#ecebfa;--muted:#9a99b8;--line:#33315a;--field:#2a2950;--accent:#8a6dff}
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink)}
+body{padding:calc(14px + var(--safe-t)) 14px calc(24px + var(--safe-b));max-width:980px;margin:0 auto;line-height:1.45}
+h1{font-size:1.35rem;margin:4px 0 2px}
+.sub{color:var(--muted);font-size:.9rem;margin:0 0 14px}
+.grid{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:820px){.grid{grid-template-columns:1fr 1fr}.span2{grid-column:1/-1}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}
+.panel h2{font-size:1rem;margin:0 0 10px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;width:100%}
+.seg label{flex:1;text-align:center;padding:10px 6px;cursor:pointer;font-size:.92rem;background:var(--field)}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg input:checked+span{font-weight:600}
+.seg label:has(input:checked){background:var(--accent);color:var(--accent-ink)}
+.seg label:has(input:focus-visible){outline:2px solid var(--ink);outline-offset:-3px}
+button,.btn{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--accent);color:var(--accent-ink);cursor:pointer;font-weight:600}
+button.ghost{background:var(--field);color:var(--ink);font-weight:500}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
+input[type=text],input[type=number],select,textarea{font:inherit;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
+textarea{font-family:Consolas,"Cascadia Mono",monospace;font-size:.8rem;resize:vertical}
+.f{display:flex;flex-direction:column;gap:4px;font-size:.85rem;color:var(--muted);min-width:90px;flex:1}
+.f.w{flex-basis:100%}
+.chk{display:flex;gap:10px;align-items:center;padding:6px 0;font-size:.95rem}
+.chk input{width:20px;height:20px;accent-color:var(--accent)}
+.ports{display:flex;flex-wrap:wrap;gap:6px}
+.ports label{cursor:pointer}
+.ports input{position:absolute;opacity:0}
+.ports span{display:inline-block;padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:var(--field);font-size:.88rem}
+.ports input:checked+span{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.ports input:focus-visible+span{outline:2px solid var(--ink)}
+.hidden{display:none!important}
+#files{font-size:.85rem;color:var(--muted);margin-top:6px;word-break:break-all}
+#out{min-height:230px}
+.hint{font-size:.8rem;color:var(--muted)}
+#toast{position:fixed;left:50%;bottom:calc(20px + var(--safe-b));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:.9rem;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw}
+#toast.on{opacity:1}
+@media(prefers-reduced-motion:reduce){#toast{transition:none}}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);max-width:420px;width:92vw}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+
+:root{--bg:#0A0A0F;--panel:#14121f;--ink:#ecebfa;--muted:#9a99b8;--line:#2d2650;--field:#1d1933;--accent:#8B5CF6;--accent-ink:#fff;color-scheme:dark}
+body{padding-top:10px}
+#w-out,#out{min-height:230px}
+.seg.four label{padding:10px 2px;font-size:.84rem}
+.ports input:disabled+span{opacity:.4}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2a2250;color:#fff;padding:10px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:20}
+#toast.on{opacity:1}
+</style></head>
+<body>
+<main>
+<section id="view-proton" class="view">
+<p class="sub">Конвертер WireGuard-конфигов Proton VPN в AmneziaWG, WireSock, Clash и Xray. Работает полностью офлайн.</p>
+<div class="grid">
+  <section class="panel">
+    <h2>1. Конфиги Proton</h2>
+    <input type="file" id="file" multiple class="hidden">
+    <div class="row">
+      <button id="pick">Выбрать .conf</button>
+      <button id="paste" class="ghost">Вставить текст</button>
+    </div>
+    <div id="files">Файлы не выбраны</div>
+    <h2 style="margin-top:16px">Формат</h2>
+    <div class="seg four" role="radiogroup" aria-label="Формат">
+      <label><input type="radio" name="fmt" value="awg" checked><span>AmneziaWG</span></label>
+      <label><input type="radio" name="fmt" value="wiresock"><span>WireSock</span></label>
+      <label><input type="radio" name="fmt" value="clash"><span>Clash</span></label>
+      <label><input type="radio" name="fmt" value="xray"><span>Xray</span></label>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Маскировка (AWG 1.0)</h2>
+    <div class="seg" role="radiogroup" aria-label="Параметры мусора">
+      <label><input type="radio" name="junk" value="1" checked><span>Jc 3 · 1–3</span></label>
+      <label><input type="radio" name="junk" value="2"><span>Jc 30 · 10–30</span></label>
+      <label><input type="radio" name="junk" value="3"><span>Свои</span></label>
+    </div>
+    <div class="row">
+      <label class="f">Jc<input type="number" id="jc" placeholder="128" min="0" max="999"></label>
+      <label class="f">Jmin<input type="number" id="jmin" placeholder="1279" min="0" max="9999"></label>
+      <label class="f">Jmax<input type="number" id="jmax" placeholder="1280" min="0" max="9999"></label>
+    </div>
+    <div class="row"><button class="ghost" id="rndJunk">Случайно</button></div>
+    <label class="chk"><input type="checkbox" id="noJunk"> Убрать мусорные пакеты (Jc = 0)</label>
+  </section>
+
+  <section class="panel" id="p-awg2">
+    <h2>Имитация протокола (AWG 2.0, I1–I5)</h2>
+    <div class="row">
+      <label class="f w">I1<textarea id="i1" rows="2" spellcheck="false" placeholder="&lt;b 0xc600…&gt;"></textarea></label>
+      <div id="i2-5" class="row" style="margin:0;width:100%"><label class="f w">I2<textarea id="i2" rows="1" spellcheck="false"></textarea></label>
+      <label class="f w">I3<textarea id="i3" rows="1" spellcheck="false"></textarea></label>
+      <label class="f w">I4<textarea id="i4" rows="1" spellcheck="false"></textarea></label>
+      <label class="f w">I5<textarea id="i5" rows="1" spellcheck="false"></textarea></label></div>
+    </div>
+    <div class="row">
+      <button class="ghost" id="rndI">Случайно</button>
+      <button id="genI">Из домена (QUIC)</button>
+    </div>
+    <p class="hint">Пустой I1 заменяется встроенным QUIC-пакетом.</p>
+  </section>
+
+  <section class="panel hidden" id="p-ws">
+    <h2>Имитация протокола (WireSock)</h2>
+    <div class="row">
+      <label class="f w">Id (домен)<input type="text" id="wsId" placeholder="apteka.ru" autocapitalize="off" spellcheck="false"></label>
+      <label class="f">Ip<select id="wsIp"><option value="quic" selected>QUIC</option><option value="dns">DNS</option></select></label>
+      <label class="f">Ib<select id="wsIb"><option value="chrome">Chrome</option><option value="firefox">Firefox</option><option value="curl" selected>cURL</option></select></label>
+    </div>
+    <div class="row"><button class="ghost" id="rndWs">Случайный домен</button></div>
+  </section>
+
+  <section class="panel" id="p-awg3">
+    <h2>AWG 3.0 / 3.1</h2>
+    <label class="chk"><input type="checkbox" id="awg3"> Включить параметры AWG 3.0</label>
+    <div id="awg3box" class="hidden">
+      <div class="row">
+        <label class="f">ContentPaddingAddition<input type="text" id="cpa" placeholder="27-97"></label>
+        <label class="f">MaxHandshakeAttempts<input type="text" id="mha" placeholder="18-26"></label>
+        <label class="f">KeepaliveTimeout<input type="text" id="kt" placeholder="9-16"></label>
+        <label class="f">RejectAfterTime<input type="text" id="rat" placeholder="171-196"></label>
+        <label class="f">RekeyAfterTime<input type="text" id="rkat" placeholder="116-131"></label>
+        <label class="f">RekeyTimeout<input type="text" id="rt" placeholder="6-9"></label>
+      </div>
+      <div class="row"><button class="ghost" id="rndAwg3">Случайно</button></div>
+    </div>
+    <label class="chk"><input type="checkbox" id="awg31"> Отключить cookies (AWG 3.1)</label>
+  </section>
+
+  <section class="panel">
+    <h2>Сеть</h2>
+    <div class="row">
+      <label class="f">MTU<input type="number" id="mtu" placeholder="1420" min="576" max="1500"></label>
+      <label class="f">Keepalive, с<input type="number" id="ka" placeholder="25" min="1" max="999"></label>
+    </div>
+    <label class="chk"><input type="checkbox" id="useKa"> Добавить PersistentKeepalive</label>
+    <label class="chk" id="nolanRow"><input type="checkbox" id="nolan"> Исключить локальную сеть (LAN)</label>
+    <div style="margin:8px 0 6px;font-size:.9rem">Порт Endpoint</div>
+    <div class="ports" id="ports"></div>
+  </section>
+
+  <section class="panel span2">
+    <h2>Результат</h2>
+    <textarea id="out" spellcheck="false" readonly placeholder="Выберите .conf файлы Proton — результат появится здесь"></textarea>
+    <div class="row">
+      <button id="save" disabled>Сохранить</button>
+      <button id="copy" class="ghost" disabled>Скопировать</button>
+      <button id="import" class="ghost" disabled>Добавить в VladBox</button>
+    </div>
+    <p class="hint" id="saveHint"></p>
+  </section>
+</div>
+
+<dialog id="dlgDomain">
+  <form method="dialog" style="margin:0">
+    <h2 style="margin-top:0;font-size:1rem">Домен для I1</h2>
+    <input type="text" id="domain" placeholder="example.com" autocapitalize="off" spellcheck="false">
+    <div class="row" style="justify-content:flex-end">
+      <button value="cancel" class="ghost">Отмена</button>
+      <button value="ok" id="domainOk">Сгенерировать</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgPaste">
+  <form method="dialog" style="margin:0">
+    <h2 style="margin-top:0;font-size:1rem">Текст конфига Proton</h2>
+    <textarea id="pasteText" rows="10" spellcheck="false" placeholder="[Interface]&#10;PrivateKey = …"></textarea>
+    <div class="row" style="justify-content:flex-end">
+      <button value="cancel" class="ghost">Отмена</button>
+      <button value="ok" id="pasteOk">Добавить</button>
+    </div>
+  </form>
+</dialog>
+
+
+</section>
+</main>
+<div id="toast" role="status"></div>
+<script>
+"use strict";
+function AppToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');clearTimeout(AppToast.t);AppToast.t=setTimeout(()=>t.classList.remove('on'),2400);}
+/* нативный мост VladBox: Android = @JavascriptInterface */
+(function(){
+  const pending = {}; let n = 0;
+  window.__wbDone = (id, ok, payload) => { const p = pending[id]; delete pending[id]; if (!p) return; ok ? p.res(payload) : p.rej(new Error(payload)); };
+  const call = (fn) => new Promise((res, rej) => { const id = ++n; pending[id] = {res, rej}; fn(id); });
+  window.warpBridge = {
+    request: (method, endpoint, body, token) => call(id => Android.request(id, method, endpoint, body ? JSON.stringify(body) : '', token || '')).then(t => { try { return JSON.parse(t); } catch (e) { throw new Error('Некорректный ответ сервера: ' + String(t).slice(0, 120)); } }),
+    saveFiles: (files) => call(id => Android.saveFiles(id, JSON.stringify(files))).then(c => ({count: +c, canceled: +c === 0})),
+  };
+  const clip = { writeText: (t) => { Android.copyText(String(t)); return Promise.resolve(); } };
+  try { Object.defineProperty(navigator, 'clipboard', {value: clip, configurable: true}); } catch (e) {}
+})();
+async function AppSave(files){
+  try { const r = await window.warpBridge.saveFiles(files.map(f=>({fileName:f.fileName,text:f.text}))); if (r && !r.canceled) AppToast(r.count>1?`Сохранено файлов: ${r.count}`:'Файл сохранён'); }
+  catch(e){ AppToast('Не удалось сохранить: ' + (e.message||e)); }
+}
+function AppImport(files){
+  const confs = files.filter(f => /\[Interface\]/i.test(f.text));
+  if (!confs.length) return AppToast('Для импорта нужен формат AmneziaWG / WireSock');
+  Android.importConfigs(JSON.stringify(confs.map(f=>({fileName:f.fileName,text:f.text}))));
+}
+</script>
+<script>const c = window.crypto.subtle;
+let quicHmacKey = null;
+
+/**
+ * @param {string|ArrayBuffer|null} data
+ */
+function quicStr8(data) {
+    if (!data) return new ArrayBuffer(1);
+    const input = (typeof data === 'string') ? new TextEncoder().encode(data) : new Uint8Array(data);
+    const result = new Uint8Array(input.byteLength + 1);
+    const view = new DataView(result.buffer);
+    view.setUint8(0, input.byteLength);
+    result.set(input, 1);
+    return result.buffer;
+}
+/**
+ * @param {string|ArrayBuffer|null} data
+ */
+function quicStr16(data) {
+    if (!data) return new ArrayBuffer(2);
+    const input = (typeof data === 'string') ? new TextEncoder().encode(data) : new Uint8Array(data);
+    const result = new Uint8Array(input.byteLength + 2);
+    const view = new DataView(result.buffer);
+    view.setUint16(0, input.byteLength, false);
+    result.set(input, 2);
+    return result.buffer;
+}
+
+/**
+ * @param {number} x
+ */
+function quicVarint(x) {
+    let result;
+    if (x < 0x40) {
+        return new Uint8Array([x]).buffer;
+    } else if (x < 0x4000) {
+        result = new Uint8Array(2);
+        new DataView(result.buffer).setUint16(0, x, false);
+        result[0] = result[0] | 0x40;
+    } else if (x < 0x40000000) {
+        result = new Uint8Array(4);
+        new DataView(result.buffer).setUint32(0, x, false);
+        result[0] = result[0] | 0x80;
+    } else {
+        result = new Uint8Array(8);
+        new DataView(result.buffer).setBigUint64(0, BigInt(x), false);
+        result[0] = result[0] | 0xC0;
+    }
+    return result.buffer;
+}
+/**
+ * @param {number} x
+ */
+function quicVarintLength(x) {
+    if (x < 0x40) {
+        return 1;
+    } else if (x < 0x4000) {
+        return 2;
+    } else if (x < 0x40000000) {
+        return 4;
+    } else {
+        return 8;
+    }
+}
+
+/**
+ * @param {ArrayBuffer|Uint8Array} buffer 
+ */
+function quicU8a(buffer) {
+    if (buffer instanceof Uint8Array) {
+        return buffer;
+    }
+    return new Uint8Array(buffer);
+}
+
+/**
+ * @param {ArrayBuffer|Uint8Array} buffer 
+ */
+function quicToHex(buffer) {
+    const arr = quicU8a(buffer);
+    if (arr.toHex) {
+        return arr.toHex();
+    } else {
+        return [...arr].map(x => x.toString(16).padStart(2, '0')).join('');
+    }
+}
+
+/**
+ * @param {(ArrayBuffer | Uint8Array)[]} buffers 
+ * @param {number} allocateBefore
+ * @param {number} allocateAfter
+ */
+function quicConcatBuffers(buffers, allocateBefore = 0, allocateAfter = 0) {
+    const buffersU8a = buffers.map((buffer) => quicU8a(buffer));
+    const totalLength = buffersU8a.reduce(
+        (a, buffer) => a + buffer.byteLength,
+        allocateBefore + allocateAfter
+    );
+    const result = new Uint8Array(totalLength);
+    let offset = allocateBefore;
+    for (const buffer of buffersU8a) {
+        result.set(buffer, offset);
+        offset += buffer.byteLength;
+    }
+    return result.buffer;
+}
+
+/**
+ * @param {ArrayBuffer|Uint8Array} dst
+ * @param {ArrayBuffer|Uint8Array} src
+ * @param {number} offset
+ */
+function quicCopyBuffer(dst, src, offset = 0) {
+    quicU8a(dst).set(quicU8a(src), offset);
+    return src.byteLength;
+}
+/**
+ * @param {ArrayBuffer|Uint8Array} dst
+ * @param {ArrayBuffer|Uint8Array} src
+ * @param {number} dstOffset
+ * @param {number} srcOffset
+ * @param {number} length
+ */
+function quicXorBuffer(dst, src, dstOffset, srcOffset, length) {
+    const dstU = quicU8a(dst);
+    const srcU = quicU8a(src);
+    for (let i = 0; i < length; i++) {
+        dstU[dstOffset + i] ^= srcU[srcOffset + i];
+    }
+}
+
+/**
+ * @param {CryptoKey|ArrayBuffer} key
+ * @param {ArrayBuffer} buffer
+ */
+async function quicHmac(key, buffer) {
+    const cryptoKey = (key instanceof CryptoKey) ? key : await c.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    return c.sign('HMAC', cryptoKey, buffer);
+}
+
+async function quicInitHmacKey() {
+    const quicSalt = new Uint8Array([
+        0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17,
+        0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a,
+    ]);
+    quicHmacKey = await c.importKey('raw', quicSalt, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+}
+/**
+ * @param {CryptoKey|ArrayBuffer} key
+ * @param {number} length
+ * @param {string} label
+ * @param {string} context
+ */
+async function quicDeriveSecret(key, length, label, context = '') {
+    const dataBuffer = quicConcatBuffers([
+        quicStr8('tls13 ' + label),
+        quicStr8(context),
+        new Uint8Array([0x01]),
+    ], 2);
+    const view = new DataView(dataBuffer);
+    // note: length here is not buffer length, but external one
+    view.setUint16(0, length, false);
+    const hmac = await quicHmac(key, dataBuffer);
+    return hmac.slice(0, length);
+}
+/**
+ * @param {CryptoKey|ArrayBuffer} key
+ * @param {ArrayBuffer} payload
+ * @param {ArrayBuffer} iv
+ * @param {ArrayBuffer} aad
+ */
+async function quicEncryptPayload(key, payload, iv, aad) {
+    const cryptoKey = (key instanceof CryptoKey) ? key : await c.importKey('raw', key, { name: 'AES-GCM', length: 128 }, false, ['encrypt']);
+    return c.encrypt({ name: 'AES-GCM', iv: iv, additionalData: aad, tagLength: 128 }, cryptoKey, payload);
+}
+/**
+ * @param {CryptoKey|ArrayBuffer} key
+ * @param {ArrayBuffer} sample
+ */
+async function quicDeriveHpMask(key, sample) {
+    // ECB is not implemented in Subtle, so we just use single block with zero IV
+    const cryptoKey = (key instanceof CryptoKey) ? key : await c.importKey('raw', key, { name: 'AES-CBC', length: 128 }, false, ['encrypt']);
+    return c.encrypt({ name: 'AES-CBC', iv: new ArrayBuffer(16) }, cryptoKey, sample);
+}
+/**
+ * @param {number} dcidLength
+ * @param {number} scidLength
+ * @param {number} tokenLength
+ * @param {number} pknLength
+ * @param {number} payload
+ * @param {number} padto
+ */
+function quicMeasureLengths(dcidLength, scidLength, tokenLength, pknLength, payloadLength, padto = 0) {
+    const baseHeaderLength = 8 + dcidLength + scidLength + tokenLength + pknLength;
+    const tagLength = 16;
+    let paddingLength = 0;
+
+    const getLengthByteSize = () => quicVarintLength(pknLength + payloadLength + paddingLength + tagLength);
+    const getOverallLength = () => baseHeaderLength + getLengthByteSize() + payloadLength + paddingLength + tagLength;
+
+    let overallLength = getOverallLength();
+    if (overallLength < padto) {
+        paddingLength = padto - overallLength;
+        // Adjust padding down if it's too big due to length byte got bigger
+        while (paddingLength && (getOverallLength() > padto)) {
+            paddingLength--;
+        }
+        // But it can accidentaly underflow, just nudge 1 step back
+        if (getOverallLength() < padto) {
+            paddingLength++;
+        }
+        overallLength = getOverallLength();
+    }
+    // extra safety (tail starting from pkn must be at least 20 bytes hor hp key derivation)
+    if (pknLength + payloadLength + paddingLength + tagLength < 20) {
+        paddingLength = 20 - pknLength - payloadLength - tagLength;
+        overallLength = getOverallLength();
+    }
+    const headerLength = baseHeaderLength + getLengthByteSize();
+
+    return {
+        'total': overallLength,
+        'header': headerLength,
+        'padding': paddingLength,
+    };
+}
+/**
+ * @param {ArrayBuffer} dcid
+ * @param {ArrayBuffer} scid
+ * @param {ArrayBuffer} token
+ * @param {ArrayBuffer} pkn
+ * @param {ArrayBuffer} payload
+ * @param {number} padto
+ */
+async function quicInitial(dcid, scid, token, pkn, payload, padto) {
+    const lengths = quicMeasureLengths(dcid.byteLength, scid.byteLength, token.byteLength, pkn.byteLength, payload.byteLength, padto);
+    // Create header buffer
+    const header = quicConcatBuffers([
+        new Uint8Array([0xC0 | (pkn.byteLength - 1), 0, 0, 0, 1]),
+        quicStr8(dcid),
+        quicStr8(scid),
+        quicStr8(token),
+        quicVarint(pkn.byteLength + payload.byteLength + lengths.padding + 16),
+        pkn,
+    ]);
+    // Derive keys
+    if (!quicHmacKey) await quicInitHmacKey();
+    const initSecret = await quicHmac(quicHmacKey, dcid);
+    const clientSecret = await quicDeriveSecret(initSecret, 32, 'client in');
+    const quicKey = await quicDeriveSecret(clientSecret, 16, 'quic key');
+    const quicIv = await quicDeriveSecret(clientSecret, 12, 'quic iv');
+    const quicHp = await quicDeriveSecret(clientSecret, 16, 'quic hp');
+    // Xor nonce with PKN
+    quicXorBuffer(quicIv, pkn, 12 - pkn.byteLength, 0, pkn.byteLength);
+    // Create padded payload buffer and encrypt it
+    const paddedPayload = quicConcatBuffers([payload], 0, lengths.padding);
+    const encryptedPayload = await quicEncryptPayload(quicKey, paddedPayload, quicIv, header);
+    // Header Prorection
+    const mask = new Uint8Array(await quicDeriveHpMask(quicHp, encryptedPayload.slice(4 - pkn.byteLength, 20 - pkn.byteLength)));
+    mask[0] &= 0x0f;
+    quicXorBuffer(header, mask, 0, 0, 1);
+    quicXorBuffer(header, mask, header.byteLength - pkn.byteLength, 1, pkn.byteLength);
+    // Generate resulting buffer
+    return quicConcatBuffers([header, encryptedPayload]);
+}
+/**
+ * @param {ArrayBuffer} data
+ * @param {number} offset
+ */
+function quicCryptoFrame(data, offset = 0) {
+    return quicConcatBuffers([
+        new Uint8Array([0x06]),
+        quicVarint(offset),
+        quicVarint(data.byteLength),
+        data,
+    ]);
+}
+/**
+ * @param {number} code
+ * @param {ArrayBuffer} content
+ */
+function quicTlsExt(code, content) {
+    const length = content.byteLength;
+    const result = quicConcatBuffers([content], 4);
+    const view = new DataView(result);
+    view.setUint16(0, code, false);
+    view.setUint16(2, length, false);
+    return result;
+}
+/**
+ * @param {string} sni
+ */
+function quicTlsExtSni(sni) {
+    const sniBuffer = quicStr16(sni);
+    const extBuffer = quicConcatBuffers([sniBuffer], 3);
+    const view = new DataView(extBuffer);
+    view.setUint16(0, sniBuffer.byteLength + 1, false);
+    view.setUint8(2, 0);
+    return quicTlsExt(0, extBuffer);
+}
+/**
+ * @param {string} sni
+ * @param {ArrayBuffer?} predefinedRandom
+ */
+function quicTlsClientHelloSniOnly(sni, predefinedRandom = null) {
+    const randomBytes = new Uint8Array(predefinedRandom ?? new ArrayBuffer(32));
+    if (!predefinedRandom) window.crypto.getRandomValues(randomBytes);
+    const payload = quicConcatBuffers([
+        new Uint8Array([0x03, 0x03]),
+        randomBytes,
+        new Uint8Array([0, 0, 0, 0]),
+        quicStr16(quicTlsExtSni(sni)),
+    ], 4);
+    const view = new DataView(payload);
+    view.setUint32(0, payload.byteLength - 4, false);
+    view.setUint8(0, 0x01);
+    return payload;
+}
+
+function zebra(buffer, parts, includeFirst = true) {
+    let include = includeFirst;
+    let offset = 0;
+    let result = '';
+    for (let part of parts) {
+        if (include) {
+            result += `<b 0x${quicToHex(buffer.slice(offset, offset + part))}>`;
+        } else {
+            result += `<r ${part}>`;
+        }
+        offset += part;
+        include = !include;
+    }
+    return result;
+}
+
+window.generateI1FromDomain = async function(domain) {
+    try {
+        const dcid = new Uint8Array(1);
+        window.crypto.getRandomValues(dcid);
+        const scid = new Uint8Array(0);
+        const token = new Uint8Array(0);
+        const pkn = new Uint8Array([0]);
+        const clientHello = quicTlsClientHelloSniOnly(domain);
+        const payload = quicCryptoFrame(clientHello);
+        const packet = await quicInitial(dcid, scid, token, pkn, payload, 0);
+//        return zebra(packet, [31, 22, packet.byteLength - 69, 16]);
+		  return `<b 0x${quicToHex(packet)}>`
+    } catch (error) {
+        console.error('Ошибка генерации I1:', error);
+        return null;
+    }
+};</script>
+<script>/* Чистая реализация X25519 (RFC 7748) на BigInt — не зависит от WebCrypto */
+const X25519 = (() => {
+  const P = (1n << 255n) - 19n;
+  const A24 = 121665n;
+  const mod = a => { const r = a % P; return r >= 0n ? r : r + P; };
+  const pow = (b, e) => { let r = 1n; b = mod(b); while (e > 0n) { if (e & 1n) r = mod(r * b); b = mod(b * b); e >>= 1n; } return r; };
+  const inv = a => pow(a, P - 2n);
+  const decodeLE = bytes => { let n = 0n; for (let i = bytes.length - 1; i >= 0; i--) n = (n << 8n) | BigInt(bytes[i]); return n; };
+  const encodeLE = n => { const o = new Uint8Array(32); for (let i = 0; i < 32; i++) { o[i] = Number(n & 255n); n >>= 8n; } return o; };
+  function scalarMult(k, u) {
+    const kk = Uint8Array.from(k); kk[0] &= 248; kk[31] &= 127; kk[31] |= 64;
+    const uu = Uint8Array.from(u); uu[31] &= 127;
+    const x1 = decodeLE(uu), kn = decodeLE(kk);
+    let x2 = 1n, z2 = 0n, x3 = x1, z3 = 1n, swap = 0n;
+    for (let t = 254n; t >= 0n; t--) {
+      const kt = (kn >> t) & 1n;
+      swap ^= kt;
+      if (swap) { [x2, x3] = [x3, x2]; [z2, z3] = [z3, z2]; }
+      swap = kt;
+      const A = mod(x2 + z2), AA = mod(A * A), B = mod(x2 - z2), BB = mod(B * B), E = mod(AA - BB);
+      const C = mod(x3 + z3), D = mod(x3 - z3), DA = mod(D * A), CB = mod(C * B);
+      x3 = mod((DA + CB) ** 2n); z3 = mod(x1 * mod((DA - CB) ** 2n));
+      x2 = mod(AA * BB); z2 = mod(E * (AA + A24 * E));
+    }
+    if (swap) { [x2, x3] = [x3, x2]; [z2, z3] = [z3, z2]; }
+    return encodeLE(mod(x2 * inv(z2)));
+  }
+  const BASE = (() => { const b = new Uint8Array(32); b[0] = 9; return b; })();
+  const b64 = u8 => btoa(String.fromCharCode(...u8));
+  function generateKeyPair() {
+    const priv = new Uint8Array(32); crypto.getRandomValues(priv);
+    priv[0] &= 248; priv[31] &= 127; priv[31] |= 64;
+    return { priv: b64(priv), pub: b64(scalarMult(priv, BASE)) };
+  }
+  return { scalarMult, generateKeyPair, BASE };
+})();
+</script>
+<script>(function(){
+"use strict";
+const I1_PRESETS = ["<b 0xce000000010897a297ecc34cd6dd000044d0ec2e2e1ea2991f467ace4222129b5a098823784694b4897b9986ae0b7280135fa85e196d9ad980b150122129ce2a9379531b0fd3e871ca5fdb883c369832f730e272d7b8b74f393f9f0fa43f11e510ecb2219a52984410c204cf875585340c62238e14ad04dff382f2c200e0ee22fe743b9c6b8b043121c5710ec289f471c91ee414fca8b8be8419ae8ce7ffc53837f6ade262891895f3f4cecd31bc93ac5599e18e4f01b472362b8056c3172b513051f8322d1062997ef4a383b01706598d08d48c221d30e74c7ce000cdad36b706b1bf9b0607c32ec4b3203a4ee21ab64df336212b9758280803fcab14933b0e7ee1e04a7becce3e2633f4852585c567894a5f9efe9706a151b615856647e8b7dba69ab357b3982f554549bef9256111b2d67afde0b496f16962d4957ff654232aa9e845b61463908309cfd9de0a6abf5f425f577d7e5f6440652aa8da5f73588e82e9470f3b21b27b28c649506ae1a7f5f15b876f56abc4615f49911549b9bb39dd804fde182bd2dcec0c33bad9b138ca07d4a4a1650a2c2686acea05727e2a78962a840ae428f55627516e73c83dd8893b02358e81b524b4d99fda6df52b3a8d7a5291326e7ac9d773c5b43b8444554ef5aea104a738ed650aa979674bbed38da58ac29d87c29d387d80b526065baeb073ce65f075ccb56e47533aef357dceaa8293a523c5f6f790be90e4731123d3c6152a70576e90b4ab5bc5ead01576c68ab633ff7d36dcde2a0b2c68897e1acfc4d6483aaaeb635dd63c96b2b6a7a2bfe042f6aed82e5363aa850aace12ee3b1a93f30d8ab9537df483152a5527faca21efc9981b304f11fc95336f5b9637b174c5a0659e2b22e159a9fed4b8e93047371175b1d6d9cc8ab745f3b2281537d1c75fb9451871864efa5d184c38c185fd203de206751b92620f7c369e031d2041e152040920ac2c5ab5340bfc9d0561176abf10a147287ea90758575ac6a9f5ac9f390d0d5b23ee12af583383d994e22c0cf42383834bcd3ada1b3825a0664d8f3fb678261d57601ddf94a8a68a7c273a18c08aa99c7ad8c6c42eab67718843597ec9930457359dfdfbce024afc2dcf9348579a57d8d3490b2fa99f278f1c37d87dad9b221acd575192ffae1784f8e60ec7cee4068b6b988f0433d96d6a1b1865f4e155e9fe020279f434f3bf1bd117b717b92f6cd1cc9bea7d45978bcc3f24bda631a36910110a6ec06da35f8966c9279d130347594f13e9e07514fa370754d1424c0a1545c5070ef9fb2acd14233e8a50bfc5978b5bdf8bc1714731f798d21e2004117c61f2989dd44f0cf027b27d4019e81ed4b5c31db347c4a3a4d85048d7093cf16753d7b0d15e078f5c7a5205dc2f87e330a1f716738dce1c6180e9d02869b5546f1c4d2748f8c90d9693cba4e0079297d22fd61402dea32ff0eb69ebd65a5d0b687d87e3a8b2c42b648aa723c7c7daf37abcc4bb85caea2ee8f55bec20e913b3324ab8f5c3304f820d42ad1b9f2ffc1a3af9927136b4419e1e579ab4c2ae3c776d293d397d575df181e6cae0a4ada5d67ecea171cca3288d57c7bbdaee3befe745fb7d634f70386d873b90c4d6c6596bb65af68f9e5121e67ebf0d89d3c909ceedfb32ce9575a7758ff080724e1ab5d5f43074ecb53a479af21ed03d7b6899c36631c0166f9d47e5e1d4528a5d3d3f744029c4b1c190cbfbad06f5f83f7ad0429fa9a2719c56ffe3783460e166de2d8>", "<b 0xca000000010192000040523d20151ea578688a48502d1b7d5ae46906ceb14547fec9aee98a407dab61b229ca5f6707be89c159f3cf9b73a3b8d906f7d3e307f8e39fdb0d35b23c0ffc635d285418cea8bfd98009d234e0e4f95891a7f4>", "<b 0xcd00000001019500004050389e9d50b54adf3d7b201298e06ddc84decc476cbaae7f5caa99df689a3d8bc8cdf4f1d328ca82147d4afbcd607f76c4ec72dcfa3831afb10b2469557a604f9bfc70d78c149fc6fbc2217d7b1ff6166e>", "<b 0xc400000001015c000040570b2e25e1a2fb2e1d5cf2bfdaeb0ca79c3255f6384628e6e6c22adb43440db63fa1d26ad16120d9cbdbf0dc2f7a8eb3525561b193c6b6a0ef44e8d118c3b04a3ae880c081a9b9e97321315915787938abd8b925506b830d>", "<b 0xc70000000101eb00004055988000e4d3995e7951b41d23dbb150e211e82942d2acbfc4b0596a070887a0e75c6e9e125b838da7e42a511b381741c47bb784a497a0a47327046ce4e2007d611c6c119779f0f2e340d5d6c4525a87754d7c997c09>", "<b 0xcb0000000101d6000040500195593d5d325e28e7a9d879ff474b9a1a344d76a202d92776ceaee0e7f8d933ded8bc2f49a31d19cfa2f42a8b6e056c76c4d64b4f09d870f342e0872e69f5486b4e35e32314107a3937b8d3cf14cfc8>"];
+const DOMAINS = ["175bru.ru", "1tv.ru", "2an.ru", "2gis.ru", "360tv.ru", "4ege.ru", "5-tv.ru", "9111.ru", "akbars.ru", "allhockey.ru", "amalgama-lab.com", "apteka.ru", "aptekamos.ru", "arbitr.ru", "arhangelskoe.su", "artchive.ru", "arzamas.academy", "asna.ru", "ati.su", "autonews.ru", "av.ru", "avtovzglyad.ru", "baby.ru", "babyblog.ru", "bashinform.ru", "bbr.ru", "beeline.ru", "belkacar.ru", "blizko.ru", "bolshoi.ru", "borodino.ru", "bspb.ru", "c2dns.net", "c2dns.ru", "cdek.ru", "championat.com", "chitalnya.ru", "consmed.ru", "consultant.ru", "cosmo.ru", "ctc.ru", "culture.ru", "dalenabank.ru", "datalesson.ru", "deepseek.com", "delimobil.ru", "delivery-club.ru", "dellin.ru", "dixy.ru", "dnevnik.ru", "dns-shop.ru", "docdoc.ru", "doctis.ru", "domashniy.ru", "doverie-tv.ru", "dzen.ru", "e-katalog.ru", "eapteka.ru", "edadeal.ru", "edimdoma.ru", "edu.ru", "elibrary.ru", "f1news.ru", "fantlab.ru", "fedsfm.ru", "fighttime.ru", "filmpro.ru", "fipi.ru", "fips.ru", "fitseven.ru", "forumhouse.ru", "foxford.ru", "friday.ru", "fsb.ru", "fss.ru", "fssprus.ru", "garant.ru", "gaso.ru", "gismeteo.ru", "gks.ru", "gosfilmofond.ru", "goskatalog.ru", "habr.ru", "health-diet.ru", "hermitagemuseum.org", "hi-news.ru", "histrf.ru", "ilibrary.ru", "in-space.ru", "indicator.ru", "infourok.ru", "interneturok.ru", "invb.ru", "irecommend.ru", "is74.ru", "ivi.ru", "joomag.com", "jv.ru", "karcher.ru", "kartaslov.ru", "karusel-tv.ru", "khl.ru", "kinopoisk.ru", "knigogid.ru", "kodeks.ru", "kolesa.ru", "kommersant.ru", "kopilkaurokov.ru", "kp.ru", "kreml.ru", "lektorium.tv", "letidor.ru", "lib.ru", "linkgroup.ru", "litres.ru", "livejournal.com", "livelib.ru", "livesport.ru", "lizaalert.org", "m24.ru", "maam.ru", "magnit.ru", "mail.ru", "mariinsky.ru", "matchtv.ru", "med-otzyv.ru", "medi.ru", "mediametrics.ru", "medicalinsider.ru", "medihost.ru", "medikforum.ru", "medlinks.ru", "medportal.ru", "medside.ru", "megafon.ru", "mel.fm", "mirtesen.ru", "mirtv.ru", "mkala.ru", "mob-edu.ru", "moluch.ru", "moskb.ru", "mts.ru", "multiurok.ru", "mybook.ru", "myskills.ru", "naked-science.ru", "nat-geo.ru", "nauchniestati.ru", "netology.ru", "nevasport.ru", "nic.ru", "nkj.ru", "nplus1.ru", "nskbl.ru", "nsportal.ru", "ntv.ru", "nukadeti.ru", "obrazovaka.ru", "ohotniki.ru", "olimpiada.ru", "onlinedoctor.ru", "onlinetrade.ru", "oprf.ru", "otr-online.ru", "otzovik.com", "oum.ru", "ped-kopilka.ru", "pedsovet.org", "pervbank.ru", "pikabu.ru", "pochtabank.ru", "popmech.ru", "postupi.online", "povar.ru", "professionali.ru", "profi.ru", "proza.ru", "psbank.ru", "pypi.org", "radiomayak.ru", "radiorus.ru", "radiovesti.ru", "rbc.ru", "ren.tv", "rgo.ru", "ria.ru", "rlsnet.ru", "rosbank.ru", "rosreestr.ru", "rosuchebnik.ru", "rsl.ru", "rt.ru", "rulit.me", "rusarchives.ru", "rusmuseum.ru", "rusneb.ru", "russkiiyazyk.ru", "rustih.ru", "rutube.ru", "samlib.ru", "sdamgia.ru", "selfpub.ru", "shm.ru", "sirius.online", "skyeng.ru", "sledcom.ru", "sm-news.ru", "smi2.ru", "smotrim.ru", "soccer.ru", "sovcombank.ru", "sovsport.ru", "spastv.ru", "sport24.ru", "sportmail.ru", "sportrbc.ru", "sportsdaily.ru", "stihi.ru", "sudact.ru", "sudrf.ru", "tamtam.chat", "tatar-inform.ru", "tele2.ru", "teleprogramma.pro", "tiu.ru", "tnt-online.ru", "tretyakovgallery.ru", "trudvsem.ru", "tv3.ru", "tvc.ru", "tvkultura.ru", "tvzvezda.ru", "ucheba.ru", "uchi.ru", "uchportal.ru", "unicreditbank.ru", "ura.news", "uteka.ru", "utkonos.ru", "vbr.ru", "verumreactor.ru", "vesti.ru", "vgtrk.ru", "videouroki.net", "vitrina.tv", "vk.ru", "vkvideo.ru", "vm.ru", "vokrugsveta.ru", "vrachirf.ru", "vsrf.ru", "webinar.ru", "wi-fi.ru", "wikireading.ru", "woman.ru", "worldskills.ru", "xn--80aesfpebagmfblc0a.xn--p1ai", "xn--80afcdbalict6afooklqi5o.xn--p1ai", "xn--j1ahfl.xn--p1ai", "xn----7sbb5adknde1cb0dyd.xn--p1ai", "xn--2020-f4dsa7cb5cl7h.xn--p1ai", "yaklass.ru", "youdo.com", "youla.ru", "zakon.ru", "zdorovie.ru", "zdorovieinfo.ru", "znaika.ru", "zoon.ru"];
+const NOLAN_IPS = "1.0.0.0/8, 2.0.0.0/7, 4.0.0.0/6, 8.0.0.0/7, 11.0.0.0/8, 12.0.0.0/6, 16.0.0.0/4, 32.0.0.0/3, 64.0.0.0/3, 96.0.0.0/4, 112.0.0.0/5, 120.0.0.0/6, 124.0.0.0/7, 126.0.0.0/8, 128.0.0.0/3, 160.0.0.0/5, 168.0.0.0/8, 169.0.0.0/9, 169.128.0.0/10, 169.192.0.0/11, 169.224.0.0/12, 169.240.0.0/13, 169.248.0.0/14, 169.252.0.0/15, 169.255.0.0/16, 170.0.0.0/7, 172.0.0.0/12, 172.32.0.0/11, 172.64.0.0/10, 172.128.0.0/9, 173.0.0.0/8, 174.0.0.0/7, 176.0.0.0/4, 192.0.0.0/9, 192.128.0.0/11, 192.160.0.0/13, 192.169.0.0/16, 192.170.0.0/15, 192.172.0.0/14, 192.176.0.0/12, 192.192.0.0/10, 193.0.0.0/8, 194.0.0.0/7, 196.0.0.0/6, 200.0.0.0/5, 208.0.0.0/4, 224.0.0.0/4, ::/1, 8000::/2, c000::/3, e000::/4, f000::/5, f800::/6, fe00::/9, fec0::/10, ff00::/8";
+const PORTS = [80, 88, 443, 500, 1194, 1224, 4500, 4569, 5060, 51820];
+const COUNTRY = {JP:'🇯🇵',US:'🇺🇸',NL:'🇳🇱',DE:'🇩🇪',FR:'🇫🇷',GB:'🇬🇧',CA:'🇨🇦',AU:'🇦🇺',RO:'🇷🇴',MX:'🇲🇽',NO:'🇳🇴',SG:'🇸🇬',CH:'🇨🇭',PL:'🇵🇱'};
+const AWG_KEYS = ['jc','jmin','jmax','s1','s2','h1','h2','h3','h4'];
+
+const $ = id => document.getElementById(id);
+const val = (id, fb='') => { const e=$(id); return (e.value.trim() || e.placeholder || fb); };
+const radio = name => document.querySelector(`input[name="${name}"]:checked`).value;
+const rnd = (a,b) => Math.floor(Math.random()*(b-a+1))+a;
+const pick = arr => arr[Math.floor(Math.random()*arr.length)];
+
+let sources = [];   // {name, text}
+let proxies = [];   // parsed
+let outputs = [];   // [{fileName, text}]
+
+/* ---------- parsing ---------- */
+function parseWG(text){
+  const cfg = {iface:{awg:{}}, peers:[]};
+  let sec = null, pi = -1;
+  const lines = text.split(/\r?\n/);
+  for (let i=0;i<lines.length;i++){
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (line.startsWith('[') && line.endsWith(']')){
+      sec = line.slice(1,-1).toLowerCase();
+      if (sec==='peer'){
+        pi++; cfg.peers.push({awg:{}});
+        const nxt = (lines[i+1]||'').trim().match(/^#\s*(.+)/);
+        if (nxt){ cfg.peers[pi].name = nxt[1].trim(); i++; }
+      }
+      continue;
+    }
+    if (line.startsWith('#')){
+      // Комментарий с именем сервера перед/внутри секции
+      if (sec==='interface' && !cfg.iface.comment) cfg.iface.comment = line.replace(/^#\s*/,'');
+      continue;
+    }
+    const eq = line.indexOf('='); if (eq<0) continue;
+    const k = line.slice(0,eq).trim().toLowerCase();
+    const v = line.slice(eq+1).trim();
+    if (sec==='interface'){ AWG_KEYS.includes(k) ? cfg.iface.awg[k]=v : cfg.iface[k]=v; }
+    else if (sec==='peer' && pi>=0){ AWG_KEYS.includes(k) ? cfg.peers[pi].awg[k]=v : cfg.peers[pi][k]=v; }
+  }
+  if (cfg.peers.length && !cfg.peers[0].name){
+    const m = text.match(/#\s*([A-Z]{2}-FREE#?\d+)/);
+    if (m) cfg.peers[0].name = m[1];
+  }
+  return cfg;
+}
+
+function junkDefaults(){
+  const m = radio('junk');
+  let jc, jmin, jmax;
+  if (m==='1'){ jc=3; jmin=1; jmax=3; }
+  else if (m==='2'){ jc=30; jmin=10; jmax=30; }
+  else {
+    jc = parseInt($('jc').value) || 128;
+    jmin = parseInt($('jmin').value) || 1279;
+    jmax = parseInt($('jmax').value) || 1280;
+  }
+  if (jmax <= jmin) jmax = jmin + 1;
+  return {jc, jmin, jmax, s1:0, s2:0, h1:1, h2:2, h3:3, h4:4};
+}
+
+function toProxy(cfg, fileName){
+  const I = cfg.iface, P = cfg.peers[0];
+  if (!P) throw new Error('нет секции [Peer]');
+  for (const [obj,k,label] of [[I,'privatekey','PrivateKey'],[I,'address','Address'],[P,'publickey','PublicKey'],[P,'endpoint','Endpoint'],[P,'allowedips','AllowedIPs']])
+    if (!obj[k]) throw new Error(`нет поля ${label}`);
+  const def = junkDefaults();
+  const awg = {};
+  for (const k of AWG_KEYS) awg[k] = I.awg[k] || P.awg[k] || def[k];
+  if ($('noJunk').checked) awg.jc = 0;   // без мусорных пакетов
+  const orig = P.name || fileName.replace(/\.conf$/i,'');
+  let name = orig.replace(/FREE#?/g,'').replace(/-$/,'');
+  const fm = name.match(/^([A-Z]{2})[-_]/);
+  if (fm && COUNTRY[fm[1]]) name = name.replace(fm[1], `${COUNTRY[fm[1]]} ${fm[1]}`);
+  const addrs = I.address.split(',').map(s=>s.trim());
+  const ep = P.endpoint.trim();
+  const host = ep.startsWith('[') ? ep.slice(1, ep.indexOf(']')) : ep.slice(0, ep.lastIndexOf(':'));
+  return {
+    name, orig, host,
+    priv: I.privatekey, pub: P.publickey, psk: P.presharedkey || '',
+    address: I.address, ipv4: addrs.find(a=>!a.includes(':'))||'', ipv6: addrs.find(a=>a.includes(':'))||'',
+    dns: I.dns ? I.dns.split(',').map(s=>s.trim()) : [],
+    allowed: P.allowedips.split(',').map(s=>s.trim()),
+    awg
+  };
+}
+
+/* ---------- generation ---------- */
+function opts(){
+  const kaOn = $('useKa').checked;
+  return {
+    fmt: radio('fmt'),
+    port: document.querySelector('input[name="port"]:checked').value,
+    mtu: val('mtu','1420'),
+    ka: kaOn ? val('ka','25') : '',
+    nolan: $('nolan').checked && !['clash','xray'].includes(radio('fmt')),
+    awg3: $('awg3').checked,
+    awg31: $('awg31').checked,
+    i: [1,2,3,4,5].map(n=>$('i'+n).value.trim()),
+  };
+}
+function awg3Values(){
+  return {cpa:val('cpa'), rkat:val('rkat'), rt:val('rt'), rat:val('rat'), kt:val('kt'), mha:val('mha')};
+}
+
+function buildConf(p, o){
+  const L = [];
+  L.push(`# ${p.orig || 'Безымянный конфиг'}`, '[Interface]', `PrivateKey = ${p.priv}`, `Address = ${p.address}`);
+  if (p.dns.length) L.push(`DNS = ${p.dns.join(', ')}`);
+  L.push(`MTU = ${o.mtu}`);
+  const a = p.awg;
+  L.push('S1 = 0','S2 = 0',`Jc = ${a.jc}`,`Jmin = ${a.jmin}`,`Jmax = ${a.jmax}`,`H1 = ${a.h1}`,`H2 = ${a.h2}`,`H3 = ${a.h3}`,`H4 = ${a.h4}`);
+  if (o.fmt==='awg'){
+    L.push(`I1 = ${o.i[0] || I1_PRESETS[0]}`);
+    o.i.slice(1).forEach((v,n)=>{ if (v) L.push(`I${n+2} = ${v}`); });
+  }
+  if (o.fmt==='wiresock'){
+    L.push(`Id = ${val('wsId','apteka.ru')}`, `Ip = ${$('wsIp').value}`, `Ib = ${$('wsIb').value}`);
+  }
+  if (o.awg3){
+    const v = awg3Values();
+    if (v.cpa)  L.push(`ContentPaddingAddition = ${v.cpa}`);
+    if (v.rkat) L.push(`RekeyAfterTime = ${v.rkat}`);
+    if (v.rt)   L.push(`RekeyTimeout = ${v.rt}`);
+    if (v.rat)  L.push(`RejectAfterTime = ${v.rat}`);
+    if (v.kt)   L.push(`KeepaliveTimeout = ${v.kt}`);
+    if (v.mha)  L.push(`MaxHandshakeAttempts = ${v.mha}`);
+  }
+  if (o.awg31) L.push('DisableCookies = on');
+  L.push('', '[Peer]', `PublicKey = ${p.pub}`);
+  if (p.psk) L.push(`PresharedKey = ${p.psk}`);
+  L.push(`AllowedIPs = ${o.nolan ? NOLAN_IPS : p.allowed.join(', ')}`);
+  L.push(`Endpoint = ${p.host.includes(':') ? '['+p.host+']' : p.host}:${o.port}`);
+  if (o.ka) L.push(`PersistentKeepalive = ${o.ka}`);
+  return L.join('\n') + '\n';
+}
+
+function buildClash(list, o){
+  const y = ['proxies:'];
+  for (const p of list){
+    y.push(`- name: ${p.name}`, '  type: wireguard', `  server: ${p.host}`, `  port: ${o.port}`, `  ip: ${p.ipv4}`);
+    if (p.ipv6) y.push(`  ipv6: ${p.ipv6}`);
+    y.push(`  private-key: ${p.priv}`, `  public-key: ${p.pub}`, `  allowed-ips: [${p.allowed.map(x=>`'${x}'`).join(', ')}]`);
+    if (p.psk) y.push(`  pre-shared-key: ${p.psk}`);
+    if (o.ka) y.push(`  persistent-keepalive: ${o.ka}`);
+    y.push('  udp: true', `  mtu: ${o.mtu}`, '  remote-dns-resolve: true', `  dns: [${p.dns.join(', ')}]`, '  amnezia-wg-option:', '    version: 3');
+    for (const [k,v] of Object.entries(p.awg)) y.push(`    ${k}: ${v}`);
+    y.push(`    i1: ${o.i[0] || I1_PRESETS[0]}`);
+    o.i.slice(1).forEach((v,n)=>{ if (v) y.push(`    i${n+2}: ${v}`); });
+    if (o.awg3){
+      const v = awg3Values();
+      if (v.cpa)  y.push(`    content-padding-addition: ${v.cpa}`);
+      if (v.rkat) y.push(`    rekey-after-time: ${v.rkat}`);
+      if (v.rt)   y.push(`    rekey-timeout: ${v.rt}`);
+      if (v.rat)  y.push(`    reject-after-time: ${v.rat}`);
+      if (v.kt)   y.push(`    keepalive-timeout: ${v.kt}`);
+      if (v.mha)  y.push(`    max-handshake-attempts: ${v.mha}`);
+    }
+    if (o.awg31) y.push('    disable-cookies: true');
+    y.push('');
+  }
+  const proton = [], other = [];
+  for (const p of list) (/(^|[_-])([A-Z]{2})([-_]FREE)?([#_-]|$)/i.test(p.orig) ? proton : other).push(p.name);
+  y.push('proxy-groups:');
+  const grp = (n, arr) => { if (arr.length) y.push(`- name: ${n}`, '  type: select', '  proxies:', ...arr.map(x=>`    - ${x}`), "  url: 'http://speed.cloudflare.com/'", '  unified-delay: true', '  interval: 300'); };
+  grp('Proton', proton); grp('Other', other);
+  return y.join('\n') + '\n';
+}
+
+
+function buildXray(p, o){
+  const hex = ((o.i[0] || I1_PRESETS[0]).match(/0x([0-9a-fA-F]+)/) || [,''])[1];
+  const noises = [{delay:'1-2', packet:hex, type:'hex'}];
+  for (let n=0; n<(parseInt(p.awg.jc)||0); n++) noises.push({delay:'1-3', packet:`${p.awg.jmin}-${p.awg.jmax}`, type:'rand'});
+  const sniff = {destOverride:['http','tls'], enabled:true};
+  const peer = {allowedIPs: p.allowed};
+  if (p.psk) peer.preSharedKey = p.psk;
+  peer.endpoint = `${p.host.includes(':') ? '['+p.host+']' : p.host}:${o.port}`;
+  if (o.ka) peer.keepAlive = Number(o.ka);
+  peer.publicKey = p.pub;
+  const cfg = {
+    dns: {servers: p.dns.length ? p.dns : ['1.1.1.1','1.0.0.1']},
+    inbounds: [
+      {listen:'127.0.0.1', port:10808, protocol:'socks', settings:{auth:'noauth', udp:true}, sniffing:sniff, tag:'socks-in'},
+      {listen:'127.0.0.1', port:10809, protocol:'http', settings:{}, sniffing:sniff, tag:'http-in'},
+    ],
+    log: {loglevel:'warning'}, meta: null,
+    outbounds: [
+      {protocol:'wireguard', settings:{address: p.address.split(',').map(a=>a.trim()), mtu:Number(o.mtu), peers:[peer], secretKey:p.priv},
+       streamSettings:{sockopt:{dialerProxy:'noise-out'}}, tag:'proton'},
+      {protocol:'freedom', settings:{domainStrategy:'AsIs', noises}, tag:'noise-out'},
+    ],
+    remarks: (p.orig||'Proton').replace(/-FREE/g,'').replace(/[^a-z0-9]/gi,'_'),
+    routing: {domainStrategy:'AsIs', rules:[{network:'tcp,udp', outboundTag:'proton', type:'field'}]},
+  };
+  return JSON.stringify(cfg, null, 4) + '\n';
+}
+
+function fileNameFor(p, idx, ext='conf'){
+  const base = (p.orig||'').replace(/-FREE/g,'').replace(/[^a-z0-9]/gi,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
+  return base ? `${base}.${ext}` : `config_${idx+1}.${ext}`;
+}
+
+function regenerate(){
+  proxies = []; outputs = [];
+  const errs = [];
+  sources.forEach(s=>{
+    try { proxies.push(toProxy(parseWG(s.text), s.name)); }
+    catch(e){ errs.push(`${s.name}: ${e.message}`); }
+  });
+  const o = opts();
+  if (proxies.length){
+    if (o.fmt==='clash'){
+      outputs = [{fileName:'clash-config.yaml', text: buildClash(proxies, o)}];
+    } else {
+      const used = new Set();
+      outputs = proxies.map((p,i)=>{
+        const ext = o.fmt==='xray' ? 'json' : 'conf';
+        let n = fileNameFor(p,i,ext); while (used.has(n)) n = n.replace(/(\.\w+)$/, `_${i}$1`); used.add(n);
+        return {fileName:n, text: o.fmt==='xray' ? buildXray(p,o) : buildConf(p,o)};
+      });
+    }
+  }
+  $('out').value = outputs.length === 1 ? outputs[0].text
+    : outputs.map(x=>`### ${x.fileName}\n${x.text}`).join('\n');
+  $('save').disabled = $('copy').disabled = !outputs.length;
+  $('saveHint').textContent = errs.length ? 'Пропущено: ' + errs.join('; ')
+    : outputs.length > 1 && o.fmt!=='clash' ? `Будет сохранено файлов: ${outputs.length}` : '';
+  const f = $('files');
+  f.textContent = sources.length ? sources.map(s=>s.name).join(', ') : 'Файлы не выбраны';
+}
+
+/* ---------- UI wiring ---------- */
+const toast = AppToast;
+
+function updateVisibility(){
+  const f = radio('fmt');
+  $('p-awg2').classList.toggle('hidden', f==='wiresock');
+  $('p-ws').classList.toggle('hidden', f!=='wiresock');
+  $('nolanRow').classList.toggle('hidden', f==='clash' || f==='xray');
+  $('p-awg3').classList.toggle('hidden', f==='xray');
+  $('i2-5').classList.toggle('hidden', f==='xray');
+  $('awg3box').classList.toggle('hidden', !$('awg3').checked);
+}
+
+function init(){
+  $('ports').innerHTML = PORTS.map(p=>`<label><input type="radio" name="port" value="${p}"${p===51820?' checked':''}><span>${p}</span></label>`).join('');
+  document.querySelectorAll('#view-proton input,#view-proton select,#view-proton textarea').forEach(el=>{
+    if (el.id==='file' || el.id==='domain' || el.id==='pasteText' || el.id==='out') return;
+    const h = ()=>{ if (el.name==='fmt' && el.value==='xray'){ $('jc').value=5; $('jmin').value=40; $('jmax').value=70; document.querySelector('input[name=junk][value="3"]').checked = true; } if (el.name==='fmt'||el.id==='awg3') updateVisibility(); if (el.id==='jc'||el.id==='jmin'||el.id==='jmax') document.querySelector('input[name=junk][value="3"]').checked = true; regenerate(); };
+    el.addEventListener('input', h); el.addEventListener('change', h);
+  });
+
+  $('pick').onclick = ()=>$('file').click();
+  $('file').onchange = async e=>{
+    const fl = Array.from(e.target.files);
+    sources = [];
+    for (const f of fl) { try { sources.push({name:f.name, text: await f.text()}); } catch(err) { alert('Не удалось прочитать файл: '+f.name); } }
+    e.target.value = '';
+    regenerate();
+  };
+  $('paste').onclick = ()=>$('dlgPaste').showModal();
+  $('dlgPaste').addEventListener('close', ()=>{
+    if ($('dlgPaste').returnValue==='ok' && $('pasteText').value.trim()){
+      sources.push({name:`pasted_${sources.length+1}.conf`, text:$('pasteText').value});
+      $('pasteText').value=''; regenerate();
+    }
+  });
+
+  $('rndJunk').onclick = ()=>{
+    const jc = rnd(1,100), jmin = rnd(1,200), jmax = rnd(jmin+1,201);
+    $('jc').value=jc; $('jmin').value=jmin; $('jmax').value=jmax;
+    document.querySelector('input[name=junk][value="3"]').checked = true; regenerate();
+  };
+  $('rndI').onclick = ()=>{ $('i1').value = pick(I1_PRESETS); [2,3,4,5].forEach(n=>$('i'+n).value=''); regenerate(); };
+  $('rndWs').onclick = ()=>{ $('wsId').value = pick(DOMAINS); regenerate(); };
+  $('rndAwg3').onclick = ()=>{
+    const r = (a,b,c,d)=>`${rnd(a,b)}-${rnd(c,d)}`;
+    $('cpa').value=r(5,49,50,110); $('mha').value=r(5,24,25,40); $('kt').value=r(5,10,11,25);
+    $('rat').value=r(50,99,100,200); $('rkat').value=r(50,99,100,150); $('rt').value=r(3,9,10,15);
+    regenerate();
+  };
+  $('genI').onclick = ()=>$('dlgDomain').showModal();
+  $('dlgDomain').addEventListener('close', async ()=>{
+    if ($('dlgDomain').returnValue!=='ok') return;
+    const d = $('domain').value.trim();
+    if (!d) return toast('Введите домен');
+    const v = await window.generateI1FromDomain(d);
+    if (!v) return toast('Не удалось сгенерировать I1');
+    $('i1').value = v; [2,3,4,5].forEach(n=>$('i'+n).value=''); regenerate();
+  });
+
+  $('copy').onclick = async ()=>{
+    const text = $('out').value;
+    try { await navigator.clipboard.writeText(text); }
+    catch { $('out').readOnly=false; $('out').select(); document.execCommand('copy'); $('out').readOnly=true; }
+    toast('Скопировано');
+  };
+  $('save').onclick = saveFiles;
+  $('import').onclick = () => AppImport(outputs);
+  updateVisibility(); regenerate();
+}
+
+async function saveFiles(){ if (outputs.length) AppSave(outputs, 'Конфиг AmneziaWG'); }
+
+init();
+
+})();</script>
+</body></html>

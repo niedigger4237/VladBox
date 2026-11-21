@@ -620,4 +620,7 @@
     <string name="mux_brutal">Mux Brutal</string>
     <string name="mux_brutal_up">Brutal up (Mbps)</string>
     <string name="mux_brutal_down">Brutal down (Mbps)</string>
+    <string name="menu_warp">Cloudflare WARP</string>
+    <string name="menu_proton">Proton VPN</string>
+    <string name="warpgen_imported">Imported profiles: %d</string>
 </resources>

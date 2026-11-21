@@ -35,6 +35,14 @@
             android:icon="@drawable/ic_baseline_transform_24"
             android:title="@string/menu_dashboard" />
         <item
+            android:id="@+id/nav_warp"
+            android:icon="@drawable/ic_baseline_transform_24"
+            android:title="@string/menu_warp" />
+        <item
+            android:id="@+id/nav_proton"
+            android:icon="@drawable/ic_action_settings"
+            android:title="@string/menu_proton" />
+        <item
             android:id="@+id/nav_tools"
             android:icon="@drawable/baseline_construction_24"
             android:title="@string/menu_tools" />

@@ -520,4 +520,7 @@
     <string name="mux_brutal">Mux Brutal</string>
     <string name="mux_brutal_up">Brutal вверх (Мбит/с)</string>
     <string name="mux_brutal_down">Brutal вниз (Мбит/с)</string>
+    <string name="menu_warp">Cloudflare WARP генератор</string>
+    <string name="menu_proton">Proton VPN конвертер</string>
+    <string name="warpgen_imported">Добавлено профилей: %d</string>
 </resources>
