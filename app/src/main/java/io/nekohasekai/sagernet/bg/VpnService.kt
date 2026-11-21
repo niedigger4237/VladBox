@@ -128,8 +128,11 @@ class VpnService : BaseVpnService(),
 
         // app route
         val packageName = packageName
-        val proxyApps = DataStore.proxyApps
         var bypass = DataStore.bypass
+        // "Proxy" mode with nothing selected would let only this app into the VPN, so every routing rule
+        // would silently stop working: treat an empty selection as "all apps"
+        val hasSelection = DataStore.individual.split('\n').any { it.isNotBlank() && !it.matches(Regex("u\\d+:.*")) }
+        val proxyApps = DataStore.proxyApps && (bypass || hasSelection)
         val workaroundSYSTEM = false /* DataStore.tunImplementation == TunImplementation.SYSTEM */
         val needBypassRootUid = workaroundSYSTEM || data.proxy!!.config.trafficMap.values.any {
             it[0].hysteriaBean?.protocol == HysteriaBean.PROTOCOL_FAKETCP

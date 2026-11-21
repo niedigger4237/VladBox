@@ -1,8 +1,4 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:id="@+id/apps_enable"
-        android:checkable="true"
-        android:title="@string/apps_enable" />
     <group android:checkableBehavior="single">
         <item
             android:id="@+id/apps_mode_proxy"
