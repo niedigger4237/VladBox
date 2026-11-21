@@ -307,7 +307,17 @@ class AppManagerActivity : ThemedActivity() {
     /** "Normal" / "Private" spaces — only when root is in use (the private space is read through root) */
     private fun setupSpaceTabs() {
         val tabs = binding.spaceTabs
-        if (!rootModeSelected()) { tabs.visibility = View.GONE; return }
+        tabs.visibility = View.GONE
+        // the private space is shown whenever root is available (not only when a root mode is selected)
+        runOnDefaultDispatcher {
+            val root = rootModeSelected() || RootShell.isAvailable()
+            if (root) onMainDispatcher { showSpaceTabs() }
+        }
+    }
+
+    private fun showSpaceTabs() {
+        val tabs = binding.spaceTabs
+        if (tabs.tabCount > 0) return
         tabs.visibility = View.VISIBLE
         tabs.addTab(tabs.newTab().setText(R.string.apps_space_normal))
         tabs.addTab(tabs.newTab().setText(R.string.apps_space_private))
@@ -328,8 +338,13 @@ class AppManagerActivity : ThemedActivity() {
         popup.menuInflater.inflate(R.menu.apps_settings_menu, popup.menu)
         popup.menu.findItem(if (DataStore.bypass) R.id.apps_mode_bypass else R.id.apps_mode_proxy).isChecked = true
         popup.menu.findItem(R.id.apps_show_system).isChecked = sysApps
+        popup.menu.findItem(R.id.apps_enable).isChecked = DataStore.proxyApps
         popup.setOnMenuItemClickListener {
             when (it.itemId) {
+                R.id.apps_enable -> {
+                    DataStore.proxyApps = !DataStore.proxyApps
+                    DataStore.dirty = true
+                }
                 R.id.apps_mode_proxy -> DataStore.bypass = false
                 R.id.apps_mode_bypass -> DataStore.bypass = true
                 R.id.apps_show_system -> {

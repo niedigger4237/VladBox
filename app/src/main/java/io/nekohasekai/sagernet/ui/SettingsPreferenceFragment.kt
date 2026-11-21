@@ -20,7 +20,7 @@ import moe.matsuri.nb4a.ui.*
 
 class SettingsPreferenceFragment : PreferenceFragmentCompat() {
 
-    private lateinit var isProxyApps: SwitchPreference
+    private lateinit var isProxyApps: Preference
 
     private lateinit var globalCustomConfig: EditConfigPreference
 
@@ -172,11 +172,12 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             metedNetwork.remove()
         }
         isProxyApps = findPreference(Key.PROXY_APPS)!!
-        isProxyApps.setOnPreferenceChangeListener { _, newValue ->
+        // opening the list must not flip the mode: it is switched inside the list (toolbar → Settings)
+        isProxyApps.setOnPreferenceClickListener {
             startActivity(Intent(activity, AppManagerActivity::class.java))
-            if (newValue as Boolean) DataStore.dirty = true
-            newValue
+            true
         }
+        updateProxyAppsSummary()
 
         val profileTrafficStatistics =
             findPreference<SwitchPreference>(Key.PROFILE_TRAFFIC_STATISTICS)!!
@@ -257,11 +258,16 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         globalCustomConfig.onPreferenceChangeListener = reloadListener
     }
 
+    private fun updateProxyAppsSummary() {
+        isProxyApps.summary = getString(if (DataStore.proxyApps) R.string.on else R.string.off) +
+                " · " + getString(if (DataStore.bypass) R.string.bypass_apps else R.string.route_proxy)
+    }
+
     override fun onResume() {
         super.onResume()
 
         if (::isProxyApps.isInitialized) {
-            isProxyApps.isChecked = DataStore.proxyApps
+            updateProxyAppsSummary()
         }
         if (::globalCustomConfig.isInitialized) {
             globalCustomConfig.notifyChanged()
