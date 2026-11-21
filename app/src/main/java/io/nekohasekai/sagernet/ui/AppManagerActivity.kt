@@ -242,6 +242,7 @@ class AppManagerActivity : ThemedActivity() {
     private fun loadApps() {
         loader?.cancel()
         loader = lifecycleScope.launchWhenCreated {
+            binding.appPlaceholder.root.visibility = View.GONE
             loading.crossFadeFrom(binding.list)
             val adapter = binding.list.adapter as AppsAdapter
             withContext(Dispatchers.IO) { adapter.reload() }
@@ -324,12 +325,26 @@ class AppManagerActivity : ThemedActivity() {
         tabs.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab) {
                 space = tab.position
-                if (space == 1 && !privateLoaded) loadApps()
-                else appsAdapter.filter.filter(binding.search.text?.toString() ?: "")
+                if (space == 1 && !privateLoaded) loadApps() else showCurrentSpace()
             }
             override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab) {}
             override fun onTabReselected(tab: com.google.android.material.tabs.TabLayout.Tab) {}
         })
+    }
+
+    /** shows the already loaded list of the selected space (list or "empty" placeholder) */
+    private fun showCurrentSpace() {
+        loader?.cancel()
+        for (v in listOf(loading, binding.list, binding.appPlaceholder.root)) { v.clearAnimation(); v.animate().cancel(); v.alpha = 1F }
+        loading.visibility = View.GONE
+        appsAdapter.filter.filter(binding.search.text?.toString() ?: "")
+        if (apps.isEmpty()) {
+            binding.list.visibility = View.GONE
+            binding.appPlaceholder.root.visibility = View.VISIBLE
+        } else {
+            binding.appPlaceholder.root.visibility = View.GONE
+            binding.list.visibility = View.VISIBLE
+        }
     }
 
     private fun showAppsSettings() {
