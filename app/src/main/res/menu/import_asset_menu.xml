@@ -7,4 +7,12 @@
         android:icon="@drawable/ic_action_note_add"
         android:title="@string/action_import_file"
         app:showAsAction="always" />
+    <item
+        android:id="@+id/action_geo_provider"
+        android:title="@string/route_rules_provider"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_geo_custom"
+        android:title="@string/route_rules_custom"
+        app:showAsAction="never" />
 </menu>

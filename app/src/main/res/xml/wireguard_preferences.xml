@@ -72,7 +72,8 @@
             app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
 
-    <PreferenceCategory app:title="@string/awg_category">
+    <PreferenceCategory app:key="awgCategory" app:title="@string/awg_category">
+        <SwitchPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgEnabled" app:title="@string/awg_enable" app:summary="@string/awg_enable_sum" />
         <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgJc" app:title="Jc" app:summary="@string/awg_summary" app:useSimpleSummaryProvider="true" />
         <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgJmin" app:title="Jmin" app:useSimpleSummaryProvider="true" />
         <EditTextPreference app:icon="@drawable/ic_baseline_fingerprint_24" app:key="awgJmax" app:title="Jmax" app:useSimpleSummaryProvider="true" />

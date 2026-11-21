@@ -137,6 +137,14 @@ class AssetsActivity : ThemedActivity() {
                 startFilesForResult(importFile, "*/*")
                 return true
             }
+            R.id.action_geo_provider -> {
+                chooseProvider()
+                return true
+            }
+            R.id.action_geo_custom -> {
+                editCustomUrls()
+                return true
+            }
         }
         return false
     }
@@ -272,9 +280,76 @@ class AssetsActivity : ThemedActivity() {
         ),
     )
 
+    private val CUSTOM_PROVIDER = 4
+
+    /** Прямая ссылка на .db (или .db.xz) из настроек «Свой источник». */
+    suspend fun updateAssetFromUrl(file: File, versionFile: File) {
+        val url = (if (file.name == "geoip.db") DataStore.customGeoipUrl else DataStore.customGeositeUrl).trim()
+        if (url.isEmpty()) error(getString(R.string.route_custom_url_empty, file.name))
+        val client = Libcore.newHttpClient().apply {
+            modernTLS()
+            keepAlive()
+            trySocks5(DataStore.mixedPort)
+        }
+        try {
+            val response = client.newRequest().apply { setURL(url) }.execute()
+            val cacheFile = File(file.parentFile, file.name + ".tmp")
+            cacheFile.parentFile?.mkdirs()
+            response.writeTo(cacheFile.canonicalPath)
+            if (url.endsWith(".xz")) {
+                Libcore.unxz(cacheFile.absolutePath, file.absolutePath)
+                cacheFile.delete()
+            } else {
+                cacheFile.renameTo(file)
+            }
+            versionFile.writeText("custom-" + DateFormat.getDateFormat(app).format(Date()))
+            adapter.reloadAssets()
+            onMainDispatcher { snackbar(R.string.route_asset_updated).show() }
+        } finally {
+            client.close()
+        }
+    }
+
+    private fun chooseProvider() {
+        val names = resources.getStringArray(R.array.rules_dat_provider)
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.route_rules_provider)
+            .setSingleChoiceItems(names, DataStore.rulesProvider.coerceIn(0, names.size - 1)) { d, which ->
+                DataStore.rulesProvider = which
+                d.dismiss()
+                if (which == CUSTOM_PROVIDER) editCustomUrls()
+            }
+            .setNegativeButton(R.string.no, null)
+            .show()
+    }
+
+    private fun editCustomUrls() {
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val box = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+        }
+        val ip = android.widget.EditText(this).apply { hint = "geoip.db URL"; setText(DataStore.customGeoipUrl); setSingleLine() }
+        val site = android.widget.EditText(this).apply { hint = "geosite.db URL"; setText(DataStore.customGeositeUrl); setSingleLine() }
+        box.addView(ip); box.addView(site)
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.route_rules_custom)
+            .setView(box)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                DataStore.customGeoipUrl = ip.text.toString().trim()
+                DataStore.customGeositeUrl = site.text.toString().trim()
+            }
+            .setNegativeButton(R.string.no, null)
+            .show()
+    }
+
     suspend fun updateAsset(file: File, versionFile: File, localVersion: String) {
         var fileName = file.name
 
+        if (DataStore.rulesProvider == CUSTOM_PROVIDER) {
+            updateAssetFromUrl(file, versionFile)
+            return
+        }
         val ruleProvider = rulesProviders[DataStore.rulesProvider]
         val repo = ruleProvider.repoByFileName[fileName]
 

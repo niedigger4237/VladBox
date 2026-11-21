@@ -12,15 +12,15 @@ class ToolsFragment : ToolbarFragment(R.layout.layout_tools) {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        toolbar.setTitle(R.string.menu_tools)
+        toolbar.setTitle(R.string.menu_backup)
 
         val tools = mutableListOf<NamedFragment>()
-        tools.add(NetworkFragment())
         tools.add(BackupFragment())
 
         val binding = LayoutToolsBinding.bind(view)
         binding.toolsPager.adapter = ToolsAdapter(tools)
 
+        binding.toolsTab.visibility = View.GONE
         TabLayoutMediator(binding.toolsTab, binding.toolsPager) { tab, position ->
             tab.text = tools[position].name()
             tab.view.setOnLongClickListener { // clear toast
