@@ -67,7 +67,7 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
     override fun close() {
         rootLooper?.stop()
         rootLooper = null
-        rootScope?.cancel()
+        rootScope?.coroutineContext?.get(kotlinx.coroutines.Job)?.cancel()
         rootScope = null
         // asteriskd removes its rules before it stops the core
         if (started) {
