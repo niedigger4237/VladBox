@@ -96,7 +96,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     var isExpert by configurationStore.boolean(Key.APP_EXPERT)
     var appTheme by configurationStore.int(Key.APP_THEME)
-    var nightTheme by configurationStore.stringToInt(Key.NIGHT_THEME)
+    var nightTheme by configurationStore.stringToInt(Key.NIGHT_THEME) { 1 }
     var serviceMode by configurationStore.string(Key.SERVICE_MODE) { Key.MODE_VPN }
     var rootTproxyPort by configurationStore.stringToInt(Key.ROOT_TPROXY_PORT) { 9898 }
 

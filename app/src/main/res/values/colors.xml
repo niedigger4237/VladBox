@@ -207,20 +207,20 @@
     <color name="material_orange_accent_200">#FFAB40</color>
     <color name="material_orange_accent_400">#FF9100</color>
     <color name="material_orange_accent_700">#FF6D00</color>
-    <color name="material_pink_100">#F8BBD0</color>
-    <color name="material_pink_200">#F48FB1</color>
-    <color name="material_pink_300">#F06292</color>
-    <color name="material_pink_400">#EC407A</color>
-    <color name="material_pink_50">#FCE4EC</color>
-    <color name="material_pink_500">#E91E63</color>
-    <color name="material_pink_600">#D81B60</color>
-    <color name="material_pink_700">#C2185B</color>
-    <color name="material_pink_800">#AD1457</color>
-    <color name="material_pink_900">#880E4F</color>
-    <color name="material_pink_accent_100">#FF80AB</color>
-    <color name="material_pink_accent_200">#FF4081</color>
-    <color name="material_pink_accent_400">#F50057</color>
-    <color name="material_pink_accent_700">#C51162</color>
+    <color name="material_pink_100">#DDD6FE</color>
+    <color name="material_pink_200">#C4B5FD</color>
+    <color name="material_pink_300">#A78BFA</color>
+    <color name="material_pink_400">#8B5CF6</color>
+    <color name="material_pink_50">#F5F3FF</color>
+    <color name="material_pink_500">#7C3AED</color>
+    <color name="material_pink_600">#6D28D9</color>
+    <color name="material_pink_700">#5B21B6</color>
+    <color name="material_pink_800">#4C1D95</color>
+    <color name="material_pink_900">#2E1065</color>
+    <color name="material_pink_accent_100">#C4B5FD</color>
+    <color name="material_pink_accent_200">#A855F7</color>
+    <color name="material_pink_accent_400">#9333EA</color>
+    <color name="material_pink_accent_700">#7E22CE</color>
     <color name="material_purple_100">#E1BEE7</color>
     <color name="material_purple_200">#CE93D8</color>
     <color name="material_purple_300">#BA68C8</color>
@@ -283,11 +283,13 @@
 
     <color name="fab_color_progress">@color/material_light_black</color>
 
-    <color name="color_pink_ssr">#fb7299</color>
+    <color name="color_pink_ssr">#7C3AED</color>
 
-    <color name="color_ng_black_accent">#9E9E9E</color>
-    <color name="color_ng_black_primary">#2B2B2B</color>
+    <color name="color_ng_black_accent">#8B5CF6</color>
+    <color name="color_ng_black_primary">#17112B</color>
 
     <color name="preference_simple_menu_background">#FAFAFA</color>
 
+    <color name="niefiger_background">#F6F3FC</color>
+    <color name="niefiger_surface">#FFFFFF</color>
 </resources>
