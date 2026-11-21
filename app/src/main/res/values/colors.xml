@@ -292,4 +292,6 @@
 
     <color name="niefiger_background">#F6F3FC</color>
     <color name="niefiger_surface">#FFFFFF</color>
+    <color name="niefiger_card_stroke">#DDD5F2</color>
+    <color name="niefiger_chip">#228B5CF6</color>
 </resources>

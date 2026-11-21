@@ -4,4 +4,6 @@
     <color name="preference_simple_menu_background">#303030</color>
     <color name="niefiger_background">#0A0A0F</color>
     <color name="niefiger_surface">#15121F</color>
+    <color name="niefiger_card_stroke">#2D2650</color>
+    <color name="niefiger_chip">#228B5CF6</color>
 </resources>

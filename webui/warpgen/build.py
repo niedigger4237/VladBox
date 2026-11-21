@@ -14,7 +14,7 @@ wh = re.sub(r'\s*<div id="w-proxyBox" class="hidden">.*?</div>\n    </div>', '',
 a = wh.index('<div id="w-proxyBox"'); b = wh.index('<div class="row">', a)
 wh = wh[:a] + wh[b:]
 wh = wh.replace('<button id="w-copy" class="ghost" disabled>Скопировать</button>',
-                '<button id="w-copy" class="ghost" disabled>Скопировать</button>\n      <button id="w-import" class="ghost" disabled>Добавить в VladBox</button>')
+                '<button id="w-copy" class="ghost" disabled>Скопировать</button>\n      <button id="w-import" class="ghost" disabled>Добавить в NieFigger Hub</button>')
 
 wj = rd('parts_warp.js')
 # apiCall без прокси: только нативный мост
@@ -35,7 +35,7 @@ wj = wj.replace("    $('w-save').onclick =", "    $('w-import').onclick = () => 
 assert 'proxy' not in wj.lower().replace('proxyvalue','') or True
 pj = rd('parts_proton.js')
 ph = rd('parts_proton.html').replace('<button id="copy" class="ghost" disabled>Скопировать</button>',
-     '<button id="copy" class="ghost" disabled>Скопировать</button>\n      <button id="import" class="ghost" disabled>Добавить в VladBox</button>')
+     '<button id="copy" class="ghost" disabled>Скопировать</button>\n      <button id="import" class="ghost" disabled>Добавить в NieFigger Hub</button>')
 pj = pj.replace("$('save').onclick = saveFiles;", "$('save').onclick = saveFiles;\n  $('import').onclick = () => AppImport(outputs);")
 pj = (pj.replace('__I1__', json.dumps(json.loads(rd('i1_list.json')), ensure_ascii=False))
         .replace('__DOMAINS__', json.dumps(json.loads(rd('domains.json')), ensure_ascii=False))
@@ -67,7 +67,7 @@ body{padding-top:10px}
 <script>
 "use strict";
 function AppToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');clearTimeout(AppToast.t);AppToast.t=setTimeout(()=>t.classList.remove('on'),2400);}
-/* нативный мост VladBox: Android = @JavascriptInterface */
+/* нативный мост NieFigger Hub: Android = @JavascriptInterface */
 (function(){
   const pending = {}; let n = 0;
   window.__wbDone = (id, ok, payload) => { const p = pending[id]; delete pending[id]; if (!p) return; ok ? p.res(payload) : p.rej(new Error(payload)); };

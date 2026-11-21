@@ -153,7 +153,7 @@ body{padding-top:10px}
     <div class="row">
       <button id="w-save" disabled>Сохранить</button>
       <button id="w-copy" class="ghost" disabled>Скопировать</button>
-      <button id="w-import" class="ghost" disabled>Добавить в VladBox</button>
+      <button id="w-import" class="ghost" disabled>Добавить в NieFigger Hub</button>
     </div>
     <p class="hint" id="w-hint"></p>
   </section>
@@ -165,7 +165,7 @@ body{padding-top:10px}
 <script>
 "use strict";
 function AppToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');clearTimeout(AppToast.t);AppToast.t=setTimeout(()=>t.classList.remove('on'),2400);}
-/* нативный мост VladBox: Android = @JavascriptInterface */
+/* нативный мост NieFigger Hub: Android = @JavascriptInterface */
 (function(){
   const pending = {}; let n = 0;
   window.__wbDone = (id, ok, payload) => { const p = pending[id]; delete pending[id]; if (!p) return; ok ? p.res(payload) : p.rej(new Error(payload)); };

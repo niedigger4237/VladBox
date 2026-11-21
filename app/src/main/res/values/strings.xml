@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">VladBox</string>
-    <string name="app_name_long" translatable="false">VladBox</string>
+    <string name="app_name" translatable="false">NieFigger Hub</string>
+    <string name="app_name_long" translatable="false">NieFigger Hub</string>
     <string name="app_desc">The universal proxy toolchain for Android, written in Kotlin.</string>
     <string name="project">Project</string>
     <string name="github">Source code</string>
@@ -621,6 +621,6 @@
     <string name="mux_brutal_up">Brutal up (Mbps)</string>
     <string name="mux_brutal_down">Brutal down (Mbps)</string>
     <string name="menu_warp">Cloudflare WARP</string>
-    <string name="menu_proton">Proton VPN</string>
+    <string name="menu_proton">Proton VPN converter</string>
     <string name="warpgen_imported">Imported profiles: %d</string>
 </resources>
