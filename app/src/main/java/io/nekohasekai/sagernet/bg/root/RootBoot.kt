@@ -43,6 +43,8 @@ nohup "${'$'}BASE/bin/libasteriskd.so" boot --config "${'$'}BASE/run/asteriskd.j
     /** @return null on success, otherwise a readable error */
     fun apply(enable: Boolean): String? {
         if (!RootShell.isAvailable()) return "root is not available"
+        // stage() / exec() read the flag from the store, which is not updated yet when the switch is toggled
+        DataStore.configurationStore.putBoolean("startOnBoot", enable)
         if (!enable) {
             RootShell.run("rm -f ${RootShell.q(SCRIPT)}")
             return null
