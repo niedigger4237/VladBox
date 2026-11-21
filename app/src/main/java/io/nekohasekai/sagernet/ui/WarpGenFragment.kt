@@ -122,7 +122,7 @@ abstract class WarpGenFragment(private val page: String, private val titleRes: I
                             (body.ifEmpty { "{}" }).toRequestBody("application/json".toMediaType()))
                     if (token.isNotEmpty()) rb.header("Authorization", "Bearer $token")
                     http.newCall(rb.build()).execute().use { r ->
-                        val text = r.body.string()
+                        val text = r.body?.string().orEmpty()
                         if (r.isSuccessful) done(id, true, text)
                         else done(id, false, "HTTP ${r.code}: ${text.take(160)}")
                     }
