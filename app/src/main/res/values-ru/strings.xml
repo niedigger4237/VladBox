@@ -592,4 +592,5 @@
     <string name="apps_settings">Настройки</string>
     <string name="apps_space_normal">Обычное</string>
     <string name="apps_space_private">Приватное</string>
+    <string name="apps_enable">Режим по приложениям включён</string>
 </resources>
