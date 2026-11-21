@@ -33,6 +33,7 @@ import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.databinding.LayoutAppsBinding
 import io.nekohasekai.sagernet.databinding.LayoutAppsItemBinding
+import io.nekohasekai.sagernet.bg.root.RootShell
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.app
 import io.nekohasekai.sagernet.ktx.crossFadeFrom
@@ -60,13 +61,23 @@ class AppManagerActivity : ThemedActivity() {
     }
 
     private class ProxiedApp(
-        private val pm: PackageManager, private val appInfo: ApplicationInfo,
+        val name: CharSequence,
+        private val iconProvider: () -> Drawable,
+        val uid: Int,
+        val sys: Boolean,
         val packageName: String,
+        /** user of the space the app lives in (0 = main space) */
+        val user: Int = 0,
     ) {
-        val name: CharSequence = appInfo.loadLabel(pm)    // cached for sorting
-        val icon: Drawable get() = appInfo.loadIcon(pm)
-        val uid get() = appInfo.uid
-        val sys get() = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+        val icon: Drawable get() = iconProvider()
+
+        /** how the app is stored in DataStore.individual: "pkg" or "u<user>:pkg" for the private space */
+        val key: String get() = if (user == 0) packageName else "u$user:$packageName"
+
+        constructor(pm: PackageManager, appInfo: ApplicationInfo, packageName: String) : this(
+            appInfo.loadLabel(pm), { appInfo.loadIcon(pm) }, appInfo.uid,
+            (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0, packageName
+        )
     }
 
     private inner class AppViewHolder(val binding: LayoutAppsItemBinding) : RecyclerView.ViewHolder(
@@ -83,7 +94,7 @@ class AppManagerActivity : ThemedActivity() {
             item = app
             binding.itemicon.setImageDrawable(app.icon)
             binding.title.text = app.name
-            binding.desc.text = "${app.packageName} (${app.uid})"
+            binding.desc.text = "${app.packageName} (${app.uid})" + if (app.user != 0) " · user ${app.user}" else ""
             binding.itemcheck.isChecked = isProxiedApp(app)
         }
 
@@ -93,8 +104,7 @@ class AppManagerActivity : ThemedActivity() {
 
         override fun onClick(v: View?) {
             if (isProxiedApp(item)) proxiedUids.delete(item.uid) else proxiedUids[item.uid] = true
-            DataStore.individual = apps.filter { isProxiedApp(it) }
-                .joinToString("\n") { it.packageName }
+            persist()
 
             appsAdapter.notifyItemRangeChanged(0, appsAdapter.itemCount, SWITCH)
         }
@@ -107,10 +117,18 @@ class AppManagerActivity : ThemedActivity() {
 
         suspend fun reload() {
             PackageCache.reload()
-            apps = cachedApps.mapNotNull { (packageName, packageInfo) ->
-                coroutineContext[Job]!!.ensureActive()
-                packageInfo.applicationInfo?.let { ProxiedApp(packageManager, it, packageName) }
-            }.sortedWith(compareBy({ !isProxiedApp(it) }, { it.name.toString() }))
+            if (space == 0) {
+                normalApps = cachedApps.mapNotNull { (packageName, packageInfo) ->
+                    coroutineContext[Job]!!.ensureActive()
+                    packageInfo.applicationInfo?.let { ProxiedApp(packageManager, it, packageName) }
+                }.sortedWith(compareBy({ !isProxiedApp(it) }, { it.name.toString() }))
+            } else {
+                val list = loadPrivateApps()
+                val saved = DataStore.individual.lines().toHashSet()
+                for (a in list) if (a.key in saved) proxiedUids[a.uid] = true
+                privateApps = list.sortedWith(compareBy({ !isProxiedApp(it) }, { it.name.toString() }))
+                privateLoaded = true
+            }
         }
 
         override fun onBindViewHolder(holder: AppViewHolder, position: Int) =
@@ -162,7 +180,48 @@ class AppManagerActivity : ThemedActivity() {
     private lateinit var binding: LayoutAppsBinding
     private val proxiedUids = SparseBooleanArray()
     private var loader: Job? = null
-    private var apps = emptyList<ProxiedApp>()
+    private var normalApps = emptyList<ProxiedApp>()
+    private var privateApps = emptyList<ProxiedApp>()
+    private var privateLoaded = false
+    private var space = 0
+    private var apps: List<ProxiedApp>
+        get() = if (space == 0) normalApps else privateApps
+        set(v) { if (space == 0) normalApps = v else privateApps = v }
+
+    private val privKey = Regex("u\\d+:.+")
+
+    /** writes the selection of both spaces; the space that is not loaded keeps its saved entries */
+    private fun persist() {
+        val keys = mutableListOf<String>()
+        keys += normalApps.filter { isProxiedApp(it) }.map { it.key }
+        keys += if (privateLoaded) privateApps.filter { isProxiedApp(it) }.map { it.key }
+        else DataStore.individual.lines().filter { privKey.matches(it) }
+        DataStore.individual = keys.joinToString("\n")
+    }
+
+    /** apps of the private space / other users (root): `pm list packages -U --user N` */
+    private fun loadPrivateApps(): List<ProxiedApp> {
+        val users = RootShell.run("pm list users", timeoutMs = 10_000).out
+        val ids = Regex("UserInfo\\{(\\d+):").findAll(users).map { it.groupValues[1].toInt() }.filter { it != 0 }.toList()
+        val result = ArrayList<ProxiedApp>()
+        for (id in ids) {
+            val third = RootShell.run("pm list packages -3 --user $id", timeoutMs = 15_000).out.lineSequence()
+                .map { it.removePrefix("package:").trim() }.toHashSet()
+            val all = RootShell.run("pm list packages -U --user $id", timeoutMs = 15_000).out
+            for (m in Regex("package:(\\S+)\\s+uid:(\\d+)").findAll(all)) {
+                val pkg = m.groupValues[1]
+                if (pkg == BuildConfig.APPLICATION_ID) continue
+                val uid = m.groupValues[2].toInt()
+                val info = runCatching { packageManager.getApplicationInfo(pkg, 0) }.getOrNull()
+                result += ProxiedApp(
+                    info?.loadLabel(packageManager) ?: pkg,
+                    { info?.loadIcon(packageManager) ?: packageManager.defaultActivityIcon },
+                    uid, pkg !in third, pkg, id
+                )
+            }
+        }
+        return result
+    }
     private val appsAdapter = AppsAdapter()
 
     private fun initProxiedUids(str: String = DataStore.individual) {
@@ -173,6 +232,8 @@ class AppManagerActivity : ThemedActivity() {
             val uid = app.applicationInfo?.uid ?: continue
             proxiedUids[uid] = true
         }
+        val lines = str.lines().toHashSet()
+        for (a in privateApps) if (a.key in lines) proxiedUids[a.uid] = true
     }
 
     private fun isProxiedApp(app: ProxiedApp) = proxiedUids[app.uid]
@@ -215,22 +276,10 @@ class AppManagerActivity : ThemedActivity() {
             setHomeAsUpIndicator(R.drawable.ic_navigation_close)
         }
 
-        if (!DataStore.proxyApps) {
-            DataStore.proxyApps = true
-        }
-
-        binding.bypassGroup.check(if (DataStore.bypass) R.id.appProxyModeBypass else R.id.appProxyModeOn)
-        binding.bypassGroup.setOnCheckedChangeListener { _, checkedId ->
-            when (checkedId) {
-                R.id.appProxyModeDisable -> {
-                    DataStore.proxyApps = false
-                    finish()
-                }
-
-                R.id.appProxyModeOn -> DataStore.bypass = false
-                R.id.appProxyModeBypass -> DataStore.bypass = true
-            }
-        }
+        // the old chips are replaced by the "Settings" menu in the toolbar; opening the list does not touch the VPN-per-app switch
+        binding.bypassGroup.visibility = View.GONE
+        binding.showSystemApps.visibility = View.GONE
+        setupSpaceTabs()
         binding.autoSelectProxyApps.setOnClickListener { selectProxyApp() }
 
         initProxiedUids()
@@ -244,17 +293,54 @@ class AppManagerActivity : ThemedActivity() {
             appsAdapter.filter.filter(it?.toString() ?: "")
         }
 
-        binding.showSystemApps.isChecked = sysApps
-        binding.showSystemApps.setOnCheckedChangeListener { _, isChecked ->
-            sysApps = isChecked
-            appsAdapter.filter.filter(binding.search.text?.toString() ?: "")
-        }
-
         instance = this
         loadApps()
     }
 
     private var sysApps = true
+
+    private fun rootModeSelected() = DataStore.serviceMode in listOf(
+        io.nekohasekai.sagernet.Key.MODE_ROOT_TUN, io.nekohasekai.sagernet.Key.MODE_ROOT_TPROXY,
+        io.nekohasekai.sagernet.Key.MODE_ROOT_TUN2SOCKS, io.nekohasekai.sagernet.Key.MODE_ROOT_BPF2SOCKS
+    )
+
+    /** "Normal" / "Private" spaces — only when root is in use (the private space is read through root) */
+    private fun setupSpaceTabs() {
+        val tabs = binding.spaceTabs
+        if (!rootModeSelected()) { tabs.visibility = View.GONE; return }
+        tabs.visibility = View.VISIBLE
+        tabs.addTab(tabs.newTab().setText(R.string.apps_space_normal))
+        tabs.addTab(tabs.newTab().setText(R.string.apps_space_private))
+        tabs.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab) {
+                space = tab.position
+                if (space == 1 && !privateLoaded) loadApps()
+                else appsAdapter.filter.filter(binding.search.text?.toString() ?: "")
+            }
+            override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab) {}
+            override fun onTabReselected(tab: com.google.android.material.tabs.TabLayout.Tab) {}
+        })
+    }
+
+    private fun showAppsSettings() {
+        val anchor = binding.toolbar.findViewById<View>(R.id.action_apps_settings) ?: binding.toolbar
+        val popup = android.widget.PopupMenu(this, anchor)
+        popup.menuInflater.inflate(R.menu.apps_settings_menu, popup.menu)
+        popup.menu.findItem(if (DataStore.bypass) R.id.apps_mode_bypass else R.id.apps_mode_proxy).isChecked = true
+        popup.menu.findItem(R.id.apps_show_system).isChecked = sysApps
+        popup.setOnMenuItemClickListener {
+            when (it.itemId) {
+                R.id.apps_mode_proxy -> DataStore.bypass = false
+                R.id.apps_mode_bypass -> DataStore.bypass = true
+                R.id.apps_show_system -> {
+                    sysApps = !sysApps
+                    appsAdapter.filter.filter(binding.search.text?.toString() ?: "")
+                }
+            }
+            true
+        }
+        popup.show()
+    }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.per_app_proxy_menu, menu)
@@ -263,6 +349,11 @@ class AppManagerActivity : ThemedActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
+            R.id.action_apps_settings -> {
+                showAppsSettings()
+                return true
+            }
+
             R.id.action_invert_selections -> {
                 runOnDefaultDispatcher {
                     val proxiedUidsOld = proxiedUids.clone()
@@ -273,8 +364,7 @@ class AppManagerActivity : ThemedActivity() {
                             proxiedUids[app.uid] = true
                         }
                     }
-                    DataStore.individual = apps.filter { isProxiedApp(it) }
-                        .joinToString("\n") { it.packageName }
+                    persist()
                     apps = apps.sortedWith(compareBy({ !isProxiedApp(it) }, { it.name.toString() }))
                     onMainDispatcher {
                         appsAdapter.filter.filter(binding.search.text?.toString() ?: "")
@@ -317,7 +407,7 @@ class AppManagerActivity : ThemedActivity() {
                         } else proxiedAppString.substring(
                             0, i
                         ) to proxiedAppString.substring(i + 1)
-                        binding.bypassGroup.check(if (enabled.toBoolean()) R.id.appProxyModeBypass else R.id.appProxyModeOn)
+                        DataStore.bypass = enabled.toBoolean()
                         DataStore.individual = apps
                         Snackbar.make(
                             binding.list, R.string.action_import_msg, Snackbar.LENGTH_LONG
@@ -360,8 +450,7 @@ class AppManagerActivity : ThemedActivity() {
                             }
                         }
                     }
-                    DataStore.individual =
-                        apps.filter { isProxiedApp(it) }.joinToString("\n") { it.packageName }
+                    persist()
                     apps = apps.sortedWith(compareBy({ !isProxiedApp(it) }, { it.name.toString() }))
                     appsAdapter.filter.filter(binding.search.text?.toString() ?: "")
                 } catch (e: Exception) {

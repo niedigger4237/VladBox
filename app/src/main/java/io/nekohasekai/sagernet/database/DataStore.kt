@@ -98,6 +98,16 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var appTheme by configurationStore.int(Key.APP_THEME)
     var nightTheme by configurationStore.stringToInt(Key.NIGHT_THEME) { 1 }
     var serviceMode by configurationStore.string(Key.SERVICE_MODE) { Key.MODE_VPN }
+    var socksPort by configurationStore.stringToInt("socksPort") { 10809 }
+    var bpfBridgePort by configurationStore.stringToInt("bpfBridgePort") { 9899 }
+    var remoteDnsPreset by configurationStore.string("remoteDnsPreset") { "google" }
+    var directDnsPreset by configurationStore.string("directDnsPreset") { "quad9" }
+    var hijackDns by configurationStore.string("hijackDns") { "both" }
+    var tetherWifi by configurationStore.boolean("tetherWifi")
+    var tetherBluetooth by configurationStore.boolean("tetherBluetooth")
+    var tetherUsb by configurationStore.boolean("tetherUsb")
+    var tetherEthernet by configurationStore.boolean("tetherEthernet")
+    var tetherCustom by configurationStore.string("tetherCustom") { "" }
     var rootTproxyPort by configurationStore.stringToInt(Key.ROOT_TPROXY_PORT) { 9898 }
 
     var trafficSniffing by configurationStore.stringToInt(Key.TRAFFIC_SNIFFING) { 1 }
@@ -118,7 +128,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     /** which DNS server answers everything no rule matches: "remote" (through the proxy) or "direct" */
     /** outbound for traffic no rule matches: "proxy" or "direct" */
     var routeFinal by configurationStore.string(Key.ROUTE_FINAL) { "proxy" }
-    var dnsMain by configurationStore.string(Key.DNS_MAIN) { "remote" }
+    var dnsMain by configurationStore.string(Key.DNS_MAIN) { "direct" }
     var directDns by configurationStore.string(Key.DIRECT_DNS) { "https://1.1.1.1/dns-query" }
     var enableDnsRouting by configurationStore.boolean(Key.ENABLE_DNS_ROUTING) { true }
     var enableFakeDns by configurationStore.boolean(Key.ENABLE_FAKEDNS) { true }
@@ -133,7 +143,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     // hopefully hashCode = mHandle doesn't change, currently this is true from KitKat to Nougat
     private val userIndex by lazy { Binder.getCallingUserHandle().hashCode() }
     var mixedPort: Int
-        get() = getLocalPort(Key.MIXED_PORT, 2080)
+        get() = getLocalPort(Key.MIXED_PORT, 10808)
         set(value) = saveLocalPort(Key.MIXED_PORT, value)
 
     fun initGlobal() {

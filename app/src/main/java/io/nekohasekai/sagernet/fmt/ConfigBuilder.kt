@@ -60,6 +60,8 @@ class ConfigBuildResult(
     data class IndexEntity(var chain: LinkedHashMap<Int, ProxyEntity>)
 }
 
+const val TAG_SOCKS_HELPER = "socks-in"
+
 fun buildConfig(
     proxy: ProxyEntity, forTest: Boolean = false, forExport: Boolean = false
 ): ConfigBuildResult {
@@ -136,10 +138,12 @@ fun buildConfig(
     val isVPN = DataStore.serviceMode == Key.MODE_VPN
     val isRootTun = !forTest && DataStore.serviceMode == Key.MODE_ROOT_TUN
     val isRootTproxy = !forTest && DataStore.serviceMode == Key.MODE_ROOT_TPROXY
+    val isRootSocksHelper = !forTest && (DataStore.serviceMode == Key.MODE_ROOT_TUN2SOCKS ||
+            DataStore.serviceMode == Key.MODE_ROOT_BPF2SOCKS)
     val bind = if (!forTest && DataStore.allowAccess) "0.0.0.0" else LOCALHOST
-    val remoteDns = DataStore.remoteDns.split("\n")
+    val remoteDns = DnsPresets.remote().split("\n")
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
-    val directDNS = DataStore.directDns.split("\n")
+    val directDNS = DnsPresets.direct().split("\n")
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
     val enableDnsRouting = DataStore.enableDnsRouting
     val useFakeDns = DataStore.enableFakeDns && !forTest
@@ -245,6 +249,13 @@ fun buildConfig(
                 tag = TAG_MIXED
                 listen = bind
                 listen_port = DataStore.mixedPort
+            })
+            if (isRootSocksHelper) inbounds.add(Inbound_SocksOptions().apply {
+                // отдельный SOCKS5-вход для tun2socks / bpf2socks
+                type = "socks"
+                tag = TAG_SOCKS_HELPER
+                listen = LOCALHOST
+                listen_port = DataStore.socksPort
             })
         }
 
@@ -726,6 +737,7 @@ fun buildConfig(
                 if (isVPN || isRootTun) add("tun-in")
                 if (isRootTproxy) add("tproxy-in")
                 add(TAG_MIXED)
+                if (isRootSocksHelper) add(TAG_SOCKS_HELPER)
             }
             val headRules = mutableListOf<Rule_DefaultOptions>()
             if (needSniff) {
@@ -736,11 +748,13 @@ fun buildConfig(
                     action = "sniff"
                 }
             }
-            headRules += Rule_DefaultOptions().apply {
+            // hijack-dns: "both" (protocol + port 53), "protocol", "port" or "off"
+            val hijack = DataStore.hijackDns
+            if (hijack == "both" || hijack == "protocol") headRules += Rule_DefaultOptions().apply {
                 protocol = listOf("dns")
                 action = "hijack-dns"
             }
-            headRules += Rule_DefaultOptions().apply {
+            if (hijack == "both" || hijack == "port") headRules += Rule_DefaultOptions().apply {
                 port = listOf(53)
                 action = "hijack-dns"
             }

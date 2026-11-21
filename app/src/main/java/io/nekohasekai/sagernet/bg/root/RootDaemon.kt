@@ -22,7 +22,8 @@ object RootDaemon {
     private const val OWNER = "asteriskbox"
     private const val SCHEMA = 7
 
-    val binary: File get() = File(SagerNet.application.applicationInfo.nativeLibraryDir, "libasteriskd.so")
+    private val libDir get() = SagerNet.application.applicationInfo.nativeLibraryDir
+    val binary: File get() = RootBoot.exec(File(libDir, "libasteriskd.so"))
     val runDir get() = "${RootCore.BASE}/run"
     val configPath get() = "$runDir/config.json"
     val daemonConfigPath get() = "$runDir/asteriskd.json"
@@ -33,10 +34,9 @@ object RootDaemon {
     enum class Mode(val wire: String) { TUN("tun"), TPROXY("tproxy"), TUN2SOCKS("tun2socks"), BPF2SOCKS("bpf2socks") }
 
     /** the helpers are built next to asteriskd and packaged as native libraries */
-    val hevBinary: File get() = File(SagerNet.application.applicationInfo.nativeLibraryDir, "libhevtun.so")
-    val bpfBinary: File get() = File(SagerNet.application.applicationInfo.nativeLibraryDir, "libbpf2socks.so")
+    val hevBinary: File get() = RootBoot.exec(File(libDir, "libhevtun.so"))
+    val bpfBinary: File get() = RootBoot.exec(File(libDir, "libbpf2socks.so"))
     const val HEV_TUN_DEVICE = "hevtun0"
-    const val BPF_BRIDGE_PORT = 9899
 
     private val PHASE = Regex("\"phase\"\\s*:\\s*\"([a-z-]+)\"")
     private val gson = GsonBuilder().serializeNulls().setPrettyPrinting().create()
@@ -47,9 +47,31 @@ object RootDaemon {
     /** uids of the apps selected in "per-app proxy" (empty = no restriction) */
     private fun appUids(): List<Int> {
         val pm = SagerNet.application.packageManager
-        return DataStore.individual.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
-            .mapNotNull { runCatching { pm.getApplicationInfo(it, 0).uid }.getOrNull() }
-            .distinct().sorted()
+        val keys = DataStore.individual.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+        val priv = Regex("u(\\d+):(.+)")
+        val uids = HashSet<Int>()
+        // apps of the main space
+        keys.filter { !priv.matches(it) }.forEach { k -> runCatching { pm.getApplicationInfo(k, 0).uid }.getOrNull()?.let(uids::add) }
+        // apps of the private space / other users: "u<user>:<package>", the uid is looked up as root
+        val byUser = keys.mapNotNull { priv.matchEntire(it) }.groupBy({ it.groupValues[1] }, { it.groupValues[2] })
+        for ((user, pkgs) in byUser) {
+            val out = RootShell.run("pm list packages -U --user $user", timeoutMs = 15_000).out
+            val map = out.lineSequence().mapNotNull { Regex("package:(\\S+)\\s+uid:(\\d+)").find(it) }
+                .associate { it.groupValues[1] to it.groupValues[2].toInt() }
+            pkgs.forEach { p -> map[p]?.let(uids::add) }
+        }
+        return uids.sorted()
+    }
+
+    /** Android tethering interface names / prefixes for asteriskd `hotspotInterfaces`. */
+    fun tetherInterfaces(): List<String> {
+        val l = LinkedHashSet<String>()
+        if (DataStore.tetherWifi) l += listOf("ap+", "swlan+", "softap+", "wlan1", "wlan2")
+        if (DataStore.tetherBluetooth) l += "bt-pan"
+        if (DataStore.tetherUsb) l += listOf("rndis+", "usb+")
+        if (DataStore.tetherEthernet) l += "eth+"
+        DataStore.tetherCustom.split(',', '\n', ' ').map { it.trim() }.filter { it.isNotEmpty() }.forEach { l += it }
+        return l.filter { Regex("[A-Za-z0-9_.\\-]+\\+?").matches(it) }.take(32)
     }
 
     fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean): String {
@@ -80,7 +102,7 @@ object RootDaemon {
             add("fakeDnsIpv4Pool", JsonNull.INSTANCE)
             add("ignoredInterfaces", strings(emptyList()))
             add("virtualInterfaces", strings(emptyList()))
-            add("hotspotInterfaces", strings(emptyList()))
+            add("hotspotInterfaces", strings(tetherInterfaces()))
             add("proxyPrivateCidrs", strings(emptyList()))
             add("bypassPrivateCidrs", strings(emptyList()))
             add("appPolicy", JsonObject().apply {
@@ -105,7 +127,7 @@ object RootDaemon {
                 addProperty("type", "hev-socks5-tunnel")
                 addProperty("executablePath", hevBinary.absolutePath)
                 addProperty("socksHost", "127.0.0.1")
-                addProperty("socksPort", DataStore.mixedPort)
+                addProperty("socksPort", DataStore.socksPort)
                 addProperty("tunnelName", HEV_TUN_DEVICE)
                 addProperty("mtu", DataStore.mtu.coerceIn(1280, 65535))
                 addProperty("ipv4Address", "198.18.0.1")
@@ -119,9 +141,9 @@ object RootDaemon {
                 addProperty("type", "bpf2socks")
                 addProperty("executablePath", bpfBinary.absolutePath)
                 addProperty("bridgeListenAddress", "0.0.0.0")
-                addProperty("bridgePort", BPF_BRIDGE_PORT)
+                addProperty("bridgePort", DataStore.bpfBridgePort)
                 addProperty("socksHost", "127.0.0.1")
-                addProperty("socksPort", DataStore.mixedPort)
+                addProperty("socksPort", DataStore.socksPort)
                 addProperty("workerCount", 0)
                 addProperty("tcpBufferSize", 0)
                 addProperty("maxTcpSessions", 4096)
@@ -138,33 +160,7 @@ object RootDaemon {
             else -> JsonNull.INSTANCE
         })
 
-        fun wifiRule() = JsonObject().apply {
-            addProperty("enabled", false)
-            add("ssids", strings(emptyList()))
-            add("bssids", strings(emptyList()))
-        }
-        root.add("serviceControl", JsonObject().apply {
-            addProperty("enabled", false)
-            add("schedule", JsonObject().apply {
-                addProperty("enabled", false)
-                addProperty("startCron", "")
-                addProperty("stopCron", "")
-            })
-            add("wifi", JsonObject().apply {
-                addProperty("enabled", false)
-                add("connectStart", wifiRule())
-                add("connectStop", wifiRule())
-                add("disconnectStart", wifiRule())
-                add("disconnectStop", wifiRule())
-            })
-            add("keyguard", JsonObject().apply {
-                addProperty("enabled", false)
-                addProperty("lockStart", false)
-                addProperty("lockStop", false)
-                addProperty("unlockStart", false)
-                addProperty("unlockStop", false)
-            })
-        })
+        root.add("serviceControl", ServiceControl.toJson())
         root.add("dnsEnhancement", JsonNull.INSTANCE)
         root.add("runtimeEventReceiver", JsonNull.INSTANCE)
         return gson.toJson(root) + "\n"
@@ -222,9 +218,10 @@ object RootDaemon {
         if (mode == Mode.TUN2SOCKS && !hevBinary.exists()) return "libhevtun.so (hev-socks5-tunnel) is not part of this build"
         if (mode == Mode.BPF2SOCKS && !bpfBinary.exists()) return "libbpf2socks.so is not part of this build"
 
+        RootBoot.stage()
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
         val cfg = File(stage, "config.json").apply { writeText(withLogFile(singBoxConfig)) }
-        val dcfg = File(stage, "asteriskd.json").apply { writeText(buildConfig(mode, core.path, tproxyPort, ipv6)) }
+        val dcfg = File(stage, "asteriskd.json").apply { writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6)) }
         val assets = SagerNet.application.externalAssets
         try {
             val prep = RootShell.run(
@@ -241,6 +238,7 @@ object RootDaemon {
             stage.deleteRecursively()
         }
 
+        portConflict(mode)?.let { return it }
         RootCore.check(core.path, File(configPath))?.let { return "sing-box check: $it" }
 
         // a leftover supervisor of ours must be gone first
@@ -268,6 +266,21 @@ object RootDaemon {
         Logs.w("asteriskd start failed: $last\n$out")
         shutdown()
         return "asteriskd: ${last.ifBlank { "did not become ready" }}\n$out"
+    }
+
+    /** the daemon, the core and the helpers must not fight over a port */
+    private fun portConflict(mode: Mode): String? {
+        val ports = mutableListOf("local proxy" to DataStore.mixedPort)
+        when (mode) {
+            Mode.TPROXY -> ports += "tproxy" to DataStore.rootTproxyPort
+            Mode.TUN2SOCKS -> ports += "socks5" to DataStore.socksPort
+            Mode.BPF2SOCKS -> { ports += "socks5" to DataStore.socksPort; ports += "bpf2socks" to DataStore.bpfBridgePort }
+            else -> {}
+        }
+        for (i in ports.indices) for (j in i + 1 until ports.size) {
+            if (ports[i].second == ports[j].second) return "Port ${ports[i].second} is used by both ${ports[i].first} and ${ports[j].first}: change it in Settings → Local proxy"
+        }
+        return null
     }
 
     fun status(): String = RootShell.run("${RootShell.q(binary)} status 2>&1", timeoutMs = 5_000).out.trim()

@@ -558,4 +558,32 @@
         <item>@string/sniff_override</item>
     </string-array>
 
+    <string-array name="dns_preset_names">
+        <item>@string/dns_preset_local</item>
+        <item>@string/dns_preset_cloudflare</item>
+        <item>@string/dns_preset_quad9</item>
+        <item>@string/dns_preset_google</item>
+        <item>@string/dns_preset_adguard</item>
+        <item>@string/dns_preset_custom</item>
+    </string-array>
+    <string-array name="dns_preset_values">
+        <item>local</item>
+        <item>cloudflare</item>
+        <item>quad9</item>
+        <item>google</item>
+        <item>adguard</item>
+        <item>custom</item>
+    </string-array>
+    <string-array name="hijack_dns_names">
+        <item>@string/hijack_both</item>
+        <item>@string/hijack_protocol</item>
+        <item>@string/hijack_port</item>
+        <item>@string/hijack_off</item>
+    </string-array>
+    <string-array name="hijack_dns_values">
+        <item>both</item>
+        <item>protocol</item>
+        <item>port</item>
+        <item>off</item>
+    </string-array>
 </resources>
