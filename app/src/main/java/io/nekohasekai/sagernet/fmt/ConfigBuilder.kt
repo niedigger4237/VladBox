@@ -3,6 +3,7 @@ package io.nekohasekai.sagernet.fmt
 import android.widget.Toast
 import io.nekohasekai.sagernet.*
 import io.nekohasekai.sagernet.bg.VpnService
+import io.nekohasekai.sagernet.Key
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.database.ProxyEntity.Companion.TYPE_CONFIG
@@ -158,10 +159,14 @@ fun buildConfig(
     }
 
     return MyOptions().apply {
-        if (!forTest && DataStore.enableClashAPI) experimental = ExperimentalOptions().apply {
+        // root-режимы: ядро во внешнем процессе, статистика и проверка связи идут через Clash API
+        val rootMode = DataStore.serviceMode in listOf(
+            Key.MODE_ROOT_TUN, Key.MODE_ROOT_TPROXY, Key.MODE_ROOT_TUN2SOCKS, Key.MODE_ROOT_BPF2SOCKS
+        )
+        if (!forTest && (DataStore.enableClashAPI || rootMode)) experimental = ExperimentalOptions().apply {
             clash_api = ClashAPIOptions().apply {
                 external_controller = "127.0.0.1:9090"
-                external_ui = "../files/yacd"
+                if (DataStore.enableClashAPI) external_ui = "../files/yacd"
             }
         }
 

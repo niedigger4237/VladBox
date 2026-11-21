@@ -51,7 +51,19 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         started = true
     }
 
+    private var rootLooper: RootTrafficLooper? = null
+
+    override fun launch() {
+        super.launch()
+        rootLooper = service?.let { RootTrafficLooper(it.data, this) }
+        rootLooper?.start()
+    }
+
+    fun urlTest(url: String, timeoutMs: Int): Int = RootClashApi.urlTest(url, timeoutMs)
+
     override fun close() {
+        rootLooper?.stop()
+        rootLooper = null
         // asteriskd removes its rules before it stops the core
         if (started) {
             RootDaemon.shutdown()

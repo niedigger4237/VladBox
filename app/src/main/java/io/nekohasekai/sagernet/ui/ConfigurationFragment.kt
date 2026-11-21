@@ -1322,23 +1322,23 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
 
             override fun undo(actions: List<Pair<Int, ProxyEntity>>) {
-                for ((index, item) in actions) {
-                    configurationListView.post {
-                        configurationList[item.id] = item
-                        configurationIdList.add(index, item.id)
-                        notifyItemInserted(index)
+                runOnDefaultDispatcher {
+                    // вернуть удалённые профили в базу с прежними id
+                    for ((_, item) in actions) {
+                        SagerDatabase.proxyDao.addProxy(item)
+                    }
+                    for ((index, item) in actions) {
+                        configurationListView.post {
+                            configurationList[item.id] = item
+                            configurationIdList.add(index.coerceAtMost(configurationIdList.size), item.id)
+                            notifyItemInserted(index.coerceAtMost(configurationIdList.size - 1))
+                        }
                     }
                 }
             }
 
-            override fun commit(actions: List<Pair<Int, ProxyEntity>>) {
-                val profiles = actions.map { it.second }
-                runOnDefaultDispatcher {
-                    for (entity in profiles) {
-                        ProfileManager.deleteProfile(entity.groupId, entity.id)
-                    }
-                }
-            }
+            // профили уже удалены из базы в момент нажатия
+            override fun commit(actions: List<Pair<Int, ProxyEntity>>) = Unit
 
             override suspend fun onAdd(profile: ProxyEntity) {
                 if (profile.groupId != proxyGroup.id) return
@@ -1602,7 +1602,12 @@ class ConfigurationFragment @JvmOverloads constructor(
                 removeButton.setOnClickListener {
                     adapter?.let {
                         val index = it.configurationIdList.indexOf(proxyEntity.id)
+                        if (index < 0) return@let
                         it.remove(index)
+                        // удаляем из базы сразу (иначе обновление списка до конца «отмены» возвращает профиль)
+                        runOnDefaultDispatcher {
+                            ProfileManager.deleteProfile(proxyEntity.groupId, proxyEntity.id)
+                        }
                         undoManager.remove(index to proxyEntity)
                     }
                 }
