@@ -49,6 +49,20 @@
                         android:orientation="vertical"
                         android:padding="8dp">
 
+
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/search_apps">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/search"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content" />
+
+                        </com.google.android.material.textfield.TextInputLayout>
+
                         <com.google.android.material.chip.ChipGroup
                             android:id="@+id/bypassGroup"
                             android:layout_width="match_parent"
@@ -89,6 +103,7 @@
                         <LinearLayout
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:visibility="gone"
                             android:orientation="horizontal">
 
                             <com.google.android.material.chip.Chip
@@ -108,18 +123,6 @@
                                 android:text="@string/auto_select_proxy_apps" />
 
                         </LinearLayout>
-
-                        <com.google.android.material.textfield.TextInputLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:hint="@string/search_apps">
-
-                            <com.google.android.material.textfield.TextInputEditText
-                                android:id="@+id/search"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content" />
-
-                        </com.google.android.material.textfield.TextInputLayout>
 
 
                     </LinearLayout>
