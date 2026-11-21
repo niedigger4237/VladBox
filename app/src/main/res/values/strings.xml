@@ -67,6 +67,7 @@
     <string name="service_mode_root_tproxy">Root: TPROXY (iptables)</string>
     <string name="service_mode_root_tun2socks">Root: TUN2SOCKS (hev-socks5-tunnel)</string>
     <string name="service_mode_root_bpf2socks">Root: BPF2SOCKS (eBPF)</string>
+    <string name="route_final">Default outbound (unmatched traffic)</string>
     <string name="dns_main">Main DNS (final)</string>
     <string name="service_mode_vpn" translatable="false">VPN</string>
     <string name="port_proxy">Proxy Port</string>

@@ -206,6 +206,14 @@
         <item>xchacha20</item>
     </string-array>
 
+    <string-array name="route_final_names" translatable="false">
+        <item>Proxy</item>
+        <item>Direct</item>
+    </string-array>
+    <string-array name="route_final_values" translatable="false">
+        <item>proxy</item>
+        <item>direct</item>
+    </string-array>
     <string-array name="dns_main_names" translatable="false">
         <item>Remote (through the proxy)</item>
         <item>Direct</item>

@@ -39,9 +39,11 @@
             android:elevation="6dp"
             android:nextFocusDown="@+id/stats"
             app:backgroundTint="?fabColorBackground"
+            app:fabCustomSize="64dp"
+            app:maxImageSize="32dp"
             app:layout_anchor="@id/stats"
             app:pressedTranslationZ="6dp"
-            app:srcCompat="@drawable/ic_service_idle" />
+            app:srcCompat="@drawable/ic_service_play" />
 
         <io.nekohasekai.sagernet.widget.StatsBar
             android:id="@+id/stats"
@@ -49,7 +51,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
             android:nextFocusUp="@+id/fab"
-            app:backgroundTint="?colorMaterial300"
+            app:backgroundTint="?attr/colorSurface"
             app:contentInsetStart="0dp"
             app:hideOnScroll="true"
             app:layout_scrollFlags="enterAlways|scroll">
@@ -69,7 +71,7 @@
                     android:layout_gravity="fill_horizontal"
                     android:ellipsize="marquee"
                     android:singleLine="true"
-                    android:textColor="?whiteOrTextPrimary"
+                    android:textColor="?android:attr/textColorPrimary"
                     android:textSize="14sp" />
 
                 <TextView
@@ -80,7 +82,7 @@
                     android:layout_gravity="fill_horizontal"
                     android:ellipsize="marquee"
                     android:singleLine="true"
-                    android:textColor="?whiteOrTextPrimary"
+                    android:textColor="?android:attr/textColorPrimary"
                     android:textSize="14sp" />
 
                 <TextView
@@ -90,7 +92,7 @@
                     android:layout_gravity="fill_horizontal"
                     android:ellipsize="end"
                     android:maxLines="1"
-                    android:textColor="?whiteOrTextPrimary"
+                    android:textColor="?android:attr/textColorPrimary"
                     android:textSize="16sp"
                     tools:text="@string/connection_test_available" />
 

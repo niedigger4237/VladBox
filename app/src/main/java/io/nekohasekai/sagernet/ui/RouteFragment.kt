@@ -105,6 +105,16 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
             R.id.action_new_route -> {
                 startActivity(Intent(context, RouteSettingsActivity::class.java))
             }
+            R.id.action_route_final -> {
+                val values = arrayOf("proxy", "direct")
+                MaterialAlertDialogBuilder(activity).setTitle(R.string.route_final)
+                    .setSingleChoiceItems(arrayOf("Proxy", "Direct"), values.indexOf(DataStore.routeFinal).coerceAtLeast(0)) { d, which ->
+                        DataStore.routeFinal = values[which]
+                        d.dismiss()
+                    }
+                    .setNegativeButton(R.string.no, null)
+                    .show()
+            }
             R.id.action_reset_route -> {
                 MaterialAlertDialogBuilder(activity).setTitle(R.string.confirm)
                     .setMessage(R.string.clear_profiles_message)

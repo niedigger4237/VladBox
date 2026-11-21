@@ -633,7 +633,7 @@ fun buildConfig(
 
         // WireGuard/AmneziaWG are endpoints, not outbounds: without an explicit final the first
         // outbound (direct) would carry all unmatched traffic
-        route.final_ = TAG_PROXY
+        route.final_ = if (!forTest && DataStore.routeFinal == "direct") TAG_DIRECT else TAG_PROXY
 
         for (freedom in arrayOf(TAG_DIRECT, TAG_BYPASS)) outbounds.add(Outbound().apply {
             tag = freedom
