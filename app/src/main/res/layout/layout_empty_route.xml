@@ -1,24 +1,69 @@
 <?xml version="1.0" encoding="utf-8"?>
-
-<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="4dp"
-    app:cardElevation="2dp">
+    android:baselineAligned="false"
+    android:orientation="horizontal"
+    android:paddingHorizontal="4dp"
+    android:paddingVertical="4dp">
 
-    <LinearLayout
-        android:layout_width="wrap_content"
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/tab_outbound"
+        style="@style/RouteTabCard"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:padding="16dp">
+        android:layout_weight="1">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textAppearance="?android:attr/textAppearanceSmall"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textStyle="bold"
-            android:text="@string/route_warn"/>
-    </LinearLayout>
+        <LinearLayout style="@style/RouteTabInner">
 
-</com.google.android.material.card.MaterialCardView>
+            <TextView
+                style="@style/RouteTabTitle"
+                android:text="@string/route_outbound" />
+
+            <TextView
+                android:id="@+id/tab_outbound_value"
+                style="@style/RouteTabValue" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/tab_assets"
+        style="@style/RouteTabCard"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1">
+
+        <LinearLayout style="@style/RouteTabInner">
+
+            <TextView
+                style="@style/RouteTabTitle"
+                android:text="@string/route_asset_files" />
+
+            <TextView
+                android:id="@+id/tab_assets_value"
+                style="@style/RouteTabValue"
+                android:text="geoip · geosite" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/tab_dns"
+        style="@style/RouteTabCard"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1">
+
+        <LinearLayout style="@style/RouteTabInner">
+
+            <TextView
+                style="@style/RouteTabTitle"
+                android:text="@string/route_dns_tunnel" />
+
+            <TextView
+                android:id="@+id/tab_dns_value"
+                style="@style/RouteTabValue" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+</LinearLayout>

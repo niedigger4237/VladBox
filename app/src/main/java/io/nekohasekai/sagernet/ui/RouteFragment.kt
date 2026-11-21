@@ -105,16 +105,6 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
             R.id.action_new_route -> {
                 startActivity(Intent(context, RouteSettingsActivity::class.java))
             }
-            R.id.action_route_final -> {
-                val values = arrayOf("proxy", "direct")
-                MaterialAlertDialogBuilder(activity).setTitle(R.string.route_final)
-                    .setSingleChoiceItems(arrayOf("Proxy", "Direct"), values.indexOf(DataStore.routeFinal).coerceAtLeast(0)) { d, which ->
-                        DataStore.routeFinal = values[which]
-                        d.dismiss()
-                    }
-                    .setNegativeButton(R.string.no, null)
-                    .show()
-            }
             R.id.action_reset_route -> {
                 MaterialAlertDialogBuilder(activity).setTitle(R.string.confirm)
                     .setMessage(R.string.clear_profiles_message)
@@ -127,9 +117,6 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                     }
                     .setNegativeButton(R.string.no, null)
                     .show()
-            }
-            R.id.action_manage_assets -> {
-                startActivity(Intent(requireContext(), AssetsActivity::class.java))
             }
         }
         return true
@@ -271,10 +258,41 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
             }
         }
 
-        inner class DocumentHolder(binding: LayoutEmptyRouteBinding) : RecyclerView.ViewHolder(binding.root) {
+        inner class DocumentHolder(val binding: LayoutEmptyRouteBinding) : RecyclerView.ViewHolder(binding.root) {
             fun bind() {
-                itemView.setOnClickListener {
-                    it.context.launchCustomTab("https://matsuridayo.github.io/nb4a-route/")
+                val ctx = binding.root.context
+                binding.tabOutboundValue.text =
+                    ctx.getString(if (DataStore.routeFinal == "direct") R.string.route_direct else R.string.route_proxy)
+                binding.tabDnsValue.text =
+                    ctx.getString(if (DataStore.dnsMain == "direct") R.string.route_direct else R.string.route_remote)
+                binding.tabOutbound.setOnClickListener {
+                    val values = arrayOf("proxy", "direct")
+                    MaterialAlertDialogBuilder(activity).setTitle(R.string.route_outbound)
+                        .setSingleChoiceItems(
+                            arrayOf(getString(R.string.route_proxy), getString(R.string.route_direct)),
+                            values.indexOf(DataStore.routeFinal).coerceAtLeast(0)
+                        ) { d, which ->
+                            DataStore.routeFinal = values[which]
+                            d.dismiss()
+                            notifyItemChanged(0)
+                            needReload()
+                        }.setNegativeButton(R.string.no, null).show()
+                }
+                binding.tabDns.setOnClickListener {
+                    val values = arrayOf("remote", "direct")
+                    MaterialAlertDialogBuilder(activity).setTitle(R.string.route_dns_tunnel)
+                        .setSingleChoiceItems(
+                            arrayOf(getString(R.string.route_remote), getString(R.string.route_direct)),
+                            values.indexOf(DataStore.dnsMain).coerceAtLeast(0)
+                        ) { d, which ->
+                            DataStore.dnsMain = values[which]
+                            d.dismiss()
+                            notifyItemChanged(0)
+                            needReload()
+                        }.setNegativeButton(R.string.no, null).show()
+                }
+                binding.tabAssets.setOnClickListener {
+                    startActivity(Intent(requireContext(), AssetsActivity::class.java))
                 }
             }
         }

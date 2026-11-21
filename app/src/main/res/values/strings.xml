@@ -623,4 +623,21 @@
     <string name="menu_warp">Cloudflare WARP</string>
     <string name="menu_proton">Proton VPN converter</string>
     <string name="warpgen_imported">Imported profiles: %d</string>
+    <string name="route_outbound">Outbound</string>
+    <string name="route_asset_files">Asset Files</string>
+    <string name="route_dns_tunnel">DNS Tunnel</string>
+    <string name="route_direct">Direct</string>
+    <string name="route_proxy">Proxy</string>
+    <string name="route_remote">Remote</string>
+    <string name="route_rules_custom">Custom URLs</string>
+    <string name="route_custom_url_empty">Set the %1$s URL in Custom URLs first</string>
+    <string name="menu_backup">Backup</string>
+    <string name="source_code">Source Code</string>
+    <string name="awg_enable">Enable AmneziaWG</string>
+    <string name="awg_enable_sum">Turn on to edit obfuscation parameters; off = plain WireGuard</string>
+    <string name="cat_general">General</string>
+    <string name="cat_service">Service & network</string>
+    <string name="cat_stats">Statistics</string>
+    <string name="cat_security">Connections & security</string>
+    <string name="cat_advanced">Advanced</string>
 </resources>

@@ -52,6 +52,26 @@ public class WireGuardBean extends AbstractBean {
     public Integer workers;
     public String udpTimeout;
 
+    /** true, если в профиле заданы параметры AmneziaWG (иначе это обычный WireGuard). */
+    public boolean isAmnezia() {
+        Integer[] ints = {awgJc, awgJmin, awgJmax, awgS1, awgS2, awgS3, awgS4};
+        for (Integer i : ints) if (i != null && i > 0) return true;
+        String[] strs = {awgH1, awgH2, awgH3, awgH4, awgI1, awgI2, awgI3, awgI4, awgI5, awgHpk, awgCpa,
+                awgRekeyAfter, awgRekeyTimeout, awgRejectAfter, awgKeepaliveTimeout, awgMaxHandshake};
+        for (String v : strs) if (v != null && !v.trim().isEmpty()) return true;
+        return Boolean.TRUE.equals(awgRandomTrailers) || Boolean.TRUE.equals(awgDisableCookies);
+    }
+
+    /** Сбросить все параметры AmneziaWG (превратить в обычный WireGuard). */
+    public void clearAmnezia() {
+        awgJc = 0; awgJmin = 0; awgJmax = 0; awgS1 = 0; awgS2 = 0; awgS3 = 0; awgS4 = 0;
+        awgH1 = ""; awgH2 = ""; awgH3 = ""; awgH4 = "";
+        awgI1 = ""; awgI2 = ""; awgI3 = ""; awgI4 = ""; awgI5 = "";
+        awgHpk = ""; awgCpa = ""; awgRekeyAfter = ""; awgRekeyTimeout = ""; awgRejectAfter = "";
+        awgKeepaliveTimeout = ""; awgMaxHandshake = "";
+        awgRandomTrailers = false; awgDisableCookies = false;
+    }
+
     @Override
     public void initializeDefaultValues() {
         super.initializeDefaultValues();

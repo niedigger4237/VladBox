@@ -2,7 +2,10 @@ package io.nekohasekai.sagernet.ui.profile
 
 import android.os.Bundle
 import androidx.preference.EditTextPreference
+import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceFragmentCompat
+import androidx.preference.SwitchPreference
+import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.preference.EditTextPreferenceModifiers
 import io.nekohasekai.sagernet.fmt.wireguard.WireGuardBean
@@ -56,10 +59,13 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
 
     override fun WireGuardBean.init() {
         pbm.writeToCacheAll(this)
+        DataStore.profileCacheStore.putBoolean("awgEnabled", isAmnezia)
     }
 
     override fun WireGuardBean.serialize() {
         pbm.fromCacheAll(this)
+        // переключатель AmneziaWG выключен — профиль становится обычным WireGuard
+        if (!DataStore.profileCacheStore.getBoolean("awgEnabled", false)) clearAmnezia()
     }
 
     override fun PreferenceFragmentCompat.createPreferences(
@@ -75,6 +81,26 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
         (mtu.preference as EditTextPreference).setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
         listOf(persistentKeepalive, workers).forEach {
             (it.preference as EditTextPreference).setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
+        }
+        val awgCat = findPreference<PreferenceCategory>("awgCategory")!!
+        val awgSwitch = findPreference<SwitchPreference>("awgEnabled")!!
+        fun applyAwg(on: Boolean) {
+            for (i in 0 until awgCat.preferenceCount) {
+                val p = awgCat.getPreference(i)
+                if (p.key != "awgEnabled") p.isVisible = on
+            }
+        }
+        applyAwg(awgSwitch.isChecked)
+        awgSwitch.setOnPreferenceChangeListener { _, value ->
+            val on = value as Boolean
+            applyAwg(on)
+            val jc = awgJc.preference as EditTextPreference
+            if (on && (jc.text.isNullOrBlank() || jc.text == "0")) {
+                jc.text = "4"
+                (awgJmin.preference as EditTextPreference).text = "40"
+                (awgJmax.preference as EditTextPreference).text = "70"
+            }
+            true
         }
         listOf(awgJc, awgJmin, awgJmax, awgS1, awgS2, awgS3, awgS4).forEach {
             (it.preference as EditTextPreference)

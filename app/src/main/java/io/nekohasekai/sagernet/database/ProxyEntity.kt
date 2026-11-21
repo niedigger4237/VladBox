@@ -182,18 +182,28 @@ data class ProxyEntity(
         }
     }
 
+    /** " / ws+tls" в стиле v2rayNG: транспорт (кроме tcp) + безопасность. */
+    private fun v2rayDetail(b: io.nekohasekai.sagernet.fmt.v2ray.StandardV2RayBean): String {
+        val parts = mutableListOf<String>()
+        val t = b.type?.trim().orEmpty()
+        if (t.isNotEmpty() && t != "tcp") parts += t
+        val sec = b.security?.trim().orEmpty()
+        if (sec.isNotEmpty() && sec != "none") parts += sec
+        return " / " + (if (parts.isEmpty()) (if (t.isNotEmpty()) t else "tcp") else parts.joinToString("+"))
+    }
+
     fun displayType(): String = when (type) {
         TYPE_SOCKS -> socksBean!!.protocolName()
         TYPE_HTTP -> if (httpBean!!.isTLS()) "HTTPS" else "HTTP"
         TYPE_SS -> "Shadowsocks"
-        TYPE_VMESS -> if (vmessBean!!.isVLESS) "VLESS" else "VMess"
-        TYPE_TROJAN -> "Trojan"
+        TYPE_VMESS -> (if (vmessBean!!.isVLESS) "VLESS" else "VMess") + v2rayDetail(vmessBean!!)
+        TYPE_TROJAN -> "Trojan" + v2rayDetail(trojanBean!!)
         TYPE_TROJAN_GO -> "Trojan-Go"
         TYPE_MIERU -> "Mieru"
         TYPE_NAIVE -> "Naïve"
         TYPE_HYSTERIA -> "Hysteria" + hysteriaBean!!.protocolVersion
         TYPE_SSH -> "SSH"
-        TYPE_WG -> "WireGuard"
+        TYPE_WG -> if (wgBean!!.isAmnezia) "AmneziaWG" else "WireGuard"
         TYPE_TUIC -> "TUIC"
         TYPE_SHADOWTLS -> "ShadowTLS"
         TYPE_ANYTLS -> "AnyTLS"
