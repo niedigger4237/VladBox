@@ -496,6 +496,7 @@
 <string name="xtls_flow">Flow (подпротокол VLESS)</string>
 <string name="yes">Да</string>
     <string name="root_settings">Root-режим</string>
+    <string name="route_final">Outbound по умолчанию (не попавший в правила трафик)</string>
     <string name="dns_main">Основной DNS (по умолчанию)</string>
     <string name="root_tproxy_port">Порт TPROXY</string>
     <string name="root_core_update">Обновить ядро sing-box (root)</string>

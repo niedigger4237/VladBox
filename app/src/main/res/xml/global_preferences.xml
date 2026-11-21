@@ -97,6 +97,14 @@
     </PreferenceCategory>
 
     <PreferenceCategory app:title="@string/cag_route">
+        <moe.matsuri.nb4a.ui.SimpleMenuPreference
+            app:defaultValue="proxy"
+            app:entries="@array/route_final_names"
+            app:entryValues="@array/route_final_values"
+            app:icon="@drawable/ic_baseline_add_road_24"
+            app:key="routeFinal"
+            app:title="@string/route_final"
+            app:useSimpleSummaryProvider="true" />
         <SwitchPreference
             app:icon="@drawable/ic_navigation_apps"
             app:key="proxyApps"
