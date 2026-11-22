@@ -39,7 +39,7 @@
         <moe.matsuri.nb4a.ui.SimpleMenuPreference app:defaultValue="auto" app:entries="@array/dns_network_select" app:entryValues="@array/dns_network_select" app:key="domain_strategy_for_direct" app:title="@string/domain_strategy_for_direct" app:useSimpleSummaryProvider="true" />
         <moe.matsuri.nb4a.ui.SimpleMenuPreference app:defaultValue="auto" app:entries="@array/dns_network_select" app:entryValues="@array/dns_network_select" app:key="domain_strategy_for_server" app:title="@string/domain_strategy_for_server" app:useSimpleSummaryProvider="true" />
         <SwitchPreference app:defaultValue="true" app:icon="@drawable/ic_baseline_camera_24" app:key="enableDnsRouting" app:summary="@string/dns_routing_message" app:title="@string/enable_dns_routing" />
-        <SwitchPreference app:defaultValue="true" app:icon="@drawable/ic_action_lock" app:key="enableFakeDns" app:summary="@string/fakedns_message" app:title="@string/enable_fakedns" />
+        <SwitchPreference app:defaultValue="false" app:icon="@drawable/ic_action_lock" app:key="enableFakeDns" app:summary="@string/fakedns_message" app:title="@string/enable_fakedns" />
         <moe.matsuri.nb4a.ui.SimpleMenuPreference app:defaultValue="both" app:entries="@array/hijack_dns_names" app:entryValues="@array/hijack_dns_values" app:icon="@drawable/ic_action_dns" app:key="hijackDns" app:title="@string/hijack_dns" app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
     <PreferenceCategory app:title="@string/cat_local_proxy">

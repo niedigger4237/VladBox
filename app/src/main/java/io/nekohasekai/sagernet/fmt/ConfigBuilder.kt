@@ -146,7 +146,8 @@ fun buildConfig(
     val directDNS = DnsPresets.direct().split("\n")
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
     val enableDnsRouting = DataStore.enableDnsRouting
-    val useFakeDns = DataStore.enableFakeDns && !forTest
+    // root TUN: traffic to the FakeIP range (198.18.0.0/15) is not captured by auto_redirect, so no FakeIP there
+    val useFakeDns = DataStore.enableFakeDns && !forTest && !isRootTun
     val needSniff = DataStore.trafficSniffing > 0
     val needSniffOverride = DataStore.trafficSniffing == 2
     val externalIndexMap = ArrayList<IndexEntity>()

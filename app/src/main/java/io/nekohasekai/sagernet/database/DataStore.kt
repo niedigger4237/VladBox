@@ -131,7 +131,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var dnsMain by configurationStore.string(Key.DNS_MAIN) { "direct" }
     var directDns by configurationStore.string(Key.DIRECT_DNS) { "https://1.1.1.1/dns-query" }
     var enableDnsRouting by configurationStore.boolean(Key.ENABLE_DNS_ROUTING) { true }
-    var enableFakeDns by configurationStore.boolean(Key.ENABLE_FAKEDNS) { true }
+    var enableFakeDns by configurationStore.boolean(Key.ENABLE_FAKEDNS) { false }
 
     var rulesProvider by configurationStore.stringToInt(Key.RULES_PROVIDER)
     var customGeoipUrl by configurationStore.string("customGeoipUrl")
