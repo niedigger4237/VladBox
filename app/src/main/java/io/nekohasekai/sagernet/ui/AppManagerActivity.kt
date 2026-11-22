@@ -242,16 +242,13 @@ class AppManagerActivity : ThemedActivity() {
     private fun loadApps() {
         loader?.cancel()
         loader = lifecycleScope.launchWhenCreated {
-            loading.crossFadeFrom(binding.list)
+            for (v in listOf(loading, binding.list, binding.appPlaceholder.root)) { v.clearAnimation(); v.animate().setListener(null).cancel(); v.alpha = 1F }
+            binding.appPlaceholder.root.visibility = View.GONE
+            binding.list.visibility = View.GONE
+            loading.visibility = View.VISIBLE
             val adapter = binding.list.adapter as AppsAdapter
             withContext(Dispatchers.IO) { adapter.reload() }
-            adapter.filter.filter(binding.search.text?.toString() ?: "")
-            if (apps.isEmpty()) {
-                binding.list.visibility = View.GONE
-                binding.appPlaceholder.root.crossFadeFrom(loading)
-            } else {
-                binding.list.crossFadeFrom(loading)
-            }
+            showCurrentSpace(false)
         }
     }
 
@@ -280,7 +277,7 @@ class AppManagerActivity : ThemedActivity() {
         binding.bypassGroup.visibility = View.GONE
         binding.showSystemApps.visibility = View.GONE
         setupSpaceTabs()
-        binding.autoSelectProxyApps.setOnClickListener { selectProxyApp() }
+        binding.autoSelectProxyApps.visibility = View.GONE
 
         initProxiedUids()
         binding.list.layoutManager = LinearLayoutManager(this, RecyclerView.VERTICAL, false)
@@ -324,12 +321,26 @@ class AppManagerActivity : ThemedActivity() {
         tabs.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab) {
                 space = tab.position
-                if (space == 1 && !privateLoaded) loadApps()
-                else appsAdapter.filter.filter(binding.search.text?.toString() ?: "")
+                if (space == 1 && !privateLoaded) loadApps() else showCurrentSpace()
             }
             override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab) {}
             override fun onTabReselected(tab: com.google.android.material.tabs.TabLayout.Tab) {}
         })
+    }
+
+    /** shows the already loaded list of the selected space (list or "empty" placeholder) */
+    private fun showCurrentSpace(cancelLoad: Boolean = true) {
+        if (cancelLoad) loader?.cancel()
+        for (v in listOf(loading, binding.list, binding.appPlaceholder.root)) { v.clearAnimation(); v.animate().setListener(null).cancel(); v.alpha = 1F }
+        loading.visibility = View.GONE
+        appsAdapter.filter.filter(binding.search.text?.toString() ?: "")
+        if (apps.isEmpty()) {
+            binding.list.visibility = View.GONE
+            binding.appPlaceholder.root.visibility = View.VISIBLE
+        } else {
+            binding.appPlaceholder.root.visibility = View.GONE
+            binding.list.visibility = View.VISIBLE
+        }
     }
 
     private fun showAppsSettings() {
@@ -338,13 +349,8 @@ class AppManagerActivity : ThemedActivity() {
         popup.menuInflater.inflate(R.menu.apps_settings_menu, popup.menu)
         popup.menu.findItem(if (DataStore.bypass) R.id.apps_mode_bypass else R.id.apps_mode_proxy).isChecked = true
         popup.menu.findItem(R.id.apps_show_system).isChecked = sysApps
-        popup.menu.findItem(R.id.apps_enable).isChecked = DataStore.proxyApps
         popup.setOnMenuItemClickListener {
             when (it.itemId) {
-                R.id.apps_enable -> {
-                    DataStore.proxyApps = !DataStore.proxyApps
-                    DataStore.dirty = true
-                }
                 R.id.apps_mode_proxy -> DataStore.bypass = false
                 R.id.apps_mode_bypass -> DataStore.bypass = true
                 R.id.apps_show_system -> {
@@ -359,6 +365,12 @@ class AppManagerActivity : ThemedActivity() {
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.per_app_proxy_menu, menu)
+        val sw = menu.findItem(R.id.action_apps_enable)?.actionView as? androidx.appcompat.widget.SwitchCompat
+        sw?.isChecked = DataStore.proxyApps
+        sw?.setOnCheckedChangeListener { _, checked ->
+            DataStore.proxyApps = checked
+            DataStore.dirty = true
+        }
         return true
     }
 

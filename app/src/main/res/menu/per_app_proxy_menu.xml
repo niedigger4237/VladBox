@@ -1,6 +1,11 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+        android:id="@+id/action_apps_enable"
+        android:title="@string/apps_enable"
+        app:actionLayout="@layout/layout_apps_enable_switch"
+        app:showAsAction="always" />
+    <item
         android:id="@+id/action_apps_settings"
         android:icon="@drawable/ic_action_settings"
         android:title="@string/apps_settings"
@@ -18,9 +23,4 @@
         android:icon="?attr/actionModeCopyDrawable"
         android:title="@string/action_export_clipboard"
         app:showAsAction="ifRoom" />
-    <item
-        android:id="@+id/action_import_clipboard"
-        android:icon="?attr/actionModePasteDrawable"
-        android:title="@string/action_import"
-        app:showAsAction="always" />
 </menu>
