@@ -16,6 +16,10 @@ object TetherVpn {
     private data class Addr(val name: String, val ip: String, val prefix: Int)
 
     private var lastUp: String? = null
+    private var lastSig: String? = null
+    private var lastSeen: String? = null
+    @Volatile
+    private var watcher: Thread? = null
     private var lastDown: List<String> = emptyList()
     private var prevOffload: String? = null
 
@@ -49,8 +53,7 @@ object TetherVpn {
     @Synchronized
     fun apply() {
         try {
-            clearLocked()
-            if (!enabled()) return
+            if (!enabled()) { clearLocked(); return }
             if (!RootShell.isAvailable()) { Logs.w("tethering through VPN needs root"); return }
             val addrs = Regex("^\\d+:\\s+(\\S+)\\s+inet\\s+(\\d+\\.\\d+\\.\\d+\\.\\d+)/(\\d+)", RegexOption.MULTILINE)
                 .findAll(RootShell.run("ip -4 -o addr show").out)
@@ -69,8 +72,17 @@ object TetherVpn {
             }.distinctBy { it.name }
             // by the selected tethering types first; if nothing matches, any non-uplink interface with a private address
             val downs = candidates(true).ifEmpty { candidates(false) }
-            Logs.i("tethering: addresses=${addrs.map { it.name + "/" + it.ip }} uplinks=$uplinks selectors=$sel -> ${downs.map { it.name }}")
-            if (downs.isEmpty()) { Logs.w("tethering: no active tethering interface found (turn the hotspot/USB tethering on, then reconnect)"); return }
+            val sig = up + "|" + downs.joinToString(",") { "${it.name}/${it.ip}/${it.prefix}" }
+            if (sig != lastSeen) {
+                lastSeen = sig
+                Logs.i("tethering: addresses=${addrs.map { it.name + "/" + it.ip }} uplinks=$uplinks selectors=$sel -> ${downs.map { it.name }}")
+            }
+            if (downs.isEmpty()) {
+                clearLocked()
+                return // waiting: the watcher picks the interface up as soon as the hotspot is switched on
+            }
+            if (sig == lastSig) return // already installed for exactly this interface/address
+            clearLocked()
 
             val s = ArrayList<String>()
             s += cleanupScript(up, downs.map { it.name })
@@ -94,6 +106,7 @@ object TetherVpn {
             s += "settings put global tether_offload_disabled 1"
             val r = RootShell.run(*s.toTypedArray(), timeoutMs = 20_000)
             lastUp = up
+            lastSig = sig
             lastDown = downs.map { it.name }
             Logs.i("tethering via VPN: $lastDown -> $up (exit ${r.code}${if (r.err.isNotBlank()) ", " + r.err.take(300) else ""})")
         } catch (e: Exception) {
@@ -101,10 +114,29 @@ object TetherVpn {
         }
     }
 
+    /** Keeps the rules in sync while the VPN is up: the hotspot may be switched on (or get a new subnet) later. */
     @Synchronized
-    fun clear() {
-        try { clearLocked() } catch (e: Exception) { Logs.w(e) }
+    fun start() {
+        if (!enabled() || watcher?.isAlive == true) return
+        val t = Thread({
+            while (!Thread.currentThread().isInterrupted) {
+                apply()
+                try { Thread.sleep(3_000) } catch (e: InterruptedException) { break }
+            }
+        }, "tether-vpn")
+        t.isDaemon = true
+        watcher = t
+        t.start()
     }
+
+    fun clear() {
+        watcher?.interrupt()
+        watcher = null
+        try { clearLockedSync() } catch (e: Exception) { Logs.w(e) }
+    }
+
+    @Synchronized
+    private fun clearLockedSync() = clearLocked()
 
     private fun clearLocked() {
         val up = lastUp ?: return
@@ -115,6 +147,7 @@ object TetherVpn {
             prevOffload = null
         }
         lastUp = null
+        lastSig = null
         lastDown = emptyList()
     }
 }

@@ -200,7 +200,7 @@ class VpnService : BaseVpnService(),
         if (Build.VERSION.SDK_INT >= 29) builder.setMetered(metered)
         conn = builder.establish() ?: throw NullConnectionException()
         // hotspot / USB / Bluetooth tethering through the VPN (root)
-        Thread({ io.nekohasekai.sagernet.bg.root.TetherVpn.apply() }, "tether-vpn").start()
+        io.nekohasekai.sagernet.bg.root.TetherVpn.start()
 
         return conn!!.fd
     }
