@@ -63,6 +63,15 @@ object RootDaemon {
         return uids.sorted()
     }
 
+    private val DEFAULT_BYPASS_CIDRS = listOf(
+        "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12",
+        "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "192.168.0.0/16",
+        "198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
+        "255.255.255.255/32", "::/128", "::1/128", "::ffff:0:0/96", "100::/64",
+        "64:ff9b::/96", "2001::/32", "2001:10::/28", "2001:20::/28", "2001:db8::/32",
+        "2002::/16", "fc00::/7", "fe80::/10", "ff00::/8",
+    )
+
     /** Interface selectors per tethering type, the same groups as Asterisk uses. */
     fun tetherSelectors(): List<String> {
         val l = LinkedHashSet<String>()
@@ -131,14 +140,16 @@ object RootDaemon {
             add("virtualInterfaces", strings(emptyList()))
             add("hotspotInterfaces", strings(tetherInterfaces(mode).also { Logs.i("hotspotInterfaces: $it") }))
             add("proxyPrivateCidrs", strings(emptyList()))
-            add("bypassPrivateCidrs", strings(emptyList()))
+            // as in AsteriskBOX: private/local ranges are never captured, otherwise hotspot clients lose DHCP/gateway
+            // traffic (their Wi-Fi drops); TUN mode leaves it to sing-box auto_route
+            add("bypassPrivateCidrs", strings(if (mode == Mode.TUN) emptyList() else DEFAULT_BYPASS_CIDRS.filter { ipv6 || ':' !in it }))
             add("appPolicy", JsonObject().apply {
                 addProperty(
                     "mode",
                     if (!perApp || uids.isEmpty()) "global" else if (DataStore.bypass) "blacklist" else "whitelist"
                 )
                 add("uids", ints(if (perApp) uids else emptyList()))
-                add("bypassUids", ints(emptyList()))
+                add("bypassUids", ints(if (mode == Mode.TUN) emptyList() else listOf(android.os.Process.myUid())))
                 add("directCidrPathV4", JsonNull.INSTANCE)
                 add("directCidrPathV6", JsonNull.INSTANCE)
             })
