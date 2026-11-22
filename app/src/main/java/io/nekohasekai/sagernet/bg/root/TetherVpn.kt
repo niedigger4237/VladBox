@@ -63,10 +63,13 @@ object TetherVpn {
             val sel = RootDaemon.tetherSelectors()
             val skip = Regex("(lo|tun\\d*|rmnet.*|r_rmnet.*|ccmni.*|dummy.*|ifb.*|p2p.*|clat.*|v4-.*)")
             // the gateway address is not always x.x.x.1 (e.g. 10.242.217.50/24), so match by interface name
-            val downs = addrs.filter { a ->
+            fun candidates(byName: Boolean) = addrs.filter { a ->
                 a.name !in uplinks && !skip.matches(a.name) && a.prefix in 16..30 &&
-                    sel.any { c -> if (c.endsWith("+")) a.name.startsWith(c.dropLast(1)) else a.name == c }
+                    (!byName || sel.any { c -> if (c.endsWith("+")) a.name.startsWith(c.dropLast(1)) else a.name == c })
             }.distinctBy { it.name }
+            // by the selected tethering types first; if nothing matches, any non-uplink interface with a private address
+            val downs = candidates(true).ifEmpty { candidates(false) }
+            Logs.i("tethering: addresses=${addrs.map { it.name + "/" + it.ip }} uplinks=$uplinks selectors=$sel -> ${downs.map { it.name }}")
             if (downs.isEmpty()) { Logs.w("tethering: no active tethering interface found (turn the hotspot/USB tethering on, then reconnect)"); return }
 
             val s = ArrayList<String>()
