@@ -225,7 +225,7 @@ fun buildConfig(
                     strict_route = false
                     // as in AsteriskBOX: sing-box redirects TCP itself, "lo" keeps local OUTPUT captured
                     auto_redirect = true
-                    include_interface = listOf("lo")
+                    include_interface = listOf("lo") + io.nekohasekai.sagernet.bg.root.RootDaemon.tetherExactInterfaces()
                 }
                 stack = when (DataStore.tunImplementation) {
                     TunImplementation.GVISOR -> "gvisor"
