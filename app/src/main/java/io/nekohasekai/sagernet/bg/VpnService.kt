@@ -54,6 +54,7 @@ class VpnService : BaseVpnService(),
     override fun killProcesses() {
         conn?.close()
         conn = null
+        Thread({ io.nekohasekai.sagernet.bg.root.TetherVpn.clear() }, "tether-vpn-clear").start()
         super.killProcesses()
     }
 
@@ -198,6 +199,8 @@ class VpnService : BaseVpnService(),
         metered = DataStore.meteredNetwork
         if (Build.VERSION.SDK_INT >= 29) builder.setMetered(metered)
         conn = builder.establish() ?: throw NullConnectionException()
+        // hotspot / USB / Bluetooth tethering through the VPN (root)
+        Thread({ io.nekohasekai.sagernet.bg.root.TetherVpn.apply() }, "tether-vpn").start()
 
         return conn!!.fd
     }

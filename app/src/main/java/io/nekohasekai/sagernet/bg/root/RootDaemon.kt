@@ -63,26 +63,43 @@ object RootDaemon {
         return uids.sorted()
     }
 
-    /** Android tethering interface names / prefixes for asteriskd `hotspotInterfaces`. */
-    fun tetherInterfaces(): List<String> {
+    /** Interface selectors per tethering type, the same groups as Asterisk uses. */
+    fun tetherSelectors(): List<String> {
         val l = LinkedHashSet<String>()
-        if (DataStore.tetherWifi) l += listOf("ap+", "swlan+", "softap+")
-        if (DataStore.tetherBluetooth) l += "bt-pan"
-        if (DataStore.tetherUsb) l += "rndis+"
-        
+        if (DataStore.tetherWifi) l += listOf("wlan+", "ap+", "softap+")
+        if (DataStore.tetherUsb) l += listOf("rndis+", "usb+", "ncm+")
+        if (DataStore.tetherBluetooth) l += listOf("bnep+", "bt-pan+")
+        if (DataStore.tetherEthernet) l += "eth+"
         DataStore.tetherCustom.split(',', '\n', ' ').map { it.trim() }.filter { it.isNotEmpty() }.forEach { l += it }
-        // interfaces that exist right now (the hotspot may already be up under a vendor-specific name)
-        if (l.isNotEmpty()) runCatching {
-            val live = RootShell.run("ls /sys/class/net", timeoutMs = 4_000).out.split(Regex("\\s+")).filter { it.isNotEmpty() }
-            val pats = ArrayList<Regex>()
-            if (DataStore.tetherWifi) pats += Regex("(ap|swlan|softap)[0-9]+")
-            if (DataStore.tetherUsb) pats += Regex("(rndis|usb|ncm)[0-9]+")
-            if (DataStore.tetherBluetooth) pats += Regex("bt-pan|bnep[0-9]+")
-            if (DataStore.tetherEthernet) pats += Regex("eth[1-9][0-9]*")
-            live.filter { n -> pats.any { it.matches(n) } && n != "wlan0" && n != "eth0" }.forEach { l += it }
-        }
-        return l.filter { Regex("[A-Za-z0-9_.\\-]+\\+?").matches(it) }.take(32)
+        return l.filter { Regex("[A-Za-z0-9_.\\-]+\\+?").matches(it) && it != "lo" }.take(32)
     }
+
+    /**
+     * Exact names of the tethering interfaces that exist right now. TUN mode needs them (sing-box `include_interface`
+     * takes exact names, prefixes are not allowed): the interfaces that currently serve clients (x.x.x.1/16..30)
+     * are preferred, otherwise every matching one except the Wi-Fi/Ethernet uplink.
+     */
+    fun tetherExactInterfaces(): List<String> {
+        val sel = tetherSelectors()
+        if (sel.isEmpty()) return emptyList()
+        return try {
+            val names = RootShell.run("ls /sys/class/net", timeoutMs = 4_000).out.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            val matched = names.filter { n ->
+                n != "lo" && sel.any { s -> if (s.endsWith("+")) n.startsWith(s.dropLast(1)) else n == s }
+            }
+            val active = Regex("^\\d+:\\s+(\\S+)\\s+inet\\s+\\d+\\.\\d+\\.\\d+\\.1/(\\d+)", RegexOption.MULTILINE)
+                .findAll(RootShell.run("ip -4 -o addr show", timeoutMs = 4_000).out)
+                .filter { it.groupValues[2].toInt() in 16..30 }.map { it.groupValues[1] }.toSet()
+            val act = matched.filter { it in active }
+            (if (act.isNotEmpty()) act else matched.filter { it != "wlan0" && it != "eth0" }).take(16)
+        } catch (e: Exception) {
+            Logs.w(e); emptyList()
+        }
+    }
+
+    /** asteriskd `hotspotInterfaces`: exact names in TUN mode (offload preparation only), selectors otherwise. */
+    fun tetherInterfaces(mode: Mode): List<String> =
+        (if (mode == Mode.TUN) tetherExactInterfaces() else tetherSelectors())
 
     fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean): String {
         val root = JsonObject()
@@ -112,7 +129,7 @@ object RootDaemon {
             add("fakeDnsIpv4Pool", JsonNull.INSTANCE)
             add("ignoredInterfaces", strings(emptyList()))
             add("virtualInterfaces", strings(emptyList()))
-            add("hotspotInterfaces", strings(tetherInterfaces().also { Logs.i("hotspotInterfaces: $it") }))
+            add("hotspotInterfaces", strings(tetherInterfaces(mode).also { Logs.i("hotspotInterfaces: $it") }))
             add("proxyPrivateCidrs", strings(emptyList()))
             add("bypassPrivateCidrs", strings(emptyList()))
             add("appPolicy", JsonObject().apply {
