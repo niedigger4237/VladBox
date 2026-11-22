@@ -96,9 +96,13 @@ object RootDaemon {
             val matched = names.filter { n ->
                 n != "lo" && sel.any { s -> if (s.endsWith("+")) n.startsWith(s.dropLast(1)) else n == s }
             }
-            val active = Regex("^\\d+:\\s+(\\S+)\\s+inet\\s+\\d+\\.\\d+\\.\\d+\\.1/(\\d+)", RegexOption.MULTILINE)
+            // interfaces that carry a private IPv4 address right now (the hotspot address is not always x.x.x.1)
+            // interfaces with an address that are not uplinks (no default route): the gateway is not always x.x.x.1
+            val uplinks = Regex("^default .*?dev (\\S+)", RegexOption.MULTILINE)
+                .findAll(RootShell.run("ip -4 route show table all", timeoutMs = 4_000).out).map { it.groupValues[1] }.toSet()
+            val active = Regex("^\\d+:\\s+(\\S+)\\s+inet\\s+\\d+\\.\\d+\\.\\d+\\.\\d+/(\\d+)", RegexOption.MULTILINE)
                 .findAll(RootShell.run("ip -4 -o addr show", timeoutMs = 4_000).out)
-                .filter { it.groupValues[2].toInt() in 16..30 }.map { it.groupValues[1] }.toSet()
+                .filter { it.groupValues[2].toInt() in 16..30 }.map { it.groupValues[1] }.filter { it !in uplinks }.toSet()
             val act = matched.filter { it in active }
             (if (act.isNotEmpty()) act else matched.filter { it != "wlan0" && it != "eth0" }).take(16)
         } catch (e: Exception) {

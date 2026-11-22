@@ -17,6 +17,7 @@ object TetherVpn {
 
     private var lastUp: String? = null
     private var lastDown: List<String> = emptyList()
+    private var prevOffload: String? = null
 
     private fun enabled() = DataStore.tetherWifi || DataStore.tetherBluetooth || DataStore.tetherUsb ||
             DataStore.tetherEthernet || DataStore.tetherCustom.isNotBlank()
@@ -36,6 +37,8 @@ object TetherVpn {
         if (up != null) {
             l += "while iptables -w -t nat -D POSTROUTING -o $up -j MASQUERADE 2>/dev/null; do :; done"
             for (d in down) {
+                for (proto in listOf("udp", "tcp"))
+                    l += "while iptables -w -t nat -D PREROUTING -i $d -p $proto --dport 53 -j DNAT --to-destination ${VpnService.PRIVATE_VLAN4_ROUTER}:53 2>/dev/null; do :; done"
                 l += "while iptables -w -D FORWARD -i $d -o $up -j ACCEPT 2>/dev/null; do :; done"
                 l += "while iptables -w -D FORWARD -i $up -o $d -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null; do :; done"
             }
@@ -54,13 +57,15 @@ object TetherVpn {
                 .map { Addr(it.groupValues[1], it.groupValues[2], it.groupValues[3].toInt()) }.toList()
             val up = addrs.firstOrNull { it.ip == VpnService.PRIVATE_VLAN4_CLIENT }?.name
             if (up == null) { Logs.w("tethering: VPN interface not found"); return }
-            val custom = DataStore.tetherCustom.split(',', '\n', ' ').map { it.trim() }.filter { it.isNotEmpty() }
-            val skip = Regex("(lo|tun\\d*|rmnet.*|r_rmnet.*|ccmni.*|dummy.*|ifb.*|p2p.*|wlan0|clat.*|v4-.*)")
+            // interfaces carrying a default route are uplinks (e.g. wlan0 when the phone itself is on Wi-Fi)
+            val uplinks = Regex("^default .*?dev (\\S+)", RegexOption.MULTILINE)
+                .findAll(RootShell.run("ip -4 route show table all").out).map { it.groupValues[1] }.toSet() + up
+            val sel = RootDaemon.tetherSelectors()
+            val skip = Regex("(lo|tun\\d*|rmnet.*|r_rmnet.*|ccmni.*|dummy.*|ifb.*|p2p.*|clat.*|v4-.*)")
+            // the gateway address is not always x.x.x.1 (e.g. 10.242.217.50/24), so match by interface name
             val downs = addrs.filter { a ->
-                a.name != up && (
-                    custom.any { c -> if (c.endsWith("+")) a.name.startsWith(c.dropLast(1)) else a.name == c } ||
-                    (!skip.matches(a.name) && a.ip.endsWith(".1") && a.prefix in 16..30)
-                )
+                a.name !in uplinks && !skip.matches(a.name) && a.prefix in 16..30 &&
+                    sel.any { c -> if (c.endsWith("+")) a.name.startsWith(c.dropLast(1)) else a.name == c }
             }.distinctBy { it.name }
             if (downs.isEmpty()) { Logs.w("tethering: no active tethering interface found (turn the hotspot/USB tethering on, then reconnect)"); return }
 
@@ -77,6 +82,13 @@ object TetherVpn {
                 s += "iptables -w -I FORWARD 1 -i $up -o ${d.name} -m state --state ESTABLISHED,RELATED -j ACCEPT"
             }
             s += "iptables -w -t nat -I POSTROUTING 1 -o $up -j MASQUERADE"
+            // clients' DNS goes to the VPN resolver (sing-box hijack-dns), not to the system one
+            for (d in downs) for (proto in listOf("udp", "tcp")) {
+                s += "iptables -w -t nat -I PREROUTING 1 -i ${d.name} -p $proto --dport 53 -j DNAT --to-destination ${VpnService.PRIVATE_VLAN4_ROUTER}:53"
+            }
+            // hardware tethering offload bypasses ip rules/NAT
+            if (prevOffload == null) prevOffload = RootShell.run("settings get global tether_offload_disabled").out.trim()
+            s += "settings put global tether_offload_disabled 1"
             val r = RootShell.run(*s.toTypedArray(), timeoutMs = 20_000)
             lastUp = up
             lastDown = downs.map { it.name }
@@ -94,6 +106,11 @@ object TetherVpn {
     private fun clearLocked() {
         val up = lastUp ?: return
         RootShell.run(*cleanupScript(up, lastDown).toTypedArray(), timeoutMs = 10_000)
+        prevOffload?.let { p ->
+            RootShell.run(if (p.isBlank() || p == "null") "settings delete global tether_offload_disabled"
+                else "settings put global tether_offload_disabled $p")
+            prevOffload = null
+        }
         lastUp = null
         lastDown = emptyList()
     }
