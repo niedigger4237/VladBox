@@ -32,9 +32,10 @@ clone_rule_sets() { # <repo> <prefix>
   # files can be downloaded on demand from the Assets screen.
   local wanted=()
   if [[ "$prefix" == geoip ]]; then
-    wanted=(geoip-ru.srs)
+    wanted=(geoip-ru.srs geoip-private.srs)
   else
     wanted=(geosite-category-gov-ru.srs geosite-private.srs geosite-category-ads-all.srs
+            geosite-yandex.srs geosite-mailru.srs geosite-vk.srs
             geosite-google.srs geosite-youtube.srs geosite-telegram.srs
             geosite-discord.srs geosite-openai.srs)
   fi
@@ -89,6 +90,36 @@ fetch_runetfreedom_ru_sets() {
   done
 }
 
+# Ensure all Default Route SRS assets are packaged by the existing RU pipeline.
+fetch_default_route_sets() {
+  local base="https://raw.githubusercontent.com/runetfreedom/russia-v2ray-rules-dat/release/sing-box"
+  local entry kind name target
+  local required=(
+    "geosite:geosite-category-ads-all.srs"
+    "geoip:geoip-ru.srs"
+    "geoip:geoip-private.srs"
+    "geosite:geosite-category-gov-ru.srs"
+    "geosite:geosite-category-ru.srs"
+    "geosite:geosite-yandex.srs"
+    "geosite:geosite-mailru.srs"
+    "geosite:geosite-vk.srs"
+    "geosite:geosite-private.srs"
+  )
+  for entry in "${required[@]}"; do
+    kind="${entry%%:*}"
+    name="${entry#*:}"
+    target="$RULESET_DIR/$name"
+    if [[ -s "$target" && "$(head -c 3 "$target")" == "SRS" ]]; then continue; fi
+    echo "Fetching missing Default SRS: $name"
+    curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+      "$base/rule-set-$kind/$name" -o "$target"
+    [[ -s "$target" && "$(head -c 3 "$target")" == "SRS" ]] || {
+      echo "Required Default SRS missing or invalid: $name" >&2
+      return 1
+    }
+  done
+}
+
 # Compile VladBox's mandatory Russian TLD rule set into a genuine sing-box SRS.
 # The JSON source is kept in git; the binary is built for each APK.
 compile_ru_suffixes() {
@@ -119,6 +150,7 @@ rm -f "$RULESET_DIR"/*.srs "$RULESET_DIR/manifest.txt" \
 GEOIP_COMMIT="$(clone_rule_sets sing-geoip geoip)"
 GEOSITE_COMMIT="$(clone_rule_sets sing-geosite geosite)"
 fetch_runetfreedom_ru_sets
+fetch_default_route_sets
 compile_ru_suffixes
 (
   cd "$RULESET_DIR"
