@@ -63,6 +63,7 @@ class AssetsActivity : ThemedActivity() {
             override fun onMove(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder) = false
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
                 val index = viewHolder.bindingAdapterPosition
+                if (index == RecyclerView.NO_POSITION || index !in adapter.assets.indices) return
                 val file = adapter.assets[index]
                 MaterialAlertDialogBuilder(this@AssetsActivity)
                     .setTitle("Delete SRS database?")
@@ -78,6 +79,7 @@ class AssetsActivity : ThemedActivity() {
                                     File(file.parentFile, "${file.nameWithoutExtension}.version.txt").delete()
                                     getSharedPreferences("deleted_srs", MODE_PRIVATE)
                                         .edit().putBoolean(file.name, true).commit()
+                                        .also { check(it) { "Could not save deletion state for ${file.name}" } }
                                 }
                             } catch (e: Exception) {
                                 alert(e.readableMessage).tryToShow()
@@ -302,7 +304,8 @@ class AssetsActivity : ThemedActivity() {
         layout.refreshLayout.isRefreshing = true
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { Libcore.ensureRuleSets() }
+                // Refresh the installed list only: ensureRuleSets may recreate deleted files.
+                // Explicit downloads remain available from the toolbar and per-file actions.
             } catch (e: Exception) {
                 if (!isFinishing && !isDestroyed) alert(e.readableMessage).tryToShow()
             } finally {
@@ -427,6 +430,7 @@ class AssetsActivity : ThemedActivity() {
         require(valid) { "Invalid SRS file: ${file.name}" }
         check(temp.renameTo(file)) { "Cannot install ${file.name}" }
         File(file.parentFile, "${file.nameWithoutExtension}.version.txt").writeText(label)
+        getSharedPreferences("deleted_srs", MODE_PRIVATE).edit().remove(file.name).apply()
     }
 
     override fun onSupportNavigateUp(): Boolean { finish(); return true }
