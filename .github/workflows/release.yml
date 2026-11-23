@@ -194,7 +194,9 @@ jobs:
           echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
           export LOCAL_PROPERTIES="${{ secrets.LOCAL_PROPERTIES }}"
           ./run init action gradle
-          ./gradlew bundlePlayRelease
+          ./gradlew bundlePlayRelease \
+            -PappVersionName="${{ inputs.tag }}" \
+            -PappVersionCode="${{ github.run_number }}"
       - uses: actions/upload-artifact@v3
         with:
           name: AAB
