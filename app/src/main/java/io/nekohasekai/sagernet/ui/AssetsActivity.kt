@@ -117,7 +117,10 @@ class AssetsActivity : ThemedActivity() {
                     .setTitle(R.string.route_rules_provider)
                     .setSingleChoiceItems(R.array.rules_dat_provider, ids.indexOf(DataStore.rulesProvider).coerceAtLeast(0)) { d, i ->
                         d.dismiss()
-                        if (ids[i] == 4) editSources() else DataStore.rulesProvider = ids[i]
+                        if (ids[i] == 4) editSources() else {
+                            DataStore.rulesProvider = ids[i]
+                            downloadSelectedRuleSets()
+                        }
                     }.show()
             }
             else -> return super.onOptionsItemSelected(item)
@@ -152,7 +155,39 @@ class AssetsActivity : ThemedActivity() {
     private fun downloadSelectedRuleSets() {
         if (loading) return
         if (DataStore.rulesProvider != 4) {
-            loadInstalledSets()
+            loading = true
+            layout.refreshLayout.isRefreshing = true
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        if (DataStore.rulesProvider == 5) {
+                            // RunetFreedom publishes its own blocked-category sets,
+                            // not a drop-in replacement for every SagerNet category.
+                            listOf("geoip-ru-blocked.srs", "geosite-ru-blocked.srs").forEach { name ->
+                                downloadRuleSet(File(SagerNet.application.externalAssets, name))
+                            }
+                        } else {
+                            val files = SagerNet.application.externalAssets.listFiles().orEmpty()
+                                .filter { it.isFile && it.name.endsWith(".srs", true) }
+                            val errors = mutableListOf<String>()
+                            files.forEach { file ->
+                                try { downloadRuleSet(file) }
+                                catch (e: Exception) { errors.add("${file.name}: ${e.message}") }
+                            }
+                            if (errors.isNotEmpty()) {
+                                throw java.io.IOException("Failed to update ${errors.size} rule sets:\\n" + errors.take(5).joinToString("\\n"))
+                            }
+                        }
+                    }
+                    snackbar(R.string.route_asset_updated).show()
+                } catch (e: Exception) {
+                    if (!isFinishing && !isDestroyed) alert(e.readableMessage).tryToShow()
+                } finally {
+                    runCatching { adapter.reloadAssets() }
+                    loading = false
+                    layout.refreshLayout.isRefreshing = false
+                }
+            }
             return
         }
         val sources = listOf(
@@ -274,12 +309,19 @@ class AssetsActivity : ThemedActivity() {
         }
         val provider = DataStore.rulesProvider
         val base = when (provider) {
+            5 -> {
+                require(file.name == "geoip-ru-blocked.srs" || file.name == "geosite-ru-blocked.srs") {
+                    "RunetFreedom supports the RU blocked sets; use SagerNet for other categories."
+                }
+                val folder = if (repo == "sing-geoip") "rule-set-geoip" else "rule-set-geosite"
+                "https://raw.githubusercontent.com/runetfreedom/russia-v2ray-rules-dat/release/sing-box/$folder"
+            }
             2 -> "https://raw.githubusercontent.com/Chocolate4U/Iran-sing-box-rules/rule-set"
             4 -> (if (repo == "sing-geoip") DataStore.geoipSrsSource else DataStore.geositeSrsSource)
                 .also { require(it.isNotBlank()) { getString(R.string.route_custom_url_empty, repo) } }
             else -> "https://raw.githubusercontent.com/SagerNet/$repo/rule-set"
         }
-        val label = when (provider) { 4 -> "Custom"; 2 -> "Chocolate4U"; else -> "SagerNet" }
+        val label = when (provider) { 5 -> "RunetFreedom"; 4 -> "Custom"; 2 -> "Chocolate4U"; else -> "SagerNet" }
         downloadRuleSetFromUrl(file, base, label)
     }
 
