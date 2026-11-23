@@ -20,7 +20,7 @@ object RouteProfiles {
     )
 
     private val gson = Gson()
-    private val type = object : TypeToken<MutableList<Snapshot>>() {}.type
+    private val type = TypeToken.getParameterized(List::class.java, Snapshot::class.java).type
     private val prefs get() = SagerNet.application.getSharedPreferences("routing_profiles_v1", 0)
 
     @Synchronized
