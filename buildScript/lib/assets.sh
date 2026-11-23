@@ -40,13 +40,14 @@ clone_rule_sets() { # <repo> <prefix>
   fi
 
   for name in "${wanted[@]}"; do
-    [[ -f "$checkout/$name" ]] || {
-      echo "Missing required bundled Rule Set: $repo/$name" >&2
-      return 1
-    }
-  done
-
-  for name in "${wanted[@]}"; do
+    if [[ ! -f "$checkout/$name" ]]; then
+      if [[ "$name" == "$prefix-ru.srs" ]]; then
+        echo "Missing required RU Rule Set: $repo/$name" >&2
+        return 1
+      fi
+      echo "Optional starter Rule Set unavailable: $repo/$name" >&2
+      continue
+    fi
     local file="$checkout/$name"
     local base
     base="$(basename "$file")"
