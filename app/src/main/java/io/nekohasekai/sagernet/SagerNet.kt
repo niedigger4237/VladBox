@@ -18,6 +18,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import go.Seq
 import io.nekohasekai.sagernet.bg.SagerConnection
+import io.nekohasekai.sagernet.database.ProfileManager
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.isOss
@@ -129,6 +130,7 @@ class SagerNet : Application(),
         }
 
         if (isMainProcess) {
+            ProfileManager.installDefaultRouteTemplate()
             Theme.apply(this)
             Theme.applyNightTheme()
             runOnDefaultDispatcher {
