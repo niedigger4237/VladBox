@@ -181,6 +181,30 @@ object ProfileManager {
         }
     }
 
+    /** One-time replacement requested for the Default routing template. */
+    fun installDefaultRouteTemplate() {
+        val store = DataStore.configurationStore
+        if (store.getBoolean("defaultRouteTemplateV1Installed", false)) return
+        SagerDatabase.instance.runInTransaction {
+            if (store.getBoolean("defaultRouteTemplateV1Installed", false)) return@runInTransaction
+            SagerDatabase.rulesDao.reset()
+            val defaults = listOf(
+                RuleEntity(name = "Ads", userOrder = 1, enabled = true,
+                    domains = "geosite:category-ads-all", outbound = -2L),
+                RuleEntity(name = "Analysis", userOrder = 2, enabled = true,
+                    domains = "domain:appcenter.ms\ndomain:firebase.io\ndomain:crashlytics.com", outbound = -2L),
+                RuleEntity(name = "Direct IP", userOrder = 3, enabled = true,
+                    ip = "geoip:ru\ngeoip:private", outbound = -1L),
+                RuleEntity(name = "Direct Domain", userOrder = 4, enabled = true,
+                    domains = listOf("geosite:category-gov-ru", "geosite:category-ru",
+                        "geosite:ru-suffixes", "geosite:yandex", "geosite:mailru",
+                        "geosite:vk").joinToString("\n"), outbound = -1L)
+            )
+            SagerDatabase.rulesDao.insert(defaults)
+            store.putBoolean("defaultRouteTemplateV1Installed", true)
+        }
+    }
+
     suspend fun getRules(): List<RuleEntity> {
         var rules = SagerDatabase.rulesDao.allRules()
         // маршрутизация по умолчанию пуста: никаких предустановленных правил
