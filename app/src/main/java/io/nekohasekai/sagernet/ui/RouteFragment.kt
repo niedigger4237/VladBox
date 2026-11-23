@@ -5,6 +5,17 @@ import android.os.Bundle
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.view.Gravity
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
 import androidx.appcompat.widget.Toolbar
 import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.ItemTouchHelper
@@ -24,6 +35,8 @@ import io.nekohasekai.sagernet.widget.UndoSnackbarManager
 
 class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItemClickListener {
 
+    private var showingRules = false
+    private lateinit var profileHome: LinearLayout
     lateinit var activity: MainActivity
     lateinit var ruleListView: RecyclerView
     lateinit var ruleAdapter: RuleAdapter
@@ -41,6 +54,13 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         toolbar.menu.add(0, 0x741231, 0, "Profiles").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
         toolbar.setOnMenuItemClickListener(this)
 
+        val content = view.findViewById<LinearLayout>(R.id.route_content)
+        profileHome = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), 0)
+        }
+        content.addView(ScrollView(requireContext()).apply { addView(profileHome) },
+            LinearLayout.LayoutParams(-1, 0, 1f))
         ruleListView = view.findViewById(R.id.route_list)
         ruleListView.layoutManager = FixedLinearLayoutManager(ruleListView)
         ruleAdapter = RuleAdapter()
@@ -107,8 +127,10 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
 
     override fun onResume() {
         super.onResume()
-        toolbar.subtitle = RouteProfiles.all().firstOrNull { it.id == RouteProfiles.selectedId() }?.name ?: "Default"
-        if (::ruleAdapter.isInitialized) runOnDefaultDispatcher { ruleAdapter.reload() }
+        if (showingRules) {
+            toolbar.subtitle = RouteProfiles.all().firstOrNull { it.id == RouteProfiles.selectedId() }?.name ?: "Default"
+            if (::ruleAdapter.isInitialized) runOnDefaultDispatcher { ruleAdapter.reload() }
+        } else renderProfileHome()
     }
 
     override fun onDestroy() {
@@ -120,7 +142,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
 
     override fun onMenuItemClick(item: MenuItem): Boolean {
         when (item.itemId) {
-            0x741231 -> startActivity(Intent(requireContext(), RouteProfilesActivity::class.java))
+            0x741231 -> renderProfileHome()
             R.id.action_new_route -> {
                 startActivity(Intent(context, RouteSettingsActivity::class.java))
             }
