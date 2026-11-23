@@ -165,7 +165,7 @@ class AssetsActivity : ThemedActivity() {
                         if (DataStore.rulesProvider == 5) {
                             // RunetFreedom publishes its own blocked-category sets,
                             // not a drop-in replacement for every SagerNet category.
-                            listOf("geoip-ru-blocked.srs", "geoip-ru-blocked-community.srs", "geosite-ru-blocked.srs", "geosite-ru-blocked-all.srs").forEach { name ->
+                            listOf("geoip-ru-blocked.srs", "geoip-ru-blocked-community.srs", "geosite-ru-blocked.srs", "geosite-ru-blocked-all.srs", "geosite-ru-available-only-inside.srs").forEach { name ->
                                 downloadRuleSet(File(SagerNet.application.externalAssets, name))
                             }
                         } else {
@@ -239,7 +239,7 @@ class AssetsActivity : ThemedActivity() {
                         val url = sourceFile.takeIf { it.isFile }?.readText()?.trim().orEmpty().ifBlank {
                             val folder = when (file.name) {
                                 "geoip-ru-blocked.srs", "geoip-ru-blocked-community.srs" -> "rule-set-geoip"
-                                "geosite-ru-blocked.srs", "geosite-ru-blocked-all.srs" -> "rule-set-geosite"
+                                "geosite-ru-blocked.srs", "geosite-ru-blocked-all.srs", "geosite-ru-available-only-inside.srs" -> "rule-set-geosite"
                                 else -> null
                             }
                             if (folder != null && DataStore.rulesProvider == 5) {
@@ -361,7 +361,7 @@ class AssetsActivity : ThemedActivity() {
         val provider = DataStore.rulesProvider
         val base = when (provider) {
             5 -> {
-                require(file.name in setOf("geoip-ru-blocked.srs", "geoip-ru-blocked-community.srs", "geosite-ru-blocked.srs", "geosite-ru-blocked-all.srs")) {
+                require(file.name in setOf("geoip-ru-blocked.srs", "geoip-ru-blocked-community.srs", "geosite-ru-blocked.srs", "geosite-ru-blocked-all.srs", "geosite-ru-available-only-inside.srs")) {
                     "RunetFreedom supports these RU blocked categories; use another provider for other categories."
                 }
                 val folder = if (repo == "sing-geoip") "rule-set-geoip" else "rule-set-geosite"
