@@ -89,6 +89,26 @@ fetch_runetfreedom_ru_sets() {
   done
 }
 
+# Compile VladBox's mandatory Russian TLD rule set into a genuine sing-box SRS.
+# The JSON source is kept in git; the binary is built for each APK.
+compile_ru_suffixes() {
+  local source="$ROOT/buildScript/rules/geosite-ru-suffixes.json"
+  local output="$RULESET_DIR/geosite-ru-suffixes.srs"
+  command -v go >/dev/null || {
+    echo "Go is required to compile the mandatory RU suffix SRS" >&2
+    return 1
+  }
+  (
+    cd "$TMP_DIR"
+    GOBIN="$TMP_DIR/bin" go install github.com/sagernet/sing-box/cmd/sing-box@v1.12.0
+  )
+  "$TMP_DIR/bin/sing-box" rule-set compile --output "$output" "$source"
+  [[ -s "$output" && "$(head -c 3 "$output")" == "SRS" ]] || {
+    echo "Failed to compile valid geosite-ru-suffixes.srs" >&2
+    return 1
+  }
+}
+
 # Remove stale legacy databases and old SRS files before packaging a clean snapshot.
 rm -f "$ASSET_DIR/geoip.db" "$ASSET_DIR/geosite.db" \
   "$ASSET_DIR/geoip.db.xz" "$ASSET_DIR/geosite.db.xz" \
@@ -99,10 +119,11 @@ rm -f "$RULESET_DIR"/*.srs "$RULESET_DIR/manifest.txt" \
 GEOIP_COMMIT="$(clone_rule_sets sing-geoip geoip)"
 GEOSITE_COMMIT="$(clone_rule_sets sing-geosite geosite)"
 fetch_runetfreedom_ru_sets
+compile_ru_suffixes
 (
   cd "$RULESET_DIR"
   find . -maxdepth 1 -type f -name '*.srs' -printf '%f\n' | sort > manifest.txt
   sha256sum ./*.srs | sed 's#  ./#  #' > checksums.txt
 )
 printf 'geoip=%s\ngeosite=%s\nrunetfreedom=release\n' "$GEOIP_COMMIT" "$GEOSITE_COMMIT" > "$RULESET_DIR/version.txt"
-echo "Packaged $(wc -l < "$RULESET_DIR/manifest.txt") official SRS files"
+echo "Packaged $(wc -l < "$RULESET_DIR/manifest.txt") SRS files"
