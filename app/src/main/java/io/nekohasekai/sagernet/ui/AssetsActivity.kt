@@ -276,7 +276,8 @@ class AssetsActivity : ThemedActivity() {
             "Chocolate4U/Iran-sing-box-rules"
         ),
         RuleAssetsProvider(
-            "L11R/antizapret-sing-box-geo"
+            // репозиторий переехал: L11R/antizapret-sing-box-geo -> savely-krasovsky/antizapret-sing-box
+            "savely-krasovsky/antizapret-sing-box"
         ),
     )
 
@@ -344,14 +345,14 @@ class AssetsActivity : ThemedActivity() {
     }
 
     suspend fun updateAsset(file: File, versionFile: File, localVersion: String) {
-        var fileName = file.name
+        val fileName = file.name
 
         if (DataStore.rulesProvider == CUSTOM_PROVIDER) {
             updateAssetFromUrl(file, versionFile)
             return
         }
-        val ruleProvider = rulesProviders[DataStore.rulesProvider]
-        val repo = ruleProvider.repoByFileName[fileName]
+        val ruleProvider = rulesProviders[DataStore.rulesProvider.coerceIn(0, rulesProviders.size - 1)]
+        val repo = ruleProvider.repoByFileName[fileName] ?: error("No repository for $fileName")
 
         val client = Libcore.newHttpClient().apply {
             modernTLS()
@@ -360,33 +361,65 @@ class AssetsActivity : ThemedActivity() {
         }
 
         try {
-            var response = client.newRequest().apply {
-                setURL("https://api.github.com/repos/$repo/releases/latest")
-            }.execute()
+            // 1) Пробуем узнать версию и ссылку через GitHub API.
+            //    Без авторизации у API жёсткий лимит запросов (особенно за общим IP
+            //    мобильного оператора), поэтому при любой ошибке идём дальше по запасному пути.
+            var tagName: String? = null
+            var downloadUrl: String? = null
+            var apiError: Throwable? = null
+            try {
+                val response = client.newRequest().apply {
+                    setURL("https://api.github.com/repos/$repo/releases/latest")
+                }.execute()
+                val release = JSONObject(Util.getStringBox(response.contentString))
+                tagName = release.optString("tag_name").takeIf { it.isNotBlank() }
+                val assetsArray = release.optJSONArray("assets")
+                if (assetsArray != null) {
+                    for (i in 0 until assetsArray.length()) {
+                        val asset = assetsArray.optJSONObject(i) ?: continue
+                        if (asset.optString("name") == fileName) {
+                            downloadUrl = asset.optString("browser_download_url")
+                                .takeIf { it.isNotBlank() }
+                            break
+                        }
+                    }
+                }
+                if (tagName == null || downloadUrl == null) {
+                    error(
+                        release.optString("message").takeIf { it.isNotBlank() }
+                            ?: "File $fileName not found in latest release of $repo"
+                    )
+                }
+            } catch (e: Throwable) {
+                apiError = e
+            }
 
-            val release = JSONObject(Util.getStringBox(response.contentString))
-            val tagName = release.optString("tag_name")
-
-            if (tagName == localVersion) {
+            if (tagName != null && tagName == localVersion) {
                 onMainDispatcher {
                     snackbar(R.string.route_asset_no_update).show()
                 }
                 return
             }
 
-            val releaseAssets = release.getJSONArray("assets").filterIsInstance<JSONObject>()
-            val assetToDownload = releaseAssets.find { it.getStr("name") == fileName }
-                ?: error("File $fileName not found in release ${release["url"]}")
-            val browserDownloadUrl = assetToDownload.getStr("browser_download_url")
-
-            response = client.newRequest().apply {
-                setURL(browserDownloadUrl)
-            }.execute()
+            // 2) Скачиваем файл. Если API не ответил, берём прямую ссылку на последний релиз
+            //    (она не использует API и не упирается в его лимиты).
+            val url = downloadUrl ?: "https://github.com/$repo/releases/latest/download/$fileName"
 
             val cacheFile = File(file.parentFile, file.name + ".tmp")
             cacheFile.parentFile?.mkdirs()
 
-            response.writeTo(cacheFile.canonicalPath)
+            try {
+                val response = client.newRequest().apply {
+                    setURL(url)
+                }.execute()
+                response.writeTo(cacheFile.canonicalPath)
+            } catch (e: Throwable) {
+                cacheFile.delete()
+                if (apiError != null) {
+                    error("API: ${apiError.readableMessage}\nDownload: ${e.readableMessage}")
+                }
+                throw e
+            }
 
             if (fileName.endsWith(".xz")) {
                 Libcore.unxz(cacheFile.absolutePath, file.absolutePath)
@@ -395,7 +428,9 @@ class AssetsActivity : ThemedActivity() {
                 cacheFile.renameTo(file)
             }
 
-            versionFile.writeText(tagName)
+            versionFile.writeText(
+                tagName ?: ("latest-" + DateFormat.getDateFormat(app).format(Date()))
+            )
 
             adapter.reloadAssets()
 
