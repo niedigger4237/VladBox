@@ -17,10 +17,14 @@ import (
 )
 
 func extractAssets() {
-	useOfficialAssets := intfNB4A.UseOfficialAssets()
-
-	for _, name := range []string{geoipDat, geositeDat, yacdDstFolder} {
-		if err := extractAssetName(name, useOfficialAssets); err != nil {
+	// Remove obsolete GeoIP/GeoSite databases left by older app versions.
+	for _, name := range []string{"geoip.db", "geosite.db", "geoip.db.xz", "geosite.db.xz", "geoip.version.txt", "geosite.version.txt", "sing-box-rule-set-cache.db"} {
+		if err := os.Remove(filepath.Join(externalAssetsPath, name)); err != nil && !os.IsNotExist(err) {
+			log.Printf("Remove legacy asset %s failed: %v", name, err)
+		}
+	}
+	for _, name := range []string{yacdDstFolder} {
+		if err := extractAssetName(name); err != nil {
 			log.Printf("Extract %s failed: %v", name, err)
 		}
 	}
@@ -169,33 +173,24 @@ func extractRuleSets() error {
 	return nil
 }
 
-// extractAssetName restores an APK-bundled asset. Geo databases are stored in
-// externalAssetsPath so they can be replaced by the user; Yacd stays internal.
-func extractAssetName(name string, useOfficialAssets bool) error {
-	replaceable := true
-	var version, apkPrefix string
+// extractAssetName restores the bundled Yacd web interface.
+func extractAssetName(name string) error {
+	version := ""
 	switch name {
-	case geoipDat:
-		version, apkPrefix = geoipVersion, apkAssetPrefixSingBox
-	case geositeDat:
-		version, apkPrefix = geositeVersion, apkAssetPrefixSingBox
 	case yacdDstFolder:
-		version, replaceable = yacdVersion, false
+		version = yacdVersion
 	default:
 		return fmt.Errorf("unknown bundled asset %q", name)
 	}
 
-	dir := externalAssetsPath
-	if !replaceable {
-		dir = internalAssetsPath
-	}
+	dir := internalAssetsPath
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create asset directory: %w", err)
 	}
 	dstName := filepath.Join(dir, name)
 	versionPath := filepath.Join(dir, version)
 
-	av, err := asset.Open(apkPrefix + version)
+	av, err := asset.Open(version)
 	if err != nil {
 		return fmt.Errorf("open bundled version %s: %w", version, err)
 	}
@@ -214,7 +209,7 @@ func extractAssetName(name string, useOfficialAssets bool) error {
 	info, statErr := os.Stat(dstName)
 	if statErr != nil || !info.Mode().IsRegular() || info.Size() == 0 {
 		doExtract = true
-	} else if useOfficialAssets || !replaceable {
+	} else {
 		b, err := os.ReadFile(versionPath)
 		if err != nil {
 			doExtract = true
@@ -263,7 +258,7 @@ func extractAssetName(name string, useOfficialAssets bool) error {
 			return fmt.Errorf("install Yacd: %w", err)
 		}
 	} else {
-		f, err := asset.Open(apkPrefix + name + ".xz")
+		f, err := asset.Open(name + ".xz")
 		if err != nil {
 			return fmt.Errorf("open bundled %s.xz: %w", name, err)
 		}

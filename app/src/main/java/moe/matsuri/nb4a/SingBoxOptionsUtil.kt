@@ -70,11 +70,7 @@ fun SingBoxOptions.DNSRule_DefaultOptions.checkEmpty(): Boolean {
     return true
 }
 
-/**
- * Resolve legacy geoip:/geosite: profile selectors to the modern SagerNet SRS Rule Sets.
- * A packaged local file is preferred for offline/first-start use; if it is absent, sing-box
- * downloads the same official file from the moving rule-set branch and caches it itself.
- */
+/** Resolve geoip:/geosite: selectors exclusively to local binary SRS Rule Sets. */
 fun generateRuleSet(ruleSetString: List<String>, ruleSet: MutableList<RuleSet>) {
     ruleSetString.forEach { selector ->
         val source = when {
@@ -87,16 +83,14 @@ fun generateRuleSet(ruleSetString: List<String>, ruleSet: MutableList<RuleSet>) 
 
         val fileName = "$source-$code.srs"
         val localFile = io.nekohasekai.sagernet.SagerNet.application.externalAssets.resolve(fileName)
+        check(localFile.isFile && localFile.length() > 0L) {
+            "Required SRS Rule Set is missing or empty: $fileName"
+        }
         ruleSet.add(RuleSet().apply {
             tag = selector
+            type = "local"
             format = "binary"
-            if (localFile.isFile && localFile.length() > 0L) {
-                type = "local"
-                path = localFile.absolutePath
-            } else {
-                type = "remote"
-                url = "https://raw.githubusercontent.com/SagerNet/sing-$source/rule-set/$fileName"
-            }
+            path = localFile.absolutePath
         })
     }
 }

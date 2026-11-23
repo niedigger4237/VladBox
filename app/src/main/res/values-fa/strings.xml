@@ -155,7 +155,7 @@
     <string name="route_asset_status">نسخه محلی: %s</string>
     <string name="route_asset_no_update">به‌روزرسانی یافت نشد</string>
     <string name="route_asset_updated">به‌روزرسانی شد</string>
-    <string name="route_not_asset">مشکل: ot an asset file: excepted .db, but %s</string>
+    <string name="route_not_asset">مشکل: ot an asset file: excepted .srs, but %s</string>
     <string name="route_opt_bypass_lan">دورزدن شبکه محلی</string>
     <string name="route_opt_block_ads">مسدود کردن تبلیغات</string>
     <string name="route_opt_block_analysis">مسدود کردن ردیاب‌های اینترنتی</string>

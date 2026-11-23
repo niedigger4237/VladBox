@@ -155,7 +155,7 @@
     <string name="route_asset_status">Локальна версія: %s</string>
     <string name="route_asset_no_update">Немає оновлень</string>
     <string name="route_asset_updated">Оновлено</string>
-    <string name="route_not_asset">Це не файл ресурсів: очікувався .db, але отримано %s</string>
+    <string name="route_not_asset">Це не файл ресурсів: очікувався .srs, але отримано %s</string>
     <string name="route_opt_bypass_lan">Обходити локальну мережу</string>
     <string name="route_opt_block_ads">Блокувати рекламу</string>
     <string name="route_opt_block_analysis">Блокувати аналітику</string>

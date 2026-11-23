@@ -134,8 +134,6 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var enableFakeDns by configurationStore.boolean(Key.ENABLE_FAKEDNS) { false }
 
     var rulesProvider by configurationStore.stringToInt(Key.RULES_PROVIDER)
-    var customGeoipUrl by configurationStore.string("customGeoipUrl")
-    var customGeositeUrl by configurationStore.string("customGeositeUrl")
     var logLevel by configurationStore.stringToInt(Key.LOG_LEVEL) { 2 }
     var logBufSize by configurationStore.int(Key.LOG_BUF_SIZE) { 0 }
     var acquireWakeLock by configurationStore.boolean(Key.ACQUIRE_WAKE_LOCK)

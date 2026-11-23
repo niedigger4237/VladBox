@@ -366,7 +366,7 @@
 <string name="route_manage_assets">Управление ресурсами маршрутов</string>
 <string name="route_name">Название маршрута</string>
 <string name="route_need_vpn">Правило маршрутизации `%s` зависит от VPN, поэтому игнорируется.</string>
-<string name="route_not_asset">Не файл ресурса: ожидался .db, а не %s</string>
+<string name="route_not_asset">Не файл ресурса: ожидался .srs, а не %s</string>
 <string name="route_opt_block_ads">Блокировать рекламу</string>
 <string name="route_opt_block_analysis">Блокировать аналитику</string>
 <string name="route_opt_block_quic">Блокировать QUIC</string>
