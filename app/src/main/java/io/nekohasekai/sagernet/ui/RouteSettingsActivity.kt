@@ -150,49 +150,6 @@ class RouteSettingsActivity(
     fun PreferenceFragmentCompat.viewCreated(view: View, savedInstanceState: Bundle?) {
         outbound = findPreference(Key.ROUTE_OUTBOUND)!!
         apps = findPreference(Key.ROUTE_PACKAGES)!!
-        findPreference<Preference>("routeRuSrsPicker")?.setOnPreferenceClickListener {
-            val files = SagerNet.application.externalAssets.listFiles()
-                ?.filter { file ->
-                    file.isFile && file.length() > 0 && file.name.endsWith(".srs") &&
-                        (file.name.startsWith("geosite-") || file.name.startsWith("geoip-")) &&
-                        (file.name.contains("-ru") || file.name.contains("russia"))
-                }?.sortedBy { it.name }.orEmpty()
-            if (files.isEmpty()) {
-                MaterialAlertDialogBuilder(this@RouteSettingsActivity)
-                    .setTitle("No installed RU rule sets")
-                    .setMessage("Install Russian SRS databases from Route → Assets first.")
-                    .setPositiveButton(android.R.string.ok, null).show()
-            } else {
-                val selectors = files.map { file ->
-                    val base = file.name.removeSuffix(".srs")
-                    if (base.startsWith("geoip-")) "geoip:" + base.removePrefix("geoip-")
-                    else "geosite:" + base.removePrefix("geosite-")
-                }
-                val domains = DataStore.routeDomain.split('\\n', ',').map { it.trim() }
-                    .filter { it.isNotEmpty() }.toMutableList()
-                val ips = DataStore.routeIP.split('\\n', ',').map { it.trim() }
-                    .filter { it.isNotEmpty() }.toMutableList()
-                val selected = BooleanArray(selectors.size)
-                MaterialAlertDialogBuilder(this@RouteSettingsActivity)
-                    .setTitle("Insert Russian SRS rules")
-                    .setMultiChoiceItems(selectors.toTypedArray(), selected) { _, index, checked ->
-                        selected[index] = checked
-                    }
-                    .setPositiveButton("Insert") { _, _ ->
-                        selectors.forEachIndexed { index, selector ->
-                            if (selected[index]) {
-                                val target = if (selector.startsWith("geoip:")) ips else domains
-                                if (selector !in target) target.add(selector)
-                            }
-                        }
-                        DataStore.routeDomain = domains.joinToString("\\n")
-                        DataStore.routeIP = ips.joinToString("\\n")
-                        DataStore.dirty = true
-                    }
-                    .setNegativeButton(android.R.string.cancel, null).show()
-            }
-            true
-        }
         findPreference<Preference>("routeSrsPicker")?.setOnPreferenceClickListener {
             val files = SagerNet.application.externalAssets.listFiles()
                 ?.filter { it.isFile && it.name.endsWith(".srs") &&
