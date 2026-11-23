@@ -13,6 +13,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProfileManager
+import io.nekohasekai.sagernet.database.RouteProfiles
 import io.nekohasekai.sagernet.database.RuleEntity
 import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.databinding.LayoutEmptyRouteBinding
@@ -37,6 +38,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         toolbar.setTitle(R.string.menu_route)
         toolbar.subtitle = "Default"
         toolbar.inflateMenu(R.menu.add_route_menu)
+        toolbar.menu.add(0, 0x741231, 0, "Profiles").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
         toolbar.setOnMenuItemClickListener(this)
 
         ruleListView = view.findViewById(R.id.route_list)
@@ -103,6 +105,12 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         }).attachToRecyclerView(ruleListView)
     }
 
+    override fun onResume() {
+        super.onResume()
+        toolbar.subtitle = RouteProfiles.all().firstOrNull { it.id == RouteProfiles.selectedId() }?.name ?: "Default"
+        if (::ruleAdapter.isInitialized) runOnDefaultDispatcher { ruleAdapter.reload() }
+    }
+
     override fun onDestroy() {
         if (::ruleAdapter.isInitialized) {
             ProfileManager.removeListener(ruleAdapter)
@@ -112,6 +120,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
 
     override fun onMenuItemClick(item: MenuItem): Boolean {
         when (item.itemId) {
+            0x741231 -> startActivity(Intent(requireContext(), RouteProfilesActivity::class.java))
             R.id.action_new_route -> {
                 startActivity(Intent(context, RouteSettingsActivity::class.java))
             }
