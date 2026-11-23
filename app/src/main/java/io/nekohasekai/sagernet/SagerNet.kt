@@ -92,6 +92,44 @@ class SagerNet : Application(),
         }
         // Never delete legacy files. They remain available for manual recovery.
     }
+    /** Install bundled SRS once; never overwrite user-updated rule sets. */
+    private fun installBundledDefaultRuleSets() {
+        val prefix = "sing-box/rule-set"
+        val files = assets.list(prefix)
+            ?: throw java.io.IOException("Default rule-set assets are missing from APK")
+        val required = listOf(
+            "geosite-category-ads-all.srs", "geoip-ru.srs", "geoip-private.srs",
+            "geosite-category-gov-ru.srs", "geosite-category-ru.srs",
+            "geosite-ru-suffixes.srs", "geosite-yandex.srs", "geosite-mailru.srs",
+            "geosite-vk.srs", "geosite-private.srs"
+        )
+        for (name in required) {
+            check(name in files) { "Missing bundled Default rule set: $name" }
+            val destination = File(externalAssets, name)
+            if (!destination.isFile || destination.length() == 0L) {
+                val temporary = File(externalAssets, ".$name.installing")
+                try {
+                    assets.open("$prefix/$name").use { input ->
+                        temporary.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    temporary.inputStream().use { input ->
+                        check(input.read() == 0x53 && input.read() == 0x52 && input.read() == 0x53) {
+                            "Invalid bundled SRS: $name"
+                        }
+                    }
+                    check(temporary.renameTo(destination)) { "Cannot install $name" }
+                } finally { temporary.delete() }
+            }
+            val sourceName = name.removeSuffix(".srs") + ".source-url.txt"
+            val sourceFile = File(externalAssets, sourceName)
+            if (!sourceFile.exists() && sourceName in files) {
+                assets.open("$prefix/$sourceName").use { input ->
+                    sourceFile.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+        }
+    }
+
     val process: String = JavaUtil.getProcessName()
     private val isMainProcess = process == BuildConfig.APPLICATION_ID
     val isBgProcess = process.endsWith(":bg")
@@ -104,6 +142,7 @@ class SagerNet : Application(),
         if (isMainProcess || isBgProcess) {
             externalAssets.mkdirs()
             migrateLegacyRuleSets()
+            if (isMainProcess) installBundledDefaultRuleSets()
             // earlier builds defaulted the log level to "none" and the settings screen persisted it
             if (!DataStore.configurationStore.getBoolean("logLevelDefaultInfo", false)) {
                 if (DataStore.logLevel == 0) DataStore.logLevel = 2
