@@ -28,6 +28,7 @@ import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.widget.UndoSnackbarManager
 import libcore.Libcore
 import java.io.File
+import android.util.Log
 import java.util.Date
 
 
@@ -67,6 +68,7 @@ class AssetsActivity : ThemedActivity() {
                 undoManager.remove(index to file)
             }
         }).attachToRecyclerView(layout.recyclerView)
+        lifecycleScope.launch { runCatching { adapter.reloadAssets() }.onFailure { Log.e("VladBoxSRS", "Initial SRS listing failed", it); alert(it.readableMessage).tryToShow() } }
     }
 
     override fun snackbarInternal(text: CharSequence): Snackbar =
@@ -108,13 +110,17 @@ class AssetsActivity : ThemedActivity() {
         when (item.itemId) {
             R.id.action_import_file -> startFilesForResult(importFile, "*/*")
             R.id.action_geo_custom -> editSources()
+            R.id.action_download_rule_sets -> downloadSelectedRuleSets()
             R.id.action_geo_provider -> {
                 val ids = resources.getStringArray(R.array.srs_provider_values).map(String::toInt)
                 MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.route_rules_provider)
                     .setSingleChoiceItems(R.array.rules_dat_provider, ids.indexOf(DataStore.rulesProvider).coerceAtLeast(0)) { d, i ->
                         d.dismiss()
-                        if (ids[i] == 4) editSources() else DataStore.rulesProvider = ids[i]
+                        if (ids[i] == 4) editSources() else {
+                            DataStore.rulesProvider = ids[i]
+                            downloadSelectedRuleSets()
+                        }
                     }.show()
             }
             else -> return super.onOptionsItemSelected(item)
@@ -142,7 +148,75 @@ class AssetsActivity : ThemedActivity() {
                 DataStore.geoipSrsSource = ip.text.toString().trim()
                 DataStore.geositeSrsSource = site.text.toString().trim()
                 DataStore.rulesProvider = 4
+                downloadSelectedRuleSets()
             }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun downloadSelectedRuleSets() {
+        if (loading) return
+        if (DataStore.rulesProvider != 4) {
+            loading = true
+            layout.refreshLayout.isRefreshing = true
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        if (DataStore.rulesProvider == 5) {
+                            // RunetFreedom publishes its own blocked-category sets,
+                            // not a drop-in replacement for every SagerNet category.
+                            listOf("geoip-ru-blocked.srs", "geosite-ru-blocked.srs").forEach { name ->
+                                downloadRuleSet(File(SagerNet.application.externalAssets, name))
+                            }
+                        } else {
+                            val files = SagerNet.application.externalAssets.listFiles().orEmpty()
+                                .filter { it.isFile && it.name.endsWith(".srs", true) }
+                            val errors = mutableListOf<String>()
+                            files.forEach { file ->
+                                try { downloadRuleSet(file) }
+                                catch (e: Exception) { errors.add("${file.name}: ${e.message}") }
+                            }
+                            if (errors.isNotEmpty()) {
+                                throw java.io.IOException("Failed to update ${errors.size} rule sets:\\n" + errors.take(5).joinToString("\\n"))
+                            }
+                        }
+                    }
+                    snackbar(R.string.route_asset_updated).show()
+                } catch (e: Exception) {
+                    if (!isFinishing && !isDestroyed) alert(e.readableMessage).tryToShow()
+                } finally {
+                    runCatching { adapter.reloadAssets() }
+                    loading = false
+                    layout.refreshLayout.isRefreshing = false
+                }
+            }
+            return
+        }
+        val sources = listOf(
+            "geoip-custom.srs" to DataStore.geoipSrsSource.trim(),
+            "geosite-custom.srs" to DataStore.geositeSrsSource.trim()
+        )
+        if (sources.all { it.second.isBlank() }) {
+            alert("Enter at least one GeoIP or GeoSite SRS URL first.").tryToShow()
+            return
+        }
+        loading = true
+        layout.refreshLayout.isRefreshing = true
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    sources.filter { it.second.isNotBlank() }.forEach { (name, source) ->
+                        downloadRuleSetFromUrl(File(SagerNet.application.externalAssets, name), source, "Custom")
+                    }
+                }
+                adapter.reloadAssets()
+                snackbar(R.string.route_asset_updated).show()
+            } catch (e: Exception) {
+                adapter.reloadAssets()
+                if (!isFinishing && !isDestroyed) alert(e.readableMessage).tryToShow()
+            } finally {
+                loading = false
+                layout.refreshLayout.isRefreshing = false
+            }
+        }
     }
 
     private var loading = false
@@ -157,7 +231,7 @@ class AssetsActivity : ThemedActivity() {
             } catch (e: Exception) {
                 if (!isFinishing && !isDestroyed) alert(e.readableMessage).tryToShow()
             } finally {
-                adapter.reloadAssets()
+                runCatching { adapter.reloadAssets() }.onFailure { Log.e("VladBoxSRS", "SRS refresh listing failed", it); if (!isFinishing && !isDestroyed) alert(it.readableMessage).tryToShow() }
                 loading = false
                 layout.refreshLayout.isRefreshing = false
             }
@@ -170,8 +244,13 @@ class AssetsActivity : ThemedActivity() {
         suspend fun reloadAssets() {
             val dir = SagerNet.application.externalAssets
             val files = withContext(Dispatchers.IO) {
-                dir.listFiles()?.filter { it.isFile && it.name.endsWith(".srs", true) }
-                    ?.sortedBy { it.name } ?: emptyList()
+                val internal = SagerNet.application.filesDir
+                val external = SagerNet.application.getExternalFilesDir(null)
+                Log.i("VladBoxSRS", "selected=${dir.absolutePath} exists=${dir.exists()} readable=${dir.canRead()} writable=${dir.canWrite()} internal=${internal.absolutePath} internalWritable=${internal.canWrite()} external=${external?.absolutePath} externalReadable=${external?.canRead()}")
+                val listed = dir.listFiles() ?: throw java.io.IOException("Cannot list SRS directory: ${dir.absolutePath} (exists=${dir.exists()}, readable=${dir.canRead()})")
+                val result = listed.filter { it.isFile && it.name.endsWith(".srs", true) }.sortedBy { it.name }
+                Log.i("VladBoxSRS", "Found ${result.size} installed SRS files")
+                result
             }
             assets.clear()
             assets.addAll(files)
@@ -230,20 +309,36 @@ class AssetsActivity : ThemedActivity() {
         }
         val provider = DataStore.rulesProvider
         val base = when (provider) {
+            5 -> {
+                require(file.name == "geoip-ru-blocked.srs" || file.name == "geosite-ru-blocked.srs") {
+                    "RunetFreedom supports the RU blocked sets; use SagerNet for other categories."
+                }
+                val folder = if (repo == "sing-geoip") "rule-set-geoip" else "rule-set-geosite"
+                "https://raw.githubusercontent.com/runetfreedom/russia-v2ray-rules-dat/release/sing-box/$folder"
+            }
             2 -> "https://raw.githubusercontent.com/Chocolate4U/Iran-sing-box-rules/rule-set"
             4 -> (if (repo == "sing-geoip") DataStore.geoipSrsSource else DataStore.geositeSrsSource)
                 .also { require(it.isNotBlank()) { getString(R.string.route_custom_url_empty, repo) } }
             else -> "https://raw.githubusercontent.com/SagerNet/$repo/rule-set"
         }
+        val label = when (provider) { 5 -> "RunetFreedom"; 4 -> "Custom"; 2 -> "Chocolate4U"; else -> "SagerNet" }
+        downloadRuleSetFromUrl(file, base, label)
+    }
+
+    private fun downloadRuleSetFromUrl(file: File, source: String, label: String) {
         val name = Uri.encode(file.name)
-        val url = if ("{name}" in base) base.replace("{name}", name) else base.trimEnd('/') + "/" + name
-        require(Uri.parse(url).scheme == "https" && !Uri.parse(url).host.isNullOrBlank()) { "Invalid HTTPS source" }
+        val url = when {
+            "{name}" in source -> source.replace("{name}", name)
+            Uri.parse(source).path?.endsWith(".srs", ignoreCase = true) == true -> source
+            else -> source.trimEnd('/') + "/" + name
+        }
+        val parsed = Uri.parse(url)
+        require(parsed.scheme == "https" && !parsed.host.isNullOrBlank()) { "Invalid HTTPS SRS source" }
         val client = Libcore.newHttpClient().apply { modernTLS(); keepAlive(); trySocks5(DataStore.mixedPort) }
         try {
             val temp = File.createTempFile("srs-", ".download", file.parentFile)
             try {
                 client.newRequest().apply { setURL(url) }.execute().writeTo(temp.canonicalPath)
-                val label = when (provider) { 4 -> "Custom"; 2 -> "Chocolate4U"; else -> "SagerNet" }
                 installRuleSet(temp, file, label)
             } finally { temp.delete() }
         } finally { client.close() }
