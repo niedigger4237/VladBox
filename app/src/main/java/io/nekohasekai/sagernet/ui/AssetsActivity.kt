@@ -67,6 +67,7 @@ class AssetsActivity : ThemedActivity() {
                 undoManager.remove(index to file)
             }
         }).attachToRecyclerView(layout.recyclerView)
+        lifecycleScope.launch { adapter.reloadAssets() }
     }
 
     override fun snackbarInternal(text: CharSequence): Snackbar =
@@ -108,6 +109,7 @@ class AssetsActivity : ThemedActivity() {
         when (item.itemId) {
             R.id.action_import_file -> startFilesForResult(importFile, "*/*")
             R.id.action_geo_custom -> editSources()
+            R.id.action_download_rule_sets -> downloadSelectedRuleSets()
             R.id.action_geo_provider -> {
                 val ids = resources.getStringArray(R.array.srs_provider_values).map(String::toInt)
                 MaterialAlertDialogBuilder(this)
@@ -142,7 +144,43 @@ class AssetsActivity : ThemedActivity() {
                 DataStore.geoipSrsSource = ip.text.toString().trim()
                 DataStore.geositeSrsSource = site.text.toString().trim()
                 DataStore.rulesProvider = 4
+                downloadSelectedRuleSets()
             }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun downloadSelectedRuleSets() {
+        if (loading) return
+        if (DataStore.rulesProvider != 4) {
+            loadInstalledSets()
+            return
+        }
+        val sources = listOf(
+            "geoip-custom.srs" to DataStore.geoipSrsSource.trim(),
+            "geosite-custom.srs" to DataStore.geositeSrsSource.trim()
+        )
+        if (sources.any { it.second.isBlank() }) {
+            alert("Enter both GeoIP and GeoSite SRS URLs in Custom URLs first.").tryToShow()
+            return
+        }
+        loading = true
+        layout.refreshLayout.isRefreshing = true
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    sources.forEach { (name, source) ->
+                        downloadRuleSetFromUrl(File(SagerNet.application.externalAssets, name), source, "Custom")
+                    }
+                }
+                adapter.reloadAssets()
+                snackbar(R.string.route_asset_updated).show()
+            } catch (e: Exception) {
+                adapter.reloadAssets()
+                if (!isFinishing && !isDestroyed) alert(e.readableMessage).tryToShow()
+            } finally {
+                loading = false
+                layout.refreshLayout.isRefreshing = false
+            }
+        }
     }
 
     private var loading = false
@@ -235,15 +273,24 @@ class AssetsActivity : ThemedActivity() {
                 .also { require(it.isNotBlank()) { getString(R.string.route_custom_url_empty, repo) } }
             else -> "https://raw.githubusercontent.com/SagerNet/$repo/rule-set"
         }
+        val label = when (provider) { 4 -> "Custom"; 2 -> "Chocolate4U"; else -> "SagerNet" }
+        downloadRuleSetFromUrl(file, base, label)
+    }
+
+    private fun downloadRuleSetFromUrl(file: File, source: String, label: String) {
         val name = Uri.encode(file.name)
-        val url = if ("{name}" in base) base.replace("{name}", name) else base.trimEnd('/') + "/" + name
-        require(Uri.parse(url).scheme == "https" && !Uri.parse(url).host.isNullOrBlank()) { "Invalid HTTPS source" }
+        val url = when {
+            "{name}" in source -> source.replace("{name}", name)
+            Uri.parse(source).path?.endsWith(".srs", ignoreCase = true) == true -> source
+            else -> source.trimEnd('/') + "/" + name
+        }
+        val parsed = Uri.parse(url)
+        require(parsed.scheme == "https" && !parsed.host.isNullOrBlank()) { "Invalid HTTPS SRS source" }
         val client = Libcore.newHttpClient().apply { modernTLS(); keepAlive(); trySocks5(DataStore.mixedPort) }
         try {
             val temp = File.createTempFile("srs-", ".download", file.parentFile)
             try {
                 client.newRequest().apply { setURL(url) }.execute().writeTo(temp.canonicalPath)
-                val label = when (provider) { 4 -> "Custom"; 2 -> "Chocolate4U"; else -> "SagerNet" }
                 installRuleSet(temp, file, label)
             } finally { temp.delete() }
         } finally { client.close() }
