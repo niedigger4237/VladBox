@@ -60,6 +60,7 @@ object RouteProfiles {
             DataStore.routeFinal = target.routeFinal
             DataStore.dnsMain = target.dnsMain
             persist(profiles, id)
+            SagerNet.reloadService()
         } catch (e: Exception) {
             SagerDatabase.instance.runInTransaction {
                 SagerDatabase.rulesDao.reset()
