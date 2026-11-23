@@ -269,7 +269,8 @@ object RootDaemon {
             val prep = RootShell.run(
                 "mkdir -p ${RootShell.q(logDir)}",
                 "rm -f ${RootShell.q(coreLogPath)} ${RootShell.q(logPath)} ${RootShell.q("$logDir/error.log")}",
-                // the geoip:/geosite: rule-sets are read from the core's working directory (patch 0002)
+                // Legacy .db adapters still use the root core's working directory.
+                // New SRS Rule Sets use absolute paths in config and are read from externalAssets.
                 "for f in geoip.db geosite.db; do [ -f ${RootShell.q(assets)}/\$f ] && cp -f ${RootShell.q(assets)}/\$f ${RootShell.q(runDir)}/\$f; done",
                 "cp -f ${RootShell.q(cfg)} ${RootShell.q(configPath)} && chmod 600 ${RootShell.q(configPath)}",
                 "cp -f ${RootShell.q(dcfg)} ${RootShell.q(daemonConfigPath)} && chmod 600 ${RootShell.q(daemonConfigPath)}",
