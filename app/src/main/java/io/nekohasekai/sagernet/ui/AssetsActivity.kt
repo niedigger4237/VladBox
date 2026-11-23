@@ -98,6 +98,7 @@ class AssetsActivity : ThemedActivity() {
                             val input = contentResolver.openInputStream(uri) ?: error("Cannot open selected file")
                             input.use { temp.outputStream().use { output -> it.copyTo(output) } }
                             installRuleSet(temp, target, "Custom")
+                            File(target.parentFile, "${target.nameWithoutExtension}.source-url.txt").delete()
                         } finally { temp.delete() }
                     }
                     adapter.reloadAssets()
@@ -111,6 +112,7 @@ class AssetsActivity : ThemedActivity() {
             R.id.action_import_file -> startFilesForResult(importFile, "*/*")
             R.id.action_geo_custom -> editSources()
             R.id.action_download_rule_sets -> downloadSelectedRuleSets()
+            R.id.action_update_all_srs -> updateAllInstalledSrs()
             R.id.action_geo_provider -> {
                 val ids = resources.getStringArray(R.array.srs_provider_values).map(String::toInt)
                 MaterialAlertDialogBuilder(this)
@@ -219,6 +221,46 @@ class AssetsActivity : ThemedActivity() {
         }
     }
 
+    /** Update only files whose original HTTPS download URL is recorded. */
+    private fun updateAllInstalledSrs() {
+        if (loading) return
+        loading = true
+        layout.refreshLayout.isRefreshing = true
+        lifecycleScope.launch {
+            var updated = 0
+            var skipped = 0
+            val errors = mutableListOf<String>()
+            try {
+                withContext(Dispatchers.IO) {
+                    val files = SagerNet.application.externalAssets.listFiles().orEmpty()
+                        .filter { it.isFile && it.extension.equals("srs", true) }
+                    files.forEach { file ->
+                        val sourceFile = File(file.parentFile, "${file.nameWithoutExtension}.source-url.txt")
+                        val url = sourceFile.takeIf { it.isFile }?.readText()?.trim().orEmpty()
+                        if (url.isBlank()) {
+                            skipped++
+                        } else {
+                            try {
+                                downloadRuleSetFromUrl(file, url, "Updated")
+                                updated++
+                            } catch (e: Exception) {
+                                errors.add("${file.name}: ${e.message}")
+                            }
+                        }
+                    }
+                }
+                val result = "Updated: $updated, skipped (unknown source): $skipped, failed: ${errors.size}"
+                MaterialAlertDialogBuilder(this@AssetsActivity)
+                    .setTitle("Update all installed SRS")
+                    .setMessage(result + if (errors.isEmpty()) "" else "\n\n" + errors.take(8).joinToString("\n"))
+                    .setPositiveButton(android.R.string.ok, null).show()
+            } finally {
+                runCatching { adapter.reloadAssets() }
+                loading = false
+                layout.refreshLayout.isRefreshing = false
+            }
+        }
+    }
     private var loading = false
 
     private fun loadInstalledSets() {
@@ -340,6 +382,7 @@ class AssetsActivity : ThemedActivity() {
             try {
                 client.newRequest().apply { setURL(url) }.execute().writeTo(temp.canonicalPath)
                 installRuleSet(temp, file, label)
+                File(file.parentFile, "${file.nameWithoutExtension}.source-url.txt").writeText(url)
             } finally { temp.delete() }
         } finally { client.close() }
     }
