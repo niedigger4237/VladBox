@@ -28,6 +28,7 @@ import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.widget.UndoSnackbarManager
 import libcore.Libcore
 import java.io.File
+import android.util.Log
 import java.util.Date
 
 
@@ -67,7 +68,7 @@ class AssetsActivity : ThemedActivity() {
                 undoManager.remove(index to file)
             }
         }).attachToRecyclerView(layout.recyclerView)
-        lifecycleScope.launch { adapter.reloadAssets() }
+        lifecycleScope.launch { runCatching { adapter.reloadAssets() }.onFailure { Log.e("VladBoxSRS", "Initial SRS listing failed", it); alert(it.readableMessage).tryToShow() } }
     }
 
     override fun snackbarInternal(text: CharSequence): Snackbar =
@@ -158,8 +159,8 @@ class AssetsActivity : ThemedActivity() {
             "geoip-custom.srs" to DataStore.geoipSrsSource.trim(),
             "geosite-custom.srs" to DataStore.geositeSrsSource.trim()
         )
-        if (sources.any { it.second.isBlank() }) {
-            alert("Enter both GeoIP and GeoSite SRS URLs in Custom URLs first.").tryToShow()
+        if (sources.all { it.second.isBlank() }) {
+            alert("Enter at least one GeoIP or GeoSite SRS URL first.").tryToShow()
             return
         }
         loading = true
@@ -167,7 +168,7 @@ class AssetsActivity : ThemedActivity() {
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    sources.forEach { (name, source) ->
+                    sources.filter { it.second.isNotBlank() }.forEach { (name, source) ->
                         downloadRuleSetFromUrl(File(SagerNet.application.externalAssets, name), source, "Custom")
                     }
                 }
@@ -195,7 +196,7 @@ class AssetsActivity : ThemedActivity() {
             } catch (e: Exception) {
                 if (!isFinishing && !isDestroyed) alert(e.readableMessage).tryToShow()
             } finally {
-                adapter.reloadAssets()
+                runCatching { adapter.reloadAssets() }.onFailure { Log.e("VladBoxSRS", "SRS refresh listing failed", it); if (!isFinishing && !isDestroyed) alert(it.readableMessage).tryToShow() }
                 loading = false
                 layout.refreshLayout.isRefreshing = false
             }
@@ -208,8 +209,13 @@ class AssetsActivity : ThemedActivity() {
         suspend fun reloadAssets() {
             val dir = SagerNet.application.externalAssets
             val files = withContext(Dispatchers.IO) {
-                dir.listFiles()?.filter { it.isFile && it.name.endsWith(".srs", true) }
-                    ?.sortedBy { it.name } ?: emptyList()
+                val internal = SagerNet.application.filesDir
+                val external = SagerNet.application.getExternalFilesDir(null)
+                Log.i("VladBoxSRS", "selected=${dir.absolutePath} exists=${dir.exists()} readable=${dir.canRead()} writable=${dir.canWrite()} internal=${internal.absolutePath} internalWritable=${internal.canWrite()} external=${external?.absolutePath} externalReadable=${external?.canRead()}")
+                val listed = dir.listFiles() ?: throw java.io.IOException("Cannot list SRS directory: ${dir.absolutePath} (exists=${dir.exists()}, readable=${dir.canRead()})")
+                val result = listed.filter { it.isFile && it.name.endsWith(".srs", true) }.sortedBy { it.name }
+                Log.i("VladBoxSRS", "Found ${result.size} installed SRS files")
+                result
             }
             assets.clear()
             assets.addAll(files)
