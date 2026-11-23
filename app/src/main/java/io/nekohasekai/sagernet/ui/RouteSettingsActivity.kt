@@ -195,8 +195,7 @@ class RouteSettingsActivity(
     private fun onlineCatalog(provider: Int): List<OnlineSrs> = when (provider) {
         0 -> githubTree("SagerNet", "sing-geosite", "rule-set", "", "SagerNet") +
              githubTree("SagerNet", "sing-geoip", "rule-set", "", "SagerNet")
-        1 -> githubTree("Chocolate4U", "Iran-sing-box-rules", "rule-set", "", "Chocolate4U")
-        2 -> githubTree("runetfreedom", "russia-v2ray-rules-dat", "release", "sing-box", "RunetFreedom")
+        1 -> githubTree("runetfreedom", "russia-v2ray-rules-dat", "release", "sing-box", "RunetFreedom")
         else -> {
             // A custom URL may point to one concrete SRS, but does not expose a searchable catalog.
             emptyList()
@@ -260,7 +259,7 @@ class RouteSettingsActivity(
     }
 
     private fun showOnlineSrsPicker() {
-        val providers = arrayOf("SagerNet", "Chocolate4U", "RunetFreedom")
+        val providers = arrayOf("SagerNet", "RunetFreedom")
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val pad = (16 * resources.displayMetrics.density).toInt()
@@ -268,7 +267,7 @@ class RouteSettingsActivity(
         }
         val provider = android.widget.Spinner(this).apply {
             adapter = ArrayAdapter(this@RouteSettingsActivity, android.R.layout.simple_spinner_dropdown_item, providers)
-            setSelection(when (DataStore.rulesProvider) { 2 -> 1; 5 -> 2; else -> 0 })
+            setSelection(when (DataStore.rulesProvider) { 5 -> 1; else -> 0 })
         }
         val search = EditText(this).apply { hint = "Search online SRS"; setSingleLine(true) }
         val list = ListView(this)
