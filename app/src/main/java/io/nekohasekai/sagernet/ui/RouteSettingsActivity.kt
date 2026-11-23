@@ -150,6 +150,47 @@ class RouteSettingsActivity(
     fun PreferenceFragmentCompat.viewCreated(view: View, savedInstanceState: Bundle?) {
         outbound = findPreference(Key.ROUTE_OUTBOUND)!!
         apps = findPreference(Key.ROUTE_PACKAGES)!!
+        findPreference<Preference>("routeSrsPicker")?.setOnPreferenceClickListener {
+            val files = SagerNet.application.externalAssets.listFiles()
+                ?.filter { it.isFile && it.name.endsWith(".srs") &&
+                    (it.name.startsWith("geosite-") || it.name.startsWith("geoip-")) }
+                ?.sortedBy { it.name }.orEmpty()
+            if (files.isEmpty()) {
+                MaterialAlertDialogBuilder(this@RouteSettingsActivity)
+                    .setTitle("No installed SRS files")
+                    .setMessage("Download rule sets from Route → Assets first.")
+                    .setPositiveButton(android.R.string.ok, null).show()
+            } else {
+                val selectors = files.map { file ->
+                    val base = file.name.removeSuffix(".srs")
+                    if (base.startsWith("geoip-")) "geoip:" + base.removePrefix("geoip-")
+                    else "geosite:" + base.removePrefix("geosite-")
+                }
+                val domains = DataStore.routeDomain.split('\n', ',').map { it.trim() }
+                    .filter { it.isNotEmpty() }.toMutableList()
+                val ips = DataStore.routeIP.split('\n', ',').map { it.trim() }
+                    .filter { it.isNotEmpty() }.toMutableList()
+                val selected = selectors.map { it in domains || it in ips }.toBooleanArray()
+                MaterialAlertDialogBuilder(this@RouteSettingsActivity)
+                    .setTitle("Installed SRS rule sets")
+                    .setMultiChoiceItems(selectors.toTypedArray(), selected) { _, index, checked ->
+                        selected[index] = checked
+                    }
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        selectors.forEachIndexed { index, selector ->
+                            val target = if (selector.startsWith("geoip:")) ips else domains
+                            target.removeAll { it == selector }
+                            if (selected[index]) target.add(selector)
+                        }
+                        DataStore.routeDomain = domains.joinToString("\n")
+                        DataStore.routeIP = ips.joinToString("\n")
+                        DataStore.dirty = true
+                    }
+                    .setNegativeButton(android.R.string.cancel, null).show()
+            }
+            true
+        }
+
 
         outbound.setOnPreferenceChangeListener { _, newValue ->
             if (newValue.toString() == "3") {
