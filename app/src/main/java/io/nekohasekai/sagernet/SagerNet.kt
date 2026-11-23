@@ -65,6 +65,8 @@ class SagerNet : Application(),
                         if (!source.isFile || !(name.endsWith(".srs", true) ||
                                     name.endsWith(".version.txt") || name == "rule-set.version.txt")) continue
                         val target = File(destination, name)
+                        if (name.endsWith(".srs", true) &&
+                            getSharedPreferences("deleted_srs", MODE_PRIVATE).getBoolean(name, false)) continue
                         if (target.exists()) continue
                         val temporary = File(destination, ".${name}.migrating")
                         try {
