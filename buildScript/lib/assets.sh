@@ -28,7 +28,26 @@ clone_rule_sets() { # <repo> <prefix>
     return 1
   fi
 
-  for file in "${files[@]}"; do
+  # Bundle only a small, predictable offline starter set. Additional SRS
+  # files can be downloaded on demand from the Assets screen.
+  local wanted=()
+  if [[ "$prefix" == geoip ]]; then
+    wanted=(geoip-ru.srs geoip-private.srs)
+  else
+    wanted=(geosite-ru.srs geosite-private.srs geosite-category-ads-all.srs
+            geosite-google.srs geosite-youtube.srs geosite-telegram.srs
+            geosite-discord.srs geosite-openai.srs)
+  fi
+
+  for name in "${wanted[@]}"; do
+    [[ -f "$checkout/$name" ]] || {
+      echo "Missing required bundled Rule Set: $repo/$name" >&2
+      return 1
+    }
+  done
+
+  for name in "${wanted[@]}"; do
+    local file="$checkout/$name"
     local base
     base="$(basename "$file")"
     [[ "$base" == "$prefix-"*.srs ]] || {
