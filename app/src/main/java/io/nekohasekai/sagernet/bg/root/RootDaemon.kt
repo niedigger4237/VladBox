@@ -264,13 +264,11 @@ object RootDaemon {
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
         val cfg = File(stage, "config.json").apply { writeText(withLogFile(singBoxConfig)) }
         val dcfg = File(stage, "asteriskd.json").apply { writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6)) }
-        val assets = SagerNet.application.externalAssets
         try {
             val prep = RootShell.run(
                 "mkdir -p ${RootShell.q(logDir)}",
                 "rm -f ${RootShell.q(coreLogPath)} ${RootShell.q(logPath)} ${RootShell.q("$logDir/error.log")}",
-                // the geoip:/geosite: rule-sets are read from the core's working directory (patch 0002)
-                "for f in geoip.db geosite.db; do [ -f ${RootShell.q(assets)}/\$f ] && cp -f ${RootShell.q(assets)}/\$f ${RootShell.q(runDir)}/\$f; done",
+                "rm -f ${RootShell.q(runDir)}/geoip.db ${RootShell.q(runDir)}/geosite.db",
                 "cp -f ${RootShell.q(cfg)} ${RootShell.q(configPath)} && chmod 600 ${RootShell.q(configPath)}",
                 "cp -f ${RootShell.q(dcfg)} ${RootShell.q(daemonConfigPath)} && chmod 600 ${RootShell.q(daemonConfigPath)}",
                 "chmod 755 ${RootShell.q(binary)} ${RootShell.q(hevBinary)} ${RootShell.q(bpfBinary)} 2>/dev/null; true",

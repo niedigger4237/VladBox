@@ -70,27 +70,29 @@ fun SingBoxOptions.DNSRule_DefaultOptions.checkEmpty(): Boolean {
     return true
 }
 
+/** Resolve geoip:/geosite: selectors exclusively to local binary SRS Rule Sets. */
 fun generateRuleSet(ruleSetString: List<String>, ruleSet: MutableList<RuleSet>) {
-    ruleSetString.forEach {
-        when {
-            it.startsWith("geoip:") -> {
-                ruleSet.add(RuleSet().apply {
-                    type = "local"
-                    tag = it
-                    format = "binary"
-                    path = it
-                })
-            }
-
-            it.startsWith("geosite:") -> {
-                ruleSet.add(RuleSet().apply {
-                    type = "local"
-                    tag = it
-                    format = "binary"
-                    path = it
-                })
-            }
+    ruleSetString.forEach { selector ->
+        val source = when {
+            selector.startsWith("geoip:") -> "geoip"
+            selector.startsWith("geosite:") -> "geosite"
+            else -> return@forEach
         }
+        val code = selector.substringAfter(':').trim()
+        if (code.isEmpty() || !code.matches(Regex("[A-Za-z0-9._!-]+"))) return@forEach
+
+        val fileName = "$source-$code.srs"
+        val localFile = io.nekohasekai.sagernet.SagerNet.application.externalAssets.resolve(fileName)
+        if (!localFile.isFile || localFile.length() == 0L) libcore.Libcore.ensureRuleSets()
+        check(localFile.isFile && localFile.length() > 0L) {
+            "Required SRS Rule Set is missing or empty: $fileName"
+        }
+        ruleSet.add(RuleSet().apply {
+            tag = selector
+            type = "local"
+            format = "binary"
+            path = localFile.absolutePath
+        })
     }
 }
 
