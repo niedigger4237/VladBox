@@ -67,8 +67,17 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
 
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
                 val index = viewHolder.bindingAdapterPosition
-                ruleAdapter.remove(index)
-                undoManager.remove(index to (viewHolder as RuleAdapter.RuleHolder).rule)
+                if (index <= 0) return
+                val rule = (viewHolder as RuleAdapter.RuleHolder).rule
+                // Persist the swipe immediately; the snackbar only offers restoration.
+                val deleted = SagerDatabase.rulesDao.deleteById(rule.id)
+                if (deleted > 0) {
+                    ruleAdapter.remove(index)
+                    undoManager.remove(index to rule)
+                    needReload()
+                } else {
+                    ruleAdapter.notifyItemChanged(index)
+                }
             }
 
             override fun onMove(
@@ -207,17 +216,17 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
 
         override fun undo(actions: List<Pair<Int, RuleEntity>>) {
             for ((index, item) in actions) {
-                ruleList.add(index - 1, item)
-                notifyItemInserted(index)
+                // Keep the original ID and order so references and rule priority survive Undo.
+                SagerDatabase.rulesDao.createRule(item)
+                val insertAt = (index - 1).coerceIn(0, ruleList.size)
+                ruleList.add(insertAt, item)
+                notifyItemInserted(insertAt + 1)
             }
+            needReload()
         }
 
-        override fun commit(actions: List<Pair<Int, RuleEntity>>) {
-            val rules = actions.map { it.second }
-            runOnDefaultDispatcher {
-                ProfileManager.deleteRules(rules)
-            }
-        }
+        // Deletion was already persisted in onSwiped.
+        override fun commit(actions: List<Pair<Int, RuleEntity>>) = Unit
 
         override suspend fun onAdd(rule: RuleEntity) {
             ruleListView.post {
