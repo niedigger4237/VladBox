@@ -9,6 +9,12 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ListView
+import android.widget.ArrayAdapter
+import android.text.TextWatcher
+import android.text.Editable
 import androidx.activity.result.component1
 import androidx.activity.result.component2
 import androidx.activity.result.contract.ActivityResultContracts
@@ -159,7 +165,9 @@ class RouteSettingsActivity(
                 MaterialAlertDialogBuilder(this@RouteSettingsActivity)
                     .setTitle("No installed SRS files")
                     .setMessage("Download rule sets from Route → Assets first.")
-                    .setPositiveButton(android.R.string.ok, null).show()
+                    .setPositiveButton("Open Assets") { _, _ ->
+                        startActivity(Intent(this@RouteSettingsActivity, AssetsActivity::class.java))
+                    }.setNegativeButton(android.R.string.cancel, null).show()
             } else {
                 val selectors = files.map { file ->
                     val base = file.name.removeSuffix(".srs")
