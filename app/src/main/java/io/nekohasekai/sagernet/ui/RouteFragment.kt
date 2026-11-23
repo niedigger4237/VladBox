@@ -1,6 +1,7 @@
 package io.nekohasekai.sagernet.ui
 
 import android.content.Intent
+import androidx.activity.OnBackPressedCallback
 import android.os.Bundle
 import android.view.MenuItem
 import android.view.View
@@ -35,6 +36,7 @@ import io.nekohasekai.sagernet.widget.UndoSnackbarManager
 
 class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItemClickListener {
 
+    private lateinit var routeBackCallback: OnBackPressedCallback
     private var showingRules = false
     private lateinit var profileHome: LinearLayout
     lateinit var activity: MainActivity
@@ -46,6 +48,10 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         super.onViewCreated(view, savedInstanceState)
 
         activity = requireActivity() as MainActivity
+        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner,
+            object : OnBackPressedCallback(false) {
+                override fun handleOnBackPressed() { renderProfileHome() }
+            }.also { routeBackCallback = it })
 
         ViewCompat.setOnApplyWindowInsetsListener(view, ListListener)
         toolbar.setTitle(R.string.menu_route)
@@ -138,6 +144,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
 
     private fun openRules() {
         showingRules = true
+        routeBackCallback.isEnabled = true
         (profileHome.parent as View).visibility = View.GONE
         ruleListView.visibility = View.VISIBLE
         toolbar.setTitle(R.string.menu_route)
@@ -178,6 +185,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
     private fun renderProfileHome() {
         if (!::profileHome.isInitialized) return
         showingRules = false
+        routeBackCallback.isEnabled = false
         toolbar.subtitle = null
         toolbar.title = "Routing profiles"
         ruleListView.visibility = View.GONE
