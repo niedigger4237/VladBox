@@ -183,8 +183,7 @@ class RouteSettingsActivity(
                 val path = item.optString("path")
                 if (item.optString("type") != "blob" || !path.endsWith(".srs", true)) continue
                 if (folder.isNotBlank() && !path.startsWith("$folder/")) continue
-                val originalName = path.substringAfterLast('/')
-                val filename = if (label == "Loyalsoldier") "geoip-$originalName" else originalName
+                val filename = path.substringAfterLast('/')
                 if (!filename.startsWith("geoip-") && !filename.startsWith("geosite-")) continue
                 val encodedPath = path.split('/').joinToString("/") { android.net.Uri.encode(it) }
                 results.add(OnlineSrs(filename, "https://raw.githubusercontent.com/$owner/$repo/$branch/$encodedPath", label))
@@ -197,7 +196,6 @@ class RouteSettingsActivity(
         0 -> githubTree("SagerNet", "sing-geosite", "rule-set", "", "SagerNet") +
              githubTree("SagerNet", "sing-geoip", "rule-set", "", "SagerNet")
         1 -> githubTree("runetfreedom", "russia-v2ray-rules-dat", "release", "sing-box", "RunetFreedom")
-        2 -> githubTree("Loyalsoldier", "geoip", "release", "srs", "Loyalsoldier")
         else -> {
             // A custom URL may point to one concrete SRS, but does not expose a searchable catalog.
             emptyList()
@@ -261,7 +259,7 @@ class RouteSettingsActivity(
     }
 
     private fun showOnlineSrsPicker() {
-        val providers = arrayOf("SagerNet", "RunetFreedom", "Loyalsoldier")
+        val providers = arrayOf("SagerNet", "RunetFreedom")
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val pad = (16 * resources.displayMetrics.density).toInt()
@@ -269,7 +267,7 @@ class RouteSettingsActivity(
         }
         val provider = android.widget.Spinner(this).apply {
             adapter = ArrayAdapter(this@RouteSettingsActivity, android.R.layout.simple_spinner_dropdown_item, providers)
-            setSelection(when (DataStore.rulesProvider) { 5 -> 1; 6 -> 2; else -> 0 })
+            setSelection(when (DataStore.rulesProvider) { 5 -> 1; else -> 0 })
         }
         val search = EditText(this).apply { hint = "Search online SRS"; setSingleLine(true) }
         val list = ListView(this)
