@@ -646,6 +646,15 @@ fun buildConfig(
         // 对 rule_set tag 去重
         if (route.rule_set != null) {
             route.rule_set = route.rule_set.distinctBy { it.tag }
+            // Remote SRS fallback must survive restarts and be reusable by both VPN and root modes.
+            if (route.rule_set.any { it.type == "remote" } && !forTest) {
+                experimental = (experimental ?: ExperimentalOptions()).apply {
+                    cache_file = CacheFile().apply {
+                        enabled = true
+                        path = SagerNet.application.externalAssets.resolve("sing-box-rule-set-cache.db").absolutePath
+                    }
+                }
+            }
         }
 
         // WireGuard/AmneziaWG are endpoints, not outbounds: without an explicit final the first
