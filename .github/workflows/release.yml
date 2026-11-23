@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
       - name: Golang Status
@@ -66,6 +68,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
       - name: Golang Status
@@ -145,6 +149,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
       - name: Golang Status
