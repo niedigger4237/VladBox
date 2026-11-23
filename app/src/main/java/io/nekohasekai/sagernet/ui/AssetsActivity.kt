@@ -165,7 +165,7 @@ class AssetsActivity : ThemedActivity() {
                         if (DataStore.rulesProvider == 5) {
                             // RunetFreedom publishes its own blocked-category sets,
                             // not a drop-in replacement for every SagerNet category.
-                            listOf("geoip-ru-blocked.srs", "geosite-ru-blocked.srs").forEach { name ->
+                            listOf("geoip-ru-blocked.srs", "geoip-ru-blocked-community.srs", "geosite-ru-blocked.srs", "geosite-ru-blocked-all.srs", "geosite-ru-available-only-inside.srs").forEach { name ->
                                 downloadRuleSet(File(SagerNet.application.externalAssets, name))
                             }
                         } else {
@@ -236,7 +236,16 @@ class AssetsActivity : ThemedActivity() {
                         .filter { it.isFile && it.extension.equals("srs", true) }
                     files.forEach { file ->
                         val sourceFile = File(file.parentFile, "${file.nameWithoutExtension}.source-url.txt")
-                        val url = sourceFile.takeIf { it.isFile }?.readText()?.trim().orEmpty()
+                        val url = sourceFile.takeIf { it.isFile }?.readText()?.trim().orEmpty().ifBlank {
+                            val folder = when (file.name) {
+                                "geoip-ru-blocked.srs", "geoip-ru-blocked-community.srs" -> "rule-set-geoip"
+                                "geosite-ru-blocked.srs", "geosite-ru-blocked-all.srs", "geosite-ru-available-only-inside.srs" -> "rule-set-geosite"
+                                else -> null
+                            }
+                            if (folder != null && DataStore.rulesProvider == 5) {
+                                "https://raw.githubusercontent.com/runetfreedom/russia-v2ray-rules-dat/release/sing-box/$folder/${file.name}"
+                            } else ""
+                        }
                         if (url.isBlank()) {
                             skipped++
                         } else {
@@ -352,8 +361,8 @@ class AssetsActivity : ThemedActivity() {
         val provider = DataStore.rulesProvider
         val base = when (provider) {
             5 -> {
-                require(file.name == "geoip-ru-blocked.srs" || file.name == "geosite-ru-blocked.srs") {
-                    "RunetFreedom supports the RU blocked sets; use SagerNet for other categories."
+                require(file.name in setOf("geoip-ru-blocked.srs", "geoip-ru-blocked-community.srs", "geosite-ru-blocked.srs", "geosite-ru-blocked-all.srs", "geosite-ru-available-only-inside.srs")) {
+                    "RunetFreedom supports these RU blocked categories; use another provider for other categories."
                 }
                 val folder = if (repo == "sing-geoip") "rule-set-geoip" else "rule-set-geosite"
                 "https://raw.githubusercontent.com/runetfreedom/russia-v2ray-rules-dat/release/sing-box/$folder"
