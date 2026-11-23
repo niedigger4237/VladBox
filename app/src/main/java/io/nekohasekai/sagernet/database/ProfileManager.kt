@@ -198,7 +198,7 @@ object ProfileManager {
                 RuleEntity(name = "Direct Domain", userOrder = 4, enabled = true,
                     domains = listOf("geosite:category-gov-ru", "geosite:category-ru",
                         "geosite:ru-suffixes", "geosite:yandex", "geosite:mailru",
-                        "geosite:vk").joinToString("\n"), outbound = -1L)
+                        "geosite:vk", "geosite:private").joinToString("\n"), outbound = -1L)
             )
             SagerDatabase.rulesDao.insert(defaults)
             store.putBoolean("defaultRouteTemplateV1Installed", true)
