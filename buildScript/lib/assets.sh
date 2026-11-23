@@ -33,26 +33,39 @@ fetch_db SagerNet/sing-geosite geosite.db
 # Current sing-box Rule Sets are published from the rule-set branches.
 # Package the complete official sets so the app can work offline on first start.
 clone_rule_sets() { # <repo> <prefix>
-  local repo="$1" prefix="$2" checkout="$TMP_DIR/${prefix}-source" commit count
+  local repo="$1"
+  local prefix="$2"
+  local checkout="$TMP_DIR/${prefix}-source"
+  local commit count
+
   git clone --quiet --depth 1 --single-branch --branch rule-set \
     "https://github.com/SagerNet/$repo.git" "$checkout"
+
   commit=$(git -C "$checkout" rev-parse HEAD)
+
   shopt -s nullglob
   local files=("$checkout"/*.srs)
   shopt -u nullglob
+
   count=${#files[@]}
+
   if (( count == 0 )); then
     echo "No .srs files found in SagerNet/$repo rule-set branch" >&2
     exit 1
   fi
+
   for file in "${files[@]}"; do
-    local base="$(basename "$file")"
+    local base
+    base="$(basename "$file")"
+
     [[ "$base" == "$prefix-"* ]] || {
       echo "Unexpected Rule Set name: $base" >&2
       exit 1
     }
+
     install -m 0644 "$file" "$RULESET_DIR/$base"
   done
+
   printf '%s' "$commit"
 }
 
