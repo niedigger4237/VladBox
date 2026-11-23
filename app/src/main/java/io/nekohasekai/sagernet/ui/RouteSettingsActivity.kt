@@ -13,6 +13,14 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.ArrayAdapter
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.io.File
 import android.text.TextWatcher
 import android.text.Editable
 import androidx.activity.result.component1
@@ -153,6 +161,166 @@ class RouteSettingsActivity(
     lateinit var outbound: OutboundPreference
     lateinit var apps: AppListPreference
 
+
+    private data class OnlineSrs(val name: String, val downloadUrl: String, val provider: String)
+
+    private fun githubTree(owner: String, repo: String, branch: String, folder: String, label: String): List<OnlineSrs> {
+        val endpoint = "https://api.github.com/repos/$owner/$repo/git/trees/$branch?recursive=1"
+        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 15000
+            readTimeout = 30000
+            setRequestProperty("Accept", "application/vnd.github+json")
+            setRequestProperty("User-Agent", "VladBox-SRS-Catalog")
+        }
+        try {
+            check(connection.responseCode == 200) { "GitHub catalog HTTP ${connection.responseCode}: $label" }
+            val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            check(!json.optBoolean("truncated")) { "$label catalog is truncated; cannot reliably search all sets" }
+            val tree = json.getJSONArray("tree")
+            val results = mutableListOf<OnlineSrs>()
+            for (i in 0 until tree.length()) {
+                val item = tree.getJSONObject(i)
+                val path = item.optString("path")
+                if (item.optString("type") != "blob" || !path.endsWith(".srs", true)) continue
+                if (folder.isNotBlank() && !path.startsWith("$folder/")) continue
+                val filename = path.substringAfterLast('/')
+                if (!filename.startsWith("geoip-") && !filename.startsWith("geosite-")) continue
+                val encodedPath = path.split('/').joinToString("/") { android.net.Uri.encode(it) }
+                results.add(OnlineSrs(filename, "https://raw.githubusercontent.com/$owner/$repo/$branch/$encodedPath", label))
+            }
+            return results
+        } finally { connection.disconnect() }
+    }
+
+    private fun onlineCatalog(provider: Int): List<OnlineSrs> = when (provider) {
+        0 -> githubTree("SagerNet", "sing-geosite", "rule-set", "", "SagerNet") +
+             githubTree("SagerNet", "sing-geoip", "rule-set", "", "SagerNet")
+        1 -> githubTree("runetfreedom", "russia-v2ray-rules-dat", "release", "sing-box", "RunetFreedom")
+        else -> {
+            // A custom URL may point to one concrete SRS, but does not expose a searchable catalog.
+            emptyList()
+        }
+    }.distinctBy { it.name }.sortedBy { it.name }
+
+    private fun installOnlineSrs(item: OnlineSrs) {
+        val target = File(SagerNet.application.externalAssets, item.name)
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val connection = (URL(item.downloadUrl).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 15000
+                        readTimeout = 60000
+                        setRequestProperty("User-Agent", "VladBox-SRS-Catalog")
+                    }
+                    try {
+                        check(connection.responseCode == 200) { "Download HTTP ${connection.responseCode}" }
+                        val temp = File.createTempFile("online-srs-", ".tmp", target.parentFile)
+                        try {
+                            connection.inputStream.use { input -> temp.outputStream().use { input.copyTo(it) } }
+                            val valid = temp.inputStream().buffered().use {
+                                it.read() == 0x53 && it.read() == 0x52 && it.read() == 0x53 &&
+                                    it.read() > 0 && it.read() >= 0
+                            }
+                            check(valid) { "Invalid SRS file: ${item.name}" }
+                            // Keep the existing installed set intact until the replacement is fully downloaded.
+                            val backup = File(target.parentFile, "${target.name}.backup")
+                            if (target.exists()) check(target.renameTo(backup)) { "Cannot back up installed SRS" }
+                            if (!temp.renameTo(target)) {
+                                if (backup.exists()) backup.renameTo(target)
+                                error("Cannot install SRS")
+                            }
+                            backup.delete()
+                            File(target.parentFile, "${target.nameWithoutExtension}.source-url.txt").writeText(item.downloadUrl)
+                            File(target.parentFile, "${target.nameWithoutExtension}.version.txt").writeText(item.provider)
+                        } finally { temp.delete() }
+                    } finally { connection.disconnect() }
+                }
+                val selector = item.name.removeSuffix(".srs").let {
+                    if (it.startsWith("geoip-")) "geoip:" + it.removePrefix("geoip-")
+                    else "geosite:" + it.removePrefix("geosite-")
+                }
+                if (selector.startsWith("geoip:")) {
+                    val values = DataStore.routeIP.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
+                    if (selector !in values) values.add(selector)
+                    DataStore.routeIP = values.joinToString("\n")
+                } else {
+                    val values = DataStore.routeDomain.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
+                    if (selector !in values) values.add(selector)
+                    DataStore.routeDomain = values.joinToString("\n")
+                }
+                DataStore.dirty = true
+                Toast.makeText(this@RouteSettingsActivity, "Installed and selected: $selector", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                MaterialAlertDialogBuilder(this@RouteSettingsActivity)
+                    .setTitle("SRS download failed").setMessage(e.message ?: "Unknown error")
+                    .setPositiveButton(android.R.string.ok, null).show()
+            }
+        }
+    }
+
+    private fun showOnlineSrsPicker() {
+        val providers = arrayOf("SagerNet", "RunetFreedom")
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (16 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, 0)
+        }
+        val provider = android.widget.Spinner(this).apply {
+            adapter = ArrayAdapter(this@RouteSettingsActivity, android.R.layout.simple_spinner_dropdown_item, providers)
+            setSelection(when (DataStore.rulesProvider) { 5 -> 1; else -> 0 })
+        }
+        val search = EditText(this).apply { hint = "Search online SRS"; setSingleLine(true) }
+        val list = ListView(this)
+        container.addView(provider)
+        container.addView(search)
+        container.addView(list, LinearLayout.LayoutParams(-1, (300 * resources.displayMetrics.density).toInt()))
+        val dialog = MaterialAlertDialogBuilder(this).setTitle("Online SRS repository")
+            .setView(container).setNegativeButton(android.R.string.cancel, null).create()
+        var catalog = emptyList<OnlineSrs>()
+        fun refresh() {
+            val query = search.text.toString().trim()
+            val visible = catalog.filter { it.name.contains(query, ignoreCase = true) }
+            list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1,
+                visible.map { it.name.removeSuffix(".srs") })
+            list.setOnItemClickListener { _, _, position, _ ->
+                dialog.dismiss()
+                installOnlineSrs(visible[position])
+            }
+        }
+        var requestId = 0
+        fun load() {
+            val id = ++requestId
+            val selected = provider.selectedItemPosition
+            list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, listOf("Loading repository catalog…"))
+            list.onItemClickListener = null
+            lifecycleScope.launch {
+                try {
+                    val loaded = withContext(Dispatchers.IO) { onlineCatalog(selected) }
+                    if (id != requestId || !dialog.isShowing) return@launch
+                    catalog = loaded
+                    refresh()
+                    if (catalog.isEmpty()) Toast.makeText(this@RouteSettingsActivity,
+                        "No SRS files found in this repository", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    if (id != requestId || !dialog.isShowing) return@launch
+                    list.adapter = ArrayAdapter(this@RouteSettingsActivity,
+                        android.R.layout.simple_list_item_1, listOf("Catalog error: ${e.message}"))
+                    list.onItemClickListener = null
+                }
+            }
+        }
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { refresh() }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+        provider.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) { load() }
+        }
+        dialog.show()
+    }
+
     fun PreferenceFragmentCompat.viewCreated(view: View, savedInstanceState: Bundle?) {
         outbound = findPreference(Key.ROUTE_OUTBOUND)!!
         apps = findPreference(Key.ROUTE_PACKAGES)!!
@@ -167,7 +335,8 @@ class RouteSettingsActivity(
                     .setMessage("Download rule sets from Route → Assets first.")
                     .setPositiveButton("Open Assets") { _, _ ->
                         startActivity(Intent(this@RouteSettingsActivity, AssetsActivity::class.java))
-                    }.setNegativeButton(android.R.string.cancel, null).show()
+                    }.setNeutralButton("Online") { _, _ -> showOnlineSrsPicker() }
+                    .setNegativeButton(android.R.string.cancel, null).show()
             } else {
                 val selectors = files.map { file ->
                     val base = file.name.removeSuffix(".srs")
@@ -224,9 +393,7 @@ class RouteSettingsActivity(
                         DataStore.routeIP = ips.joinToString("\n")
                         DataStore.dirty = true
                     }
-                    .setNeutralButton("Assets") { _, _ ->
-                        startActivity(Intent(this@RouteSettingsActivity, AssetsActivity::class.java))
-                    }
+                    .setNeutralButton("Online") { _, _ -> showOnlineSrsPicker() }
                     .setNegativeButton(android.R.string.cancel, null).show()
             }
             true

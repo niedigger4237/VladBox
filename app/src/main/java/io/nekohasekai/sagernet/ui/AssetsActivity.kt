@@ -367,12 +367,11 @@ class AssetsActivity : ThemedActivity() {
                 val folder = if (repo == "sing-geoip") "rule-set-geoip" else "rule-set-geosite"
                 "https://raw.githubusercontent.com/runetfreedom/russia-v2ray-rules-dat/release/sing-box/$folder"
             }
-            2 -> "https://raw.githubusercontent.com/Chocolate4U/Iran-sing-box-rules/rule-set"
             4 -> (if (repo == "sing-geoip") DataStore.geoipSrsSource else DataStore.geositeSrsSource)
                 .also { require(it.isNotBlank()) { getString(R.string.route_custom_url_empty, repo) } }
             else -> "https://raw.githubusercontent.com/SagerNet/$repo/rule-set"
         }
-        val label = when (provider) { 5 -> "RunetFreedom"; 4 -> "Custom"; 2 -> "Chocolate4U"; else -> "SagerNet" }
+        val label = when (provider) { 5 -> "RunetFreedom"; 4 -> "Custom"; else -> "SagerNet" }
         downloadRuleSetFromUrl(file, base, label)
     }
 
