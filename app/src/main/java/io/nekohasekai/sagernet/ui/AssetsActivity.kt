@@ -360,10 +360,6 @@ class AssetsActivity : ThemedActivity() {
         }
         val provider = DataStore.rulesProvider
         val base = when (provider) {
-            6 -> {
-                require(file.name.startsWith("geoip-")) { "Loyalsoldier provides GeoIP SRS only" }
-                "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/srs/${file.name.removePrefix("geoip-")}"
-            }
             5 -> {
                 require(file.name in setOf("geoip-ru-blocked.srs", "geoip-ru-blocked-community.srs", "geosite-ru-blocked.srs", "geosite-ru-blocked-all.srs", "geosite-ru-available-only-inside.srs")) {
                     "RunetFreedom supports these RU blocked categories; use another provider for other categories."
@@ -375,7 +371,7 @@ class AssetsActivity : ThemedActivity() {
                 .also { require(it.isNotBlank()) { getString(R.string.route_custom_url_empty, repo) } }
             else -> "https://raw.githubusercontent.com/SagerNet/$repo/rule-set"
         }
-        val label = when (provider) { 5 -> "RunetFreedom"; 6 -> "Loyalsoldier"; 4 -> "Custom"; else -> "SagerNet" }
+        val label = when (provider) { 5 -> "RunetFreedom"; 4 -> "Custom"; else -> "SagerNet" }
         downloadRuleSetFromUrl(file, base, label)
     }
 
