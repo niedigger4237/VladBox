@@ -21,6 +21,7 @@ import libcore.Libcore
 import moe.matsuri.nb4a.utils.Util
 import org.json.JSONObject
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileWriter
 import java.util.*
 import java.util.concurrent.atomic.AtomicInteger
@@ -283,6 +284,50 @@ class AssetsActivity : ThemedActivity() {
 
     private val CUSTOM_PROVIDER = 4
 
+    /** Installs either a plain .db or an XZ-compressed response without losing the old database. */
+    private fun installDownloadedAsset(downloaded: File, target: File) {
+        val staged = File(target.parentFile, target.name + ".install")
+        val backup = File(target.parentFile, target.name + ".backup")
+        staged.delete()
+        backup.delete()
+
+        val isXz = FileInputStream(downloaded).use { input ->
+            val magic = ByteArray(6)
+            var offset = 0
+            while (offset < magic.size) {
+                val count = input.read(magic, offset, magic.size - offset)
+                if (count < 0) break
+                offset += count
+            }
+            offset == 6 && magic.contentEquals(byteArrayOf(0xFD.toByte(), 0x37, 0x7A, 0x58, 0x5A, 0x00))
+        }
+
+        if (isXz) {
+            Libcore.unxz(downloaded.absolutePath, staged.absolutePath)
+        } else {
+            downloaded.copyTo(staged, overwrite = true)
+        }
+
+        check(staged.isFile && staged.length() > 0L) { "Downloaded ${target.name} is empty" }
+        val prefix = FileInputStream(staged).use { input -> ByteArray(64).also { input.read(it) } }
+        val textPrefix = prefix.toString(Charsets.UTF_8).trimStart().lowercase(Locale.ROOT)
+        check(!textPrefix.startsWith("<!doctype html") && !textPrefix.startsWith("<html") &&
+            !textPrefix.startsWith("{\"message\"")) {
+            "Server returned an error page instead of ${target.name}"
+        }
+
+        if (target.exists() && !target.renameTo(backup)) {
+            staged.delete()
+            error("Cannot move the previous ${target.name} to backup")
+        }
+        if (!staged.renameTo(target)) {
+            if (backup.exists()) backup.renameTo(target)
+            staged.delete()
+            error("Cannot install ${target.name}")
+        }
+        backup.delete()
+    }
+
     /** Прямая ссылка на .db (или .db.xz) из настроек «Свой источник». */
     suspend fun updateAssetFromUrl(file: File, versionFile: File) {
         val url = (if (file.name == "geoip.db") DataStore.customGeoipUrl else DataStore.customGeositeUrl).trim()
@@ -297,13 +342,10 @@ class AssetsActivity : ThemedActivity() {
             val cacheFile = File(file.parentFile, file.name + ".tmp")
             cacheFile.parentFile?.mkdirs()
             response.writeTo(cacheFile.canonicalPath)
-            if (url.endsWith(".xz")) {
-                Libcore.unxz(cacheFile.absolutePath, file.absolutePath)
-                cacheFile.delete()
-            } else {
-                cacheFile.renameTo(file)
-            }
-            // "Custom": нативный код не перезапишет файл версией из APK
+            installDownloadedAsset(cacheFile, file)
+            cacheFile.delete()
+            // "Custom": нативный код не перезапишет файл версией из APK.
+            // Записываем маркер только после успешной установки и проверки файла.
             versionFile.writeText("Custom")
             adapter.reloadAssets()
             onMainDispatcher { snackbar(R.string.route_asset_updated).show() }
@@ -445,12 +487,8 @@ class AssetsActivity : ThemedActivity() {
                 throw e
             }
 
-            if (fileName.endsWith(".xz")) {
-                Libcore.unxz(cacheFile.absolutePath, file.absolutePath)
-                cacheFile.delete()
-            } else {
-                cacheFile.renameTo(file)
-            }
+            installDownloadedAsset(cacheFile, file)
+            cacheFile.delete()
 
             // Если тег узнать не удалось, пишем "Custom": это значение нативный
             // код не считает устаревшим и не перезаписывает.
