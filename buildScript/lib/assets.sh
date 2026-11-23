@@ -32,16 +32,16 @@ clone_rule_sets() { # <repo> <prefix>
   # files can be downloaded on demand from the Assets screen.
   local wanted=()
   if [[ "$prefix" == geoip ]]; then
-    wanted=(geoip-ru.srs geoip-private.srs)
+    wanted=(geoip-ru.srs)
   else
-    wanted=(geosite-ru.srs geosite-private.srs geosite-category-ads-all.srs
+    wanted=(geosite-category-gov-ru.srs geosite-category-ads-all.srs
             geosite-google.srs geosite-youtube.srs geosite-telegram.srs
             geosite-discord.srs geosite-openai.srs)
   fi
 
   for name in "${wanted[@]}"; do
     if [[ ! -f "$checkout/$name" ]]; then
-      if [[ "$name" == "$prefix-ru.srs" ]]; then
+      if [[ "$name" == "geoip-ru.srs" ]]; then
         echo "Missing required RU Rule Set: $repo/$name" >&2
         return 1
       fi
