@@ -22,10 +22,6 @@
             app:title="domain"
             app:useSimpleSummaryProvider="true" />
         <Preference
-            app:key="routeRuSrsPicker"
-            app:title="Insert installed RU rule sets"
-            app:summary="Add Russian SRS selectors to domain and IP rules" />
-        <Preference
             app:key="routeSrsPicker"
             app:title="Choose installed SRS"
             app:summary="Select GeoSite and GeoIP rule sets" />
