@@ -10,6 +10,16 @@ plugins {
 setupApp()
 
 android {
+    defaultConfig {
+        versionName = providers.gradleProperty("appVersionName")
+            .orElse("1.0")
+            .get()
+
+        versionCode = providers.gradleProperty("appVersionCode")
+            .orElse("1")
+            .get()
+            .toInt()
+    }
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
     }
