@@ -133,6 +133,110 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         } else renderProfileHome()
     }
 
+
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    private fun openRules() {
+        showingRules = true
+        (profileHome.parent as View).visibility = View.GONE
+        ruleListView.visibility = View.VISIBLE
+        toolbar.setTitle(R.string.menu_route)
+        toolbar.subtitle = RouteProfiles.all().firstOrNull { it.id == RouteProfiles.selectedId() }?.name
+        runOnDefaultDispatcher { ruleAdapter.reload() }
+    }
+
+    private fun profileAction(block: () -> Unit) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { block() }
+                renderProfileHome()
+            } catch (e: Exception) {
+                MaterialAlertDialogBuilder(requireContext())
+                    .setMessage(e.message ?: "Operation failed")
+                    .setPositiveButton(android.R.string.ok, null).show()
+            }
+        }
+    }
+
+    private fun profileNameDialog(id: String? = null) {
+        val input = EditText(requireContext()).apply {
+            hint = "Profile name"
+            setSingleLine()
+            setText(RouteProfiles.all().firstOrNull { it.id == id }?.name.orEmpty())
+        }
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(if (id == null) "New routing profile" else "Rename profile")
+            .setView(input)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isNotEmpty()) profileAction {
+                    if (id == null) RouteProfiles.create(name) else RouteProfiles.rename(id, name)
+                }
+            }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun renderProfileHome() {
+        if (!::profileHome.isInitialized) return
+        showingRules = false
+        toolbar.subtitle = null
+        toolbar.title = "Routing profiles"
+        ruleListView.visibility = View.GONE
+        (profileHome.parent as View).visibility = View.VISIBLE
+        profileHome.removeAllViews()
+        profileHome.addView(MaterialButton(requireContext()).apply {
+            text = "+ New profile"
+            setOnClickListener { profileNameDialog() }
+        }, LinearLayout.LayoutParams(-1, dp(52)).apply { bottomMargin = dp(16) })
+        val selected = RouteProfiles.selectedId()
+        RouteProfiles.all().forEach { profile ->
+            val active = profile.id == selected
+            val card = MaterialCardView(requireContext()).apply {
+                radius = dp(18).toFloat()
+                setContentPadding(dp(18), dp(16), dp(18), dp(16))
+                isCheckable = true
+                isChecked = active
+            }
+            val column = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
+            column.addView(TextView(requireContext()).apply {
+                text = profile.name + if (active) "  ✓" else ""
+                textSize = 20f
+            })
+            column.addView(TextView(requireContext()).apply {
+                text = "${if (active) DataStore.routeFinal else profile.routeFinal} · ${if (active) ruleAdapter.ruleList.size else profile.rules.size} rules"
+                textSize = 13f
+            })
+            val actions = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END
+            }
+            fun addAction(label: String, action: () -> Unit) {
+                actions.addView(MaterialButton(requireContext()).apply {
+                    text = label
+                    textSize = 12f
+                    minWidth = 0
+                    minimumWidth = 0
+                    setPadding(dp(8), 0, dp(8), 0)
+                    setOnClickListener { action() }
+                }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(6) })
+            }
+            addAction(if (active) "Edit rules" else "Select") {
+                if (active) openRules() else profileAction { RouteProfiles.select(profile.id) }
+            }
+            addAction("Rename") { profileNameDialog(profile.id) }
+            if (profile.id != "default") addAction("Delete") {
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle("Delete ${profile.name}?")
+                    .setMessage("This routing profile and its rules will be deleted.")
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        profileAction { RouteProfiles.delete(profile.id) }
+                    }.setNegativeButton(android.R.string.cancel, null).show()
+            }
+            column.addView(actions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+            card.addView(column)
+            profileHome.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+        }
+    }
+
     override fun onDestroy() {
         if (::ruleAdapter.isInitialized) {
             ProfileManager.removeListener(ruleAdapter)
