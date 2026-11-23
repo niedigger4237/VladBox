@@ -9,6 +9,12 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ListView
+import android.widget.ArrayAdapter
+import android.text.TextWatcher
+import android.text.Editable
 import androidx.activity.result.component1
 import androidx.activity.result.component2
 import androidx.activity.result.contract.ActivityResultContracts
@@ -150,6 +156,82 @@ class RouteSettingsActivity(
     fun PreferenceFragmentCompat.viewCreated(view: View, savedInstanceState: Bundle?) {
         outbound = findPreference(Key.ROUTE_OUTBOUND)!!
         apps = findPreference(Key.ROUTE_PACKAGES)!!
+        findPreference<Preference>("routeSrsPicker")?.setOnPreferenceClickListener {
+            val files = SagerNet.application.externalAssets.listFiles()
+                ?.filter { it.isFile && it.name.endsWith(".srs") &&
+                    (it.name.startsWith("geosite-") || it.name.startsWith("geoip-")) }
+                ?.sortedBy { it.name }.orEmpty()
+            if (files.isEmpty()) {
+                MaterialAlertDialogBuilder(this@RouteSettingsActivity)
+                    .setTitle("No installed SRS files")
+                    .setMessage("Download rule sets from Route → Assets first.")
+                    .setPositiveButton("Open Assets") { _, _ ->
+                        startActivity(Intent(this@RouteSettingsActivity, AssetsActivity::class.java))
+                    }.setNegativeButton(android.R.string.cancel, null).show()
+            } else {
+                val selectors = files.map { file ->
+                    val base = file.name.removeSuffix(".srs")
+                    if (base.startsWith("geoip-")) "geoip:" + base.removePrefix("geoip-")
+                    else "geosite:" + base.removePrefix("geosite-")
+                }
+                val domains = DataStore.routeDomain.split('\n', ',').map { it.trim() }
+                    .filter { it.isNotEmpty() }.toMutableList()
+                val ips = DataStore.routeIP.split('\n', ',').map { it.trim() }
+                    .filter { it.isNotEmpty() }.toMutableList()
+                val selected = selectors.map { it in domains || it in ips }.toBooleanArray()
+                val container = LinearLayout(this@RouteSettingsActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    val pad = (16 * resources.displayMetrics.density).toInt()
+                    setPadding(pad, pad, pad, 0)
+                }
+                val search = EditText(this@RouteSettingsActivity).apply {
+                    hint = "Search SRS"
+                    setSingleLine(true)
+                }
+                container.addView(search)
+                val list = ListView(this@RouteSettingsActivity).apply {
+                    choiceMode = ListView.CHOICE_MODE_MULTIPLE
+                }
+                container.addView(list, LinearLayout.LayoutParams(-1, (300 * resources.displayMetrics.density).toInt()))
+                var visible = selectors.indices.toList()
+                fun refresh(query: String) {
+                    visible = selectors.indices.filter { selectors[it].contains(query, ignoreCase = true) }
+                    list.adapter = ArrayAdapter(this@RouteSettingsActivity,
+                        android.R.layout.simple_list_item_multiple_choice, visible.map { selectors[it] })
+                    visible.forEachIndexed { position, index -> list.setItemChecked(position, selected[index]) }
+                }
+                refresh("")
+                list.setOnItemClickListener { _, _, position, _ ->
+                    selected[visible[position]] = list.isItemChecked(position)
+                }
+                search.addTextChangedListener(object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                        refresh(s?.toString().orEmpty())
+                    }
+                    override fun afterTextChanged(s: Editable?) {}
+                })
+                MaterialAlertDialogBuilder(this@RouteSettingsActivity)
+                    .setTitle("Installed SRS rule sets")
+                    .setView(container)
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        selectors.forEachIndexed { index, selector ->
+                            val target = if (selector.startsWith("geoip:")) ips else domains
+                            target.removeAll { it == selector }
+                            if (selected[index]) target.add(selector)
+                        }
+                        DataStore.routeDomain = domains.joinToString("\n")
+                        DataStore.routeIP = ips.joinToString("\n")
+                        DataStore.dirty = true
+                    }
+                    .setNeutralButton("Assets") { _, _ ->
+                        startActivity(Intent(this@RouteSettingsActivity, AssetsActivity::class.java))
+                    }
+                    .setNegativeButton(android.R.string.cancel, null).show()
+            }
+            true
+        }
+
 
         outbound.setOnPreferenceChangeListener { _, newValue ->
             if (newValue.toString() == "3") {
