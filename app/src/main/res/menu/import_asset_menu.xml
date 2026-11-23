@@ -12,6 +12,10 @@
         android:title="@string/route_rules_provider"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_download_rule_sets"
+        android:title="Download / replace SRS rule sets"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_geo_custom"
         android:title="@string/route_rules_custom"
         app:showAsAction="never" />
