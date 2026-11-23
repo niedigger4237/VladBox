@@ -303,7 +303,8 @@ class AssetsActivity : ThemedActivity() {
             } else {
                 cacheFile.renameTo(file)
             }
-            versionFile.writeText("custom-" + DateFormat.getDateFormat(app).format(Date()))
+            // "Custom": нативный код не перезапишет файл версией из APK
+            versionFile.writeText("Custom")
             adapter.reloadAssets()
             onMainDispatcher { snackbar(R.string.route_asset_updated).show() }
         } finally {
@@ -342,6 +343,23 @@ class AssetsActivity : ThemedActivity() {
             }
             .setNegativeButton(R.string.no, null)
             .show()
+    }
+
+    /**
+     * Тег последнего релиза без GitHub API: берём из atom-ленты релизов.
+     * Возвращает null, если не удалось.
+     */
+    private fun latestTagFromAtom(client: libcore.HTTPClient, repo: String): String? {
+        return try {
+            val response = client.newRequest().apply {
+                setURL("https://github.com/$repo/releases.atom")
+            }.execute()
+            val text = Util.getStringBox(response.contentString)
+            Regex("/releases/tag/([^\"<>&\\s]+)").find(text)?.groupValues?.get(1)
+                ?.takeIf { it.isNotBlank() }
+        } catch (e: Throwable) {
+            null
+        }
     }
 
     suspend fun updateAsset(file: File, versionFile: File, localVersion: String) {
@@ -394,7 +412,13 @@ class AssetsActivity : ThemedActivity() {
                 apiError = e
             }
 
-            if (tagName != null && tagName == localVersion) {
+            // Если API не ответил, версию узнаём из atom-ленты. Важно: версия в *.version.txt
+            // должна быть такой же, как тег релиза (числовой), иначе нативный код
+            // при следующем запуске сервиса считает файл устаревшим и перезапишет
+            // его версией из APK.
+            val latestTag = tagName ?: latestTagFromAtom(client, repo)
+
+            if (latestTag != null && latestTag == localVersion) {
                 onMainDispatcher {
                     snackbar(R.string.route_asset_no_update).show()
                 }
@@ -428,9 +452,9 @@ class AssetsActivity : ThemedActivity() {
                 cacheFile.renameTo(file)
             }
 
-            versionFile.writeText(
-                tagName ?: ("latest-" + DateFormat.getDateFormat(app).format(Date()))
-            )
+            // Если тег узнать не удалось, пишем "Custom": это значение нативный
+            // код не считает устаревшим и не перезаписывает.
+            versionFile.writeText(latestTag ?: "Custom")
 
             adapter.reloadAssets()
 
