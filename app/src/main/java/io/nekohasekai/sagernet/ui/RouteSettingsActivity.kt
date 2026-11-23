@@ -336,7 +336,28 @@ class RouteSettingsActivity(
 
     }
 
-    suspend fun saveAndExit() {
+    private fun missingRouteSrs(): List<String> {
+        val assets = SagerNet.application.externalAssets
+        val missing = linkedSetOf<String>()
+        listOf(DataStore.routeDomain, DataStore.routeIP).forEach { input ->
+            input.split('\n', ',').map { it.trim() }.forEach { entry ->
+                val filename = when {
+                    entry.startsWith("geosite:", ignoreCase = true) ->
+                        "geosite-${entry.substringAfter(':').trim()}.srs"
+                    entry.startsWith("geoip:", ignoreCase = true) ->
+                        "geoip-${entry.substringAfter(':').trim()}.srs"
+                    else -> null
+                }
+                if (filename != null && filename.substringAfter('-').removeSuffix(".srs").isNotBlank()) {
+                    val file = java.io.File(assets, filename)
+                    if (!file.isFile || file.length() == 0L) missing.add(filename)
+                }
+            }
+        }
+        return missing.toList()
+    }
+
+    suspend fun saveAndExit(skipSrsWarning: Boolean = false) {
 
         if (!needSave()) {
             onMainDispatcher {
@@ -346,6 +367,28 @@ class RouteSettingsActivity(
                     .show()
             }
             return
+        }
+
+        if (!skipSrsWarning) {
+            val missing = missingRouteSrs()
+            if (missing.isNotEmpty()) {
+                onMainDispatcher {
+                    MaterialAlertDialogBuilder(this@RouteSettingsActivity)
+                        .setTitle("Missing SRS rule sets")
+                        .setMessage("These rule sets are not installed:\n\n" +
+                            missing.joinToString("\n") +
+                            "\n\nInstall them in Assets or save the rule anyway.")
+                        .setPositiveButton("Open Assets") { _, _ ->
+                            startActivity(Intent(this@RouteSettingsActivity, AssetsActivity::class.java))
+                        }
+                        .setNeutralButton("Save anyway") { _, _ ->
+                            runOnDefaultDispatcher { saveAndExit(skipSrsWarning = true) }
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show()
+                }
+                return
+            }
         }
 
         val editingId = DataStore.editingId
