@@ -104,6 +104,7 @@ class SagerNet : Application(),
             "geosite-vk.srs", "geosite-private.srs"
         )
         for (name in required) {
+            if (getSharedPreferences("deleted_srs", MODE_PRIVATE).getBoolean(name, false)) continue
             check(name in files) { "Missing bundled Default rule set: $name" }
             val destination = File(externalAssets, name)
             if (!destination.isFile || destination.length() == 0L) {
