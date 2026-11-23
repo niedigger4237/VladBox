@@ -64,8 +64,31 @@ class AssetsActivity : ThemedActivity() {
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
                 val index = viewHolder.bindingAdapterPosition
                 val file = adapter.assets[index]
-                adapter.remove(index)
-                undoManager.remove(index to file)
+                MaterialAlertDialogBuilder(this@AssetsActivity)
+                    .setTitle("Delete SRS database?")
+                    .setMessage("Delete ${file.name}? Rules referencing it may stop working.")
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        lifecycleScope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    if (!file.delete() && file.exists()) {
+                                        throw java.io.IOException("Could not delete ${file.name}")
+                                    }
+                                    File(file.parentFile, "${file.nameWithoutExtension}.source-url.txt").delete()
+                                    File(file.parentFile, "${file.nameWithoutExtension}.version.txt").delete()
+                                    getSharedPreferences("deleted_srs", MODE_PRIVATE)
+                                        .edit().putBoolean(file.name, true).commit()
+                                }
+                            } catch (e: Exception) {
+                                alert(e.readableMessage).tryToShow()
+                            } finally {
+                                adapter.reloadAssets()
+                            }
+                        }
+                    }
+                    .setNegativeButton(android.R.string.cancel) { _, _ -> adapter.notifyItemChanged(index) }
+                    .setOnCancelListener { adapter.notifyItemChanged(index) }
+                    .show()
             }
         }).attachToRecyclerView(layout.recyclerView)
         lifecycleScope.launch { runCatching { adapter.reloadAssets() }.onFailure { Log.e("VladBoxSRS", "Initial SRS listing failed", it); alert(it.readableMessage).tryToShow() } }
@@ -98,6 +121,7 @@ class AssetsActivity : ThemedActivity() {
                             val input = contentResolver.openInputStream(uri) ?: error("Cannot open selected file")
                             input.use { temp.outputStream().use { output -> it.copyTo(output) } }
                             installRuleSet(temp, target, "Custom")
+                            getSharedPreferences("deleted_srs", MODE_PRIVATE).edit().remove(name).apply()
                             File(target.parentFile, "${target.nameWithoutExtension}.source-url.txt").delete()
                         } finally { temp.delete() }
                     }
@@ -390,6 +414,7 @@ class AssetsActivity : ThemedActivity() {
             try {
                 client.newRequest().apply { setURL(url) }.execute().writeTo(temp.canonicalPath)
                 installRuleSet(temp, file, label)
+                getSharedPreferences("deleted_srs", MODE_PRIVATE).edit().remove(file.name).apply()
                 File(file.parentFile, "${file.nameWithoutExtension}.source-url.txt").writeText(url)
             } finally { temp.delete() }
         } finally { client.close() }
