@@ -63,9 +63,33 @@ class AssetsActivity : ThemedActivity() {
             override fun onMove(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder) = false
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
                 val index = viewHolder.bindingAdapterPosition
+                if (index == RecyclerView.NO_POSITION || index !in adapter.assets.indices) return
                 val file = adapter.assets[index]
-                adapter.remove(index)
-                undoManager.remove(index to file)
+                MaterialAlertDialogBuilder(this@AssetsActivity)
+                    .setTitle("Delete SRS database?")
+                    .setMessage("Delete ${file.name} and its download metadata? You can download it again later.")
+                    .setNegativeButton(android.R.string.cancel) { _, _ ->
+                        adapter.notifyItemChanged(index)
+                    }
+                    .setOnCancelListener { adapter.notifyItemChanged(index) }
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        lifecycleScope.launch {
+                            val result = runCatching {
+                                withContext(Dispatchers.IO) {
+                                    if (file.exists() && !file.delete()) {
+                                        throw java.io.IOException("Cannot delete ${file.name}")
+                                    }
+                                    val base = file.nameWithoutExtension
+                                    File(file.parentFile, "$base.source-url.txt").delete()
+                                    File(file.parentFile, "$base.version.txt").delete()
+                                    check(getSharedPreferences("deleted_srs", MODE_PRIVATE).edit()
+                                        .putBoolean(file.name, true).commit()) { "Cannot save SRS deletion state" }
+                                }
+                            }
+                            adapter.reloadAssets()
+                            result.onFailure { alert(it.readableMessage).tryToShow() }
+                        }
+                    }.show()
             }
         }).attachToRecyclerView(layout.recyclerView)
         lifecycleScope.launch { runCatching { adapter.reloadAssets() }.onFailure { Log.e("VladBoxSRS", "Initial SRS listing failed", it); alert(it.readableMessage).tryToShow() } }
@@ -315,9 +339,7 @@ class AssetsActivity : ThemedActivity() {
         override fun undo(actions: List<Pair<Int, File>>) {
             actions.forEach { (index, file) -> assets.add(index, file); notifyItemInserted(index) }
         }
-        override fun commit(actions: List<Pair<Int, File>>) {
-            runOnDefaultDispatcher { actions.forEach { it.second.delete() } }
-        }
+        override fun commit(actions: List<Pair<Int, File>>) = Unit
     }
 
     private val updating = mutableSetOf<File>()
@@ -402,6 +424,7 @@ class AssetsActivity : ThemedActivity() {
         require(valid) { "Invalid SRS file: ${file.name}" }
         check(temp.renameTo(file)) { "Cannot install ${file.name}" }
         File(file.parentFile, "${file.nameWithoutExtension}.version.txt").writeText(label)
+        getSharedPreferences("deleted_srs", MODE_PRIVATE).edit().remove(file.name).apply()
     }
 
     override fun onSupportNavigateUp(): Boolean { finish(); return true }
