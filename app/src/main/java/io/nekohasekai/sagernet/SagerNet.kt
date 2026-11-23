@@ -33,6 +33,8 @@ import moe.matsuri.nb4a.net.LocalResolverImpl
 import moe.matsuri.nb4a.utils.JavaUtil
 import moe.matsuri.nb4a.utils.cleanWebview
 import java.io.File
+import android.util.Log
+import java.io.RandomAccessFile
 import androidx.work.Configuration as WorkConfiguration
 
 class SagerNet : Application(),
@@ -46,7 +48,49 @@ class SagerNet : Application(),
 
     private val nativeInterface = NativeInterface()
 
-    val externalAssets: File by lazy { getExternalFilesDir(null) ?: filesDir }
+    // The core, Assets UI and routing must all use the same app-private directory.
+    val externalAssets: File by lazy { filesDir }
+
+    private fun migrateLegacyRuleSets() {
+        val legacy = getExternalFilesDir(null) ?: return
+        val destination = externalAssets
+        if (legacy.absolutePath == destination.absolutePath || !legacy.isDirectory) return
+        val lockFile = File(destination, "srs-migration.lock")
+        try {
+            RandomAccessFile(lockFile, "rw").use { raf ->
+                raf.channel.lock().use {
+                    val files = legacy.listFiles() ?: return
+                    for (source in files) {
+                        val name = source.name
+                        if (!source.isFile || !(name.endsWith(".srs", true) ||
+                                    name.endsWith(".version.txt") || name == "rule-set.version.txt")) continue
+                        val target = File(destination, name)
+                        if (target.exists()) continue
+                        val temporary = File(destination, ".${name}.migrating")
+                        try {
+                            source.inputStream().use { input ->
+                                temporary.outputStream().use { output -> input.copyTo(output) }
+                            }
+                            if (temporary.length() != source.length() || temporary.length() == 0L) {
+                                throw java.io.IOException("Incomplete migration of $name")
+                            }
+                            if (!temporary.renameTo(target)) {
+                                throw java.io.IOException("Cannot install migrated $name")
+                            }
+                            Log.i("VladBoxSRS", "Migrated legacy SRS asset: $name")
+                        } catch (e: Exception) {
+                            Log.w("VladBoxSRS", "Cannot migrate legacy SRS asset: $name", e)
+                        } finally {
+                            temporary.delete()
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("VladBoxSRS", "Legacy SRS migration unavailable; bundled rules will be restored", e)
+        }
+        // Never delete legacy files. They remain available for manual recovery.
+    }
     val process: String = JavaUtil.getProcessName()
     private val isMainProcess = process == BuildConfig.APPLICATION_ID
     val isBgProcess = process.endsWith(":bg")
@@ -58,6 +102,7 @@ class SagerNet : Application(),
 
         if (isMainProcess || isBgProcess) {
             externalAssets.mkdirs()
+            migrateLegacyRuleSets()
             // earlier builds defaulted the log level to "none" and the settings screen persisted it
             if (!DataStore.configurationStore.getBoolean("logLevelDefaultInfo", false)) {
                 if (DataStore.logLevel == 0) DataStore.logLevel = 2
