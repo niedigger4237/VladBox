@@ -21,6 +21,10 @@
             app:key="routeDomain"
             app:title="domain"
             app:useSimpleSummaryProvider="true" />
+        <Preference
+            app:key="routeSrsPicker"
+            app:title="Choose installed SRS"
+            app:summary="Select GeoSite and GeoIP rule sets" />
         <EditTextPreference
             app:icon="@drawable/ic_baseline_add_road_24"
             app:key="routeIP"
