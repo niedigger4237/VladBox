@@ -11,14 +11,10 @@ setupApp()
 
 android {
     defaultConfig {
-        versionName = providers.gradleProperty("appVersionName")
-            .orElse("1.0")
-            .get()
-
-        versionCode = providers.gradleProperty("appVersionCode")
-            .orElse("1")
-            .get()
-            .toInt()
+        // Версия переопределяется только если переданы -PappVersionName / -PappVersionCode
+        // (release workflow). Иначе остаются значения из nb4a.properties (задаются в setupApp()).
+        providers.gradleProperty("appVersionName").orNull?.let { versionName = it }
+        providers.gradleProperty("appVersionCode").orNull?.let { versionCode = it.toInt() }
     }
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
