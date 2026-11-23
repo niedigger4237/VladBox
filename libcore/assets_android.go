@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"golang.org/x/mobile/asset"
+	"golang.org/x/sys/unix"
 )
 
 func extractAssets() {
@@ -28,9 +29,22 @@ func extractAssets() {
 			log.Printf("Extract %s failed: %v", name, err)
 		}
 	}
-	if err := extractRuleSets(); err != nil {
+	if err := EnsureRuleSets(); err != nil {
 		log.Println("Extract sing-box SRS Rule Sets failed:", err)
 	}
+}
+
+// EnsureRuleSets serializes installation across the UI and service processes.
+func EnsureRuleSets() error {
+	lock, err := os.OpenFile(filepath.Join(internalAssetsPath, "rule-set.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
+		return err
+	}
+	return extractRuleSets()
 }
 
 // extractRuleSets installs the official SRS files packaged by buildScript/lib/assets.sh.
@@ -124,12 +138,19 @@ func extractRuleSets() error {
 		if !ok || len(expectedChecksum) != 64 {
 			return fmt.Errorf("missing or invalid checksum for %s", name)
 		}
+		targetPath := filepath.Join(externalAssetsPath, name)
+		// Keep individually updated or imported sets when refreshing the APK bundle.
+		if info, err := os.Stat(targetPath); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+			marker := strings.TrimSuffix(targetPath, ".srs") + ".version.txt"
+			if _, err := os.Stat(marker); err == nil {
+				continue
+			}
+		}
 		source, err := asset.Open(assetDir + name)
 		if err != nil {
 			return fmt.Errorf("open bundled %s: %w", name, err)
 		}
 		tmpPath := filepath.Join(externalAssetsPath, name+".tmp")
-		targetPath := filepath.Join(externalAssetsPath, name)
 		out, err := os.Create(tmpPath)
 		if err != nil {
 			source.Close()

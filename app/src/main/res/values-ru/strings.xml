@@ -593,4 +593,5 @@
     <string name="apps_space_normal">Обычное</string>
     <string name="apps_space_private">Приватное</string>
     <string name="apps_enable">Режим по приложениям включён</string>
+    <string name="srs_source_hint">HTTPS-ссылка на каталог или шаблон с {name} для полного имени файла .srs.</string>
 </resources>

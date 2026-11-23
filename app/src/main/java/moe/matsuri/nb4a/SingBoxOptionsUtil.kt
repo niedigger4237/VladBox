@@ -83,6 +83,7 @@ fun generateRuleSet(ruleSetString: List<String>, ruleSet: MutableList<RuleSet>) 
 
         val fileName = "$source-$code.srs"
         val localFile = io.nekohasekai.sagernet.SagerNet.application.externalAssets.resolve(fileName)
+        if (!localFile.isFile || localFile.length() == 0L) libcore.Libcore.ensureRuleSets()
         check(localFile.isFile && localFile.length() > 0L) {
             "Required SRS Rule Set is missing or empty: $fileName"
         }
