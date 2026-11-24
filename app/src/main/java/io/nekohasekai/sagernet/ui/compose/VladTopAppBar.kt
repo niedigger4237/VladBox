@@ -18,7 +18,7 @@ fun VladTopAppBar(
     onNavigation: () -> Unit,
     onAdd: (() -> Unit)? = null,
     addLabel: String = "",
-    onProfiles: (() -> Unit)? = null,
+    onBack: (() -> Unit)? = null,
     onReset: (() -> Unit)? = null,
     resetLabel: String = "",
     extraActions: @Composable RowScope.() -> Unit = {}
@@ -32,8 +32,8 @@ fun VladTopAppBar(
             }
         },
         navigationIcon = {
-            IconButton(onClick = onNavigation) {
-                Icon(painterResource(R.drawable.ic_navigation_menu), "Open navigation menu")
+            IconButton(onClick = onBack ?: onNavigation) {
+                Icon(painterResource(if (onBack != null) R.drawable.baseline_arrow_back_24 else R.drawable.ic_navigation_menu), if (onBack != null) "Back" else "Open navigation menu")
             }
         },
         windowInsets = WindowInsets(0, 0, 0, 0),
@@ -42,7 +42,6 @@ fun VladTopAppBar(
             if (onAdd != null) FilledTonalIconButton(onClick = onAdd) {
                 Icon(painterResource(R.drawable.ic_baseline_add_road_24), addLabel)
             }
-            if (onProfiles != null) TextButton(onClick = onProfiles) { Text("Profiles") }
             if (onReset != null) {
                 Box {
                     IconButton(onClick = { expanded = true }) {
