@@ -13,7 +13,7 @@ import io.nekohasekai.sagernet.database.DataStore
 fun MieruProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pair<String, () -> Unit>>) {
     var revision by remember { mutableStateOf(0) }
     var section by rememberSaveable { mutableStateOf("") }
-    val valid = remember(revision) {
+    val valid = remember(revision, DataStore.profileCacheStore.observableRevision) {
         DataStore.serverAddress.isNotBlank() && DataStore.serverPort in 1..65535 &&
         DataStore.serverProtocol in listOf("TCP","UDP") && DataStore.serverUsername.isNotBlank() && DataStore.serverPassword.isNotEmpty() && (DataStore.serverProtocol != "UDP" || DataStore.serverMTU > 0)
     }
