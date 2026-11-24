@@ -39,7 +39,7 @@
             app:title="@string/certificates"
             app:useSimpleSummaryProvider="true" />
         <moe.matsuri.nb4a.ui.SimpleMenuPreference
-            app:defaultValue="https"
+            app:defaultValue="native"
             app:entries="@array/tuic_udp_relay_mode_value"
             app:entryValues="@array/tuic_udp_relay_mode_value"
             app:icon="@drawable/ic_baseline_add_road_24"
@@ -73,4 +73,16 @@
             app:title="@string/allow_insecure" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="Advanced TUIC and QUIC">
+        <EditTextPreference app:key="tuicHeartbeat" app:title="Heartbeat" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="tuicNetwork" app:title="Network (tcp / udp)" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="tuicIdleTimeout" app:title="Idle timeout" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="tuicKeepAlive" app:title="Keep alive period" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="tuicStreamWindow" app:title="Stream receive window" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="tuicConnectionWindow" app:title="Connection receive window" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="tuicMaxStreams" app:title="Maximum concurrent streams" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="tuicInitialPacket" app:title="Initial packet size" app:useSimpleSummaryProvider="true" />
+        <SwitchPreference app:key="tuicUdpOverStream" app:title="UDP over stream" />
+        <SwitchPreference app:key="tuicDisablePathMtu" app:title="Disable path MTU discovery" />
+    </PreferenceCategory>
 </PreferenceScreen>
