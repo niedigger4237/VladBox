@@ -281,4 +281,8 @@
             app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:key="httpAdvanced" app:title="HTTP settings">
+        <EditTextPreference app:key="httpPath" app:title="HTTP path" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="httpHeaders" app:title="Custom headers (JSON)" />
+    </PreferenceCategory>
 </PreferenceScreen>
