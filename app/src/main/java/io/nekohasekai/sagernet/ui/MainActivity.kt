@@ -59,6 +59,8 @@ class MainActivity : ThemedActivity(),
 
     lateinit var binding: LayoutMainBinding
     lateinit var navigation: NavigationView
+    val drawerSelection = kotlinx.coroutines.flow.MutableStateFlow(R.id.nav_configuration)
+    val drawerTrafficVisible = kotlinx.coroutines.flow.MutableStateFlow(true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -133,6 +135,7 @@ class MainActivity : ThemedActivity(),
     }
 
     fun refreshNavMenu(clashApi: Boolean) {
+        drawerTrafficVisible.value = clashApi
         if (::navigation.isInitialized) {
             navigation.menu.findItem(R.id.nav_traffic)?.isVisible = clashApi
         }
@@ -349,7 +352,8 @@ class MainActivity : ThemedActivity(),
             R.id.nav_about -> displayFragment(AboutFragment())
             else -> return false
         }
-        navigation.menu.findItem(id).isChecked = true
+        drawerSelection.value = id
+        navigation.menu.findItem(id)?.isChecked = true
         return true
     }
 
