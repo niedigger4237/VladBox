@@ -47,6 +47,8 @@ public class HysteriaBean extends AbstractBean {
     public Boolean hy2BrutalDebug;
     public Boolean hy2DisableChrome;
     public Boolean hy2DisablePathMtu;
+    public String outboundDialer;
+    public String quicTlsOptions;
 
     // HY1
 
@@ -110,11 +112,13 @@ public class HysteriaBean extends AbstractBean {
         if (hy2BrutalDebug == null) hy2BrutalDebug = false;
         if (hy2DisableChrome == null) hy2DisableChrome = false;
         if (hy2DisablePathMtu == null) hy2DisablePathMtu = false;
+        if (outboundDialer == null) outboundDialer = "";
+        if (quicTlsOptions == null) quicTlsOptions = "";
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(9);
+        output.writeInt(10);
         super.serialize(output);
 
         output.writeInt(protocolVersion);
@@ -152,6 +156,8 @@ public class HysteriaBean extends AbstractBean {
         output.writeBoolean(hy2BrutalDebug);
         output.writeBoolean(hy2DisableChrome);
         output.writeBoolean(hy2DisablePathMtu);
+        output.writeString(outboundDialer);
+        output.writeString(quicTlsOptions);
     }
 
     @Override
@@ -215,6 +221,10 @@ public class HysteriaBean extends AbstractBean {
             hy2BrutalDebug = input.readBoolean();
             hy2DisableChrome = input.readBoolean();
             hy2DisablePathMtu = input.readBoolean();
+        }
+        if (version >= 10) {
+            outboundDialer = input.readString();
+            quicTlsOptions = input.readString();
         }
     }
 
