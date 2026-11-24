@@ -39,7 +39,7 @@ fun VladTopAppBar(
         actions = {
             extraActions()
             if (onAdd != null) FilledTonalIconButton(onClick = onAdd) {
-                Icon(painterResource(R.drawable.ic_baseline_add_road_24), addLabel)
+                Icon(painterResource(R.drawable.ic_material_route_24), addLabel)
             }
             if (onReset != null) {
                 Box {
