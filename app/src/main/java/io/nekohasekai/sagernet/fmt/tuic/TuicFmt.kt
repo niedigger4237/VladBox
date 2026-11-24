@@ -45,10 +45,10 @@ fun parseTuic(url: String): TuicBean {
             alpn = it
         }
         link.queryParameter("allow_insecure")?.let {
-            if (it == "1") allowInsecure = true
+            if (it == "1" || it.equals("true", ignoreCase = true)) allowInsecure = true
         }
         link.queryParameter("disable_sni")?.let {
-            if (it == "1") disableSNI = true
+            if (it == "1" || it.equals("true", ignoreCase = true)) disableSNI = true
         }
     }
 }
@@ -78,7 +78,7 @@ fun buildSingBoxOutboundTuicBean(bean: TuicBean): SingBoxOptions.Outbound_TUICOp
         password = bean.token
         congestion_control = bean.congestionController
         when (bean.udpRelayMode) {
-            "quic" -> udp_relay_mode = "quic"
+            "quic", "native" -> udp_relay_mode = bean.udpRelayMode
         }
         zero_rtt_handshake = bean.reduceRTT
         tls = SingBoxOptions.OutboundTLSOptions().apply {
