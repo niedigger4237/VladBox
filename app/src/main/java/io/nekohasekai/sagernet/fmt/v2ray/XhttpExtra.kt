@@ -57,6 +57,9 @@ object XhttpExtra {
         // sing-box-extended refuses an xhttp transport without x_padding_bytes
         if (!out.containsKey("x_padding_bytes")) out["x_padding_bytes"] = "100-1000"
         out.remove("mode") // set explicitly from the bean
+        out.remove("type") // transport type is fixed by the generator
+        out.remove("host") // host is configured separately in the profile
+        out.remove("path") // path is configured separately in the profile
         return out
     }
 }
