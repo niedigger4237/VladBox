@@ -285,4 +285,14 @@
         <EditTextPreference app:key="httpPath" app:title="HTTP path" app:useSimpleSummaryProvider="true" />
         <EditTextPreference app:key="httpHeaders" app:title="Custom headers (JSON)" />
     </PreferenceCategory>
+    <PreferenceCategory app:title="Advanced TLS">
+        <EditTextPreference app:key="tlsMinVersion" app:title="Minimum TLS version" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="tlsMaxVersion" app:title="Maximum TLS version" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="tlsCurves" app:title="Curve preferences" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="tlsHandshakeTimeout" app:title="Handshake timeout" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="tlsClientCertificate" app:title="Client certificate (PEM)" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="tlsClientKey" app:title="Client private key (PEM)" app:dialogLayout="@layout/layout_password_dialog" />
+        <EditTextPreference app:key="echQueryName" app:title="ECH query server name" app:useSimpleSummaryProvider="true" />
+        <SwitchPreference app:key="realityHybrid" app:title="Reality X25519MLKEM768" />
+    </PreferenceCategory>
 </PreferenceScreen>
