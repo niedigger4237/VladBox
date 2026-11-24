@@ -6,6 +6,10 @@ on:
         description: "Fast: arm64 only (debug builds). Disable for a full multi-ABI build."
         type: boolean
         default: true
+      force_core_rebuild:
+        description: "Force native core rebuild and Go validation."
+        type: boolean
+        default: false
       awg_test:
         description: "Only run the AmneziaWG loopback test (no APK build)."
         type: boolean
@@ -85,47 +89,9 @@ jobs:
             bash $T "$PWD/sb-patched" "$PWD/awg-$ref" "ref-$ref/h-single" '{"h1":"1020325451","h2":"3288052141","h3":"1766607858","h4":"2528465083"}' 1420 || fail=1
           done
           exit $fail
-  check:
-    name: Compile check (Go, fast)
-    if: ${{ !inputs.awg_test }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Fix permissions
-        run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
-      - name: Install Golang
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.26.4"
-          cache: false
-      - name: Go cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('buildScript/lib/core/get_source_env.sh') }}-${{ github.run_id }}
-          restore-keys: |
-            go-${{ runner.os }}-${{ hashFiles('buildScript/lib/core/get_source_env.sh') }}-
-            go-${{ runner.os }}-
-      - name: Fetch core sources
-        run: bash buildScript/lib/core/get_source.sh
-      - name: Generate libcore go.mod
-        working-directory: libcore
-        run: bash ./sync_gomod.sh
-      - name: Build libcore (type check, android/arm64)
-        working-directory: libcore
-        env:
-          GOOS: android
-          GOARCH: arm64
-          CGO_ENABLED: "1"
-        run: |
-          export CC="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
-          go build -tags with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0 ./...
   libcore:
-    needs: check
     name: Native Build (LibCore)
+    if: ${{ !inputs.awg_test }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -146,7 +112,7 @@ jobs:
             app/src/main/jniLibs/*/libasteriskd.so
             app/src/main/jniLibs/*/libhevtun.so
             app/src/main/jniLibs/*/libbpf2socks.so
-          key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}-${{ inputs.fast }}
+          key: ${{ hashFiles('buildScript/**', 'libcore/**', 'run', '.github/workflows/preview.yml') }}-${{ inputs.fast }}
       - name: Go cache
         uses: actions/cache@v4
         with:
@@ -158,19 +124,47 @@ jobs:
             go-${{ runner.os }}-${{ hashFiles('buildScript/lib/core/get_source_env.sh') }}-
             go-${{ runner.os }}-
       - name: Install Golang
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
         uses: actions/setup-go@v5
         with:
           go-version: "1.26.4"
           cache: false
+      - name: Fetch core sources
+        if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
+        run: bash buildScript/lib/core/get_source.sh
+      - name: Generate libcore go.mod
+        if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
+        working-directory: libcore
+        run: bash ./sync_gomod.sh
+      - name: Build libcore (type check, android/arm64)
+        if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
+        working-directory: libcore
+        env:
+          GOOS: android
+          GOARCH: arm64
+          CGO_ENABLED: "1"
+        run: |
+          export CC="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          go build -tags with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0 ./...
       - name: Native Build
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
         env:
           LIBCORE_TARGETS: ${{ inputs.fast && 'android/arm64' || '' }}
           ROOTCORE_ABIS: ${{ inputs.fast && 'arm64-v8a' || '' }}
         run: |
           ./run lib core
           ./run lib rootcore
+      - name: Upload native libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-core
+          path: |
+            app/libs/libcore.aar
+            app/src/main/jniLibs/*/libsingbox.so
+            app/src/main/jniLibs/*/libasteriskd.so
+            app/src/main/jniLibs/*/libhevtun.so
+            app/src/main/jniLibs/*/libbpf2socks.so
+          if-no-files-found: error
   build:
     name: Build OSS APK
     runs-on: ubuntu-latest
@@ -181,20 +175,11 @@ jobs:
         uses: actions/checkout@v4
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
-      - name: Golang Status
-        run: find buildScript libcore -maxdepth 6 -type f \( -path "buildScript/*" -o -name "*.sh" \) -not -path "libcore/*/*" | LC_ALL=C sort | xargs cat | sha1sum > golang_status
-      - name: Libcore Status
-        run: git ls-files libcore | LC_ALL=C sort | xargs cat | sha1sum > libcore_status
-      - name: LibCore Cache
-        uses: actions/cache@v4
+      - name: Download native libraries
+        uses: actions/download-artifact@v4
         with:
-          path: |
-            app/libs/libcore.aar
-            app/src/main/jniLibs/*/libsingbox.so
-            app/src/main/jniLibs/*/libasteriskd.so
-            app/src/main/jniLibs/*/libhevtun.so
-            app/src/main/jniLibs/*/libbpf2socks.so
-          key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}-${{ inputs.fast }}
+          name: native-core
+          path: app
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -218,7 +203,7 @@ jobs:
           echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
           export LOCAL_PROPERTIES="${{ secrets.LOCAL_PROPERTIES }}"
           ./run init action gradle
-          ./gradlew app:assemblePreviewRelease
+          ./gradlew --build-cache app:assemblePreviewRelease
           APK=$(find app/build/outputs/apk -name '*arm64-v8a*.apk')
           APK=$(dirname $APK)
           echo "APK=$APK" >> $GITHUB_ENV
