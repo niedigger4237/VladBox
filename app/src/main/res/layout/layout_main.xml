@@ -48,26 +48,6 @@
                 <FrameLayout
                     android:layout_width="68dp"
                     android:layout_height="68dp">
-                    <io.nekohasekai.sagernet.widget.ServiceButton
-                        android:id="@+id/fab"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_gravity="center"
-                        app:fabCustomSize="60dp"
-                        app:elevation="0dp"
-                        app:pressedTranslationZ="0dp"
-                        app:maxImageSize="30dp"
-                        app:shapeAppearanceOverlay="@style/ShapeAppearance.NieFigger.Medium"
-                        app:srcCompat="@drawable/ic_service_play"/>
-                    <com.google.android.material.progressindicator.CircularProgressIndicator
-                        android:id="@+id/fabProgress"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_gravity="center"
-                        android:visibility="invisible"
-                        app:indicatorSize="68dp"
-                        app:trackThickness="4dp"
-                        app:indicatorColor="?attr/colorPrimary"/>
                     <androidx.compose.ui.platform.ComposeView
                         android:id="@+id/power_compose"
                         android:layout_width="match_parent"
