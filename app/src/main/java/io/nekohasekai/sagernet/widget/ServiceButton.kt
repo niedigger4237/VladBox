@@ -39,41 +39,9 @@ class ServiceButton @JvmOverloads constructor(
         this.progress = progress
         progress.isIndeterminate = true
         progress.hide()
-        val host = (parent as android.view.ViewGroup).findViewById<ComposeView>(R.id.power_compose)
-        host.setContent {
-            HubTheme {
-                val state = composeState.value
-                val busy = state == BaseService.State.Connecting || state == BaseService.State.Stopping
-                val connected = state == BaseService.State.Connected
-                val colors = MaterialTheme.colorScheme
-                val tint = when {
-                    connected -> androidx.compose.ui.graphics.Color(0xFFA5D5B1)
-                    busy -> androidx.compose.ui.graphics.Color(0xFFF9A825)
-                    else -> colors.primary
-                }
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    
-                    Surface(
-                        onClick = { this@ServiceButton.performClick() },
-                        enabled = state.canStop || state == BaseService.State.Stopped,
-                        modifier = Modifier.size(60.dp),
-                        shape = RoundedCornerShape(18.dp),
-                        color = tint,
-                        contentColor = if (busy || connected) androidx.compose.ui.graphics.Color.Black else colors.onPrimary
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(painterResource(when {
-                                connected -> R.drawable.ic_service_stop
-                                busy -> R.drawable.ic_service_wait
-                                else -> R.drawable.ic_service_play
-                            }), androidx.compose.ui.res.stringResource(if (state.canStop) R.string.stop else R.string.connect), Modifier.size(30.dp))
-                        }
-                    }
-                }
-            }
-        }
-        alpha = 0f
-        importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        // Legacy button remains usable if a layout still instantiates it.
+        alpha = 1f
+        progress.visibility = android.view.View.GONE
         progress.alpha = 0f
         progress.visibility = android.view.View.GONE
     }
@@ -106,7 +74,7 @@ class ServiceButton @JvmOverloads constructor(
 
         val busy = state == BaseService.State.Connecting || state == BaseService.State.Stopping
         progress?.let { it.hide(); it.visibility = android.view.View.GONE; it.alpha = 0f }
-        alpha = 0f
+        alpha = 1f
 
         val description = context.getText(if (state.canStop) R.string.stop else R.string.connect)
         contentDescription = description
