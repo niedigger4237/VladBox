@@ -5,13 +5,19 @@ import org.json.JSONObject
 
 /** Standard WireGuard INI format, deliberately separate from AmneziaWG. */
 object WireGuardConf {
-    fun parse(text: String): WireGuardBean {
+    data class ImportResult(val bean: WireGuardBean, val warnings: List<String>)
+    private val awgInts = mapOf("jc" to "awgJc","jmin" to "awgJmin","jmax" to "awgJmax","s1" to "awgS1","s2" to "awgS2","s3" to "awgS3","s4" to "awgS4")
+    private val awgStrings = mapOf("h1" to "awgH1","h2" to "awgH2","h3" to "awgH3","h4" to "awgH4","i1" to "awgI1","i2" to "awgI2","i3" to "awgI3","i4" to "awgI4","i5" to "awgI5","hpk" to "awgHpk","cpa" to "awgCpa","header_protection_key" to "awgHpk","content_padding_addition" to "awgCpa","rekey_after_time" to "awgRekeyAfter","rekey_timeout" to "awgRekeyTimeout","reject_after_time" to "awgRejectAfter","keepalive_timeout" to "awgKeepaliveTimeout","max_handshake_attempts" to "awgMaxHandshake")
+    private val awgBools = mapOf("random_trailers" to "awgRandomTrailers","disable_cookies" to "awgDisableCookies")
+    fun parse(text: String): WireGuardBean = parseWithWarnings(text).bean
+    fun parseWithWarnings(text: String): ImportResult {
+        val warnings = mutableListOf<String>()
         val iface = linkedMapOf<String, String>()
         val peers = mutableListOf<MutableMap<String, String>>()
         var section: MutableMap<String, String>? = null
         for (raw in text.lineSequence()) {
             val line = raw.substringBefore('#').trim().removePrefix("\uFEFF")
-            if (line.isBlank()) continue
+            if (line.isBlank() || line.startsWith(";")) continue
             when (line.lowercase()) {
                 "[interface]" -> { section = iface; continue }
                 "[peer]" -> { section = linkedMapOf(); peers.add(section); continue }
@@ -20,9 +26,12 @@ object WireGuardConf {
             val key = line.substringBefore('=').trim().lowercase()
             val value = line.substringAfter('=').trim()
             val target = requireNotNull(section)
-            val allowed = if (target === iface) setOf("privatekey","address","mtu","listenport")
+            val allowed = if (target === iface) setOf("privatekey","address","mtu","listenport","reserved") + awgInts.keys + awgStrings.keys + awgBools.keys
                 else setOf("publickey","presharedkey","endpoint","allowedips","persistentkeepalive")
-            require(key in allowed) { "Unsupported WireGuard option: $key" }
+            if (key !in allowed) {
+                warnings.add(if (key == "dns") "DNS from file was not applied; global DNS is unchanged." else "Ignored unsupported option: $key")
+                continue
+            }
             target[key] = if (key in setOf("address","allowedips") && target.containsKey(key)) target[key] + ", " + value else value
         }
         require(peers.isNotEmpty()) { "At least one peer is required" }
@@ -39,7 +48,7 @@ object WireGuardConf {
                 .put("persistent_keepalive_interval",number(map,"persistentkeepalive",0,0..65535))
         }
         val first = peer(peers.first())
-        return WireGuardBean().apply {
+        val bean = WireGuardBean().apply {
             initializeDefaultValues()
             privateKey = required(iface,"privatekey")
             localAddress = required(iface,"address")
@@ -53,7 +62,21 @@ object WireGuardConf {
             wgAllowedIps = (0 until ips.length()).joinToString(", ") { ips.getString(it) }
             persistentKeepalive = first.getInt("persistent_keepalive_interval")
             wgExtraPeers = JSONArray(peers.drop(1).map { peer(it) }).toString()
+            reserved = iface["reserved"].orEmpty()
+            if (reserved.isNotBlank()) warnings.add("Reserved is stored but unsupported by the current core.")
+            for ((key, field) in awgInts) iface[key]?.let { WireGuardBean::class.java.getField(field).set(this,it.toInt().also { n -> require(n >= 0) }) }
+            for ((key, field) in awgStrings) iface[key]?.let { WireGuardBean::class.java.getField(field).set(this,it) }
+            for ((key, field) in awgBools) iface[key]?.let {
+                val value = when (it.lowercase()) { "true","1" -> true; "false","0" -> false; else -> error("Invalid $key") }
+                WireGuardBean::class.java.getField(field).set(this,value)
+            }
+            if (isAmnezia) {
+                require(peers.size == 1) { "Multiple AmneziaWG peers are not supported by the current editor" }
+                require(wgAllowedIps.split(',').map { it.trim() }.toSet() == setOf("0.0.0.0/0","::/0")) { "AmneziaWG custom AllowedIPs are not supported by the current generator" }
+                if (wgListenPort > 0) warnings.add("AmneziaWG ListenPort is not applied by the current generator.")
+            }
         }
+        return ImportResult(bean,warnings.distinct())
     }
 
     fun export(bean: WireGuardBean): String {
