@@ -77,7 +77,7 @@ fun installRouteProfiles(host: ComposeView, profiles: List<RouteProfileTile>, cr
 }
 
 fun installRouteSettingsTiles(host: ComposeView, outbound: String, dns: String,
-    onOutbound: () -> Unit, onDns: () -> Unit, onAssets: () -> Unit) {
+    onOutbound: () -> Unit, onDns: () -> Unit, onAssets: () -> Unit, onAddRule: () -> Unit) {
     host.setContent {
         HubTheme {
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -86,6 +86,11 @@ fun installRouteSettingsTiles(host: ComposeView, outbound: String, dns: String,
                     RouteSettingTile(Modifier.weight(1f), stringResource(R.string.route_dns_tunnel), dns, R.drawable.ic_hardware_router, onDns)
                 }
                 RouteSettingTile(Modifier.fillMaxWidth(), "Assets", "", R.drawable.ic_baseline_layers_24, onAssets)
+                FilledTonalButton(onClick = onAddRule, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(18.dp)) {
+                    Icon(painterResource(R.drawable.ic_preview_add), contentDescription = null, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.route_add))
+                }
             }
         }
     }
