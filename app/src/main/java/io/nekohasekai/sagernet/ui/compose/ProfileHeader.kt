@@ -51,7 +51,7 @@ fun installProfileHeader(fragment: ConfigurationFragment, root: View) {
                         Modifier.weight(1f).clickable { toolbar.performClick() }, fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     HeaderMenu(toolbar.menu.findItem(R.id.action_add).subMenu, R.drawable.ic_preview_add, stringResource(R.string.add_profile), fragment)
                     IconButton(onClick = { searching = true }) {
-                        Text("⌕", fontSize = 30.sp)
+                        Icon(painterResource(R.drawable.ic_hub_search), stringResource(android.R.string.search_go))
                     }
                     HeaderMenu(toolbar.menu.findItem(R.id.action_misc).subMenu, R.drawable.ic_baseline_more_vert_24, "More", fragment)
                 }
