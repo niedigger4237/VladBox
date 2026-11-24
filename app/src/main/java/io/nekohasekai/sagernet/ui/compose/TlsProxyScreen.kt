@@ -62,7 +62,16 @@ fun TlsProxyScreen(shadow: Boolean, onSave: () -> Unit, onClose: () -> Unit, men
                             SimpleToggle("Allow insecure",store.getBoolean("allowInsecure",false)) { store.putBoolean("allowInsecure",it); revision++ }
                             SimpleField("uTLS fingerprint",read("utlsFingerprint")) { write("utlsFingerprint",it) }
                             if (!shadow) SimpleField("ECH configuration",read("echConfig")) { write("echConfig",it) }
+                            if (shadow && read("version") == "1") Text("ShadowTLS v1 always uses TLS 1.2.")
                             val extra = runCatching { org.json.JSONObject(read("tlsExtras").ifBlank { "{}" }) }.getOrElse { org.json.JSONObject() }
+                            if (!shadow) {
+                                listOf("reality_public_key" to "Reality public key", "reality_short_id" to "Reality short ID", "ech_config_path" to "ECH config path", "ech_query_server_name" to "ECH query server name", "fragment_fallback_delay" to "Fragment fallback delay").forEach { (key,label) ->
+                                    SimpleField(label,extra.optString(key)) { value -> if (value.isBlank()) extra.remove(key) else extra.put(key,value); write("tlsExtras",extra.toString()) }
+                                }
+                                listOf("fragment" to "TLS fragmentation", "record_fragment" to "TLS record fragmentation").forEach { (key,label) ->
+                                    SimpleToggle(label,extra.optBoolean(key)) { extra.put(key,it); write("tlsExtras",extra.toString()) }
+                                }
+                            }
                             SimpleField("Minimum TLS version",if (shadow) read("tlsMinVersion") else extra.optString("min_version"),false) { value ->
                                 if (shadow) write("tlsMinVersion",value) else {
                                     if (value.isBlank()) extra.remove("min_version") else extra.put("min_version",value)
@@ -131,7 +140,12 @@ fun TlsProxyScreen(shadow: Boolean, onSave: () -> Unit, onClose: () -> Unit, men
                             }
                         }
                         "Connection" -> {
-                            VlessDialer(read("outboundDialer")) { write("outboundDialer",it) }
+                            VlessDialer(read("outboundDialer")) { value ->
+                                val json = org.json.JSONObject(value.ifBlank { "{}" })
+                                if (!shadow) json.remove("tcp_fast_open")
+                                write("outboundDialer",json.toString())
+                            }
+                            if (!shadow) Text("TCP Fast Open is not supported by AnyTLS.")
                         }
                         "Sessions" -> {
                             SimpleField("Idle session check interval",read("idleSessionCheckInterval")) { write("idleSessionCheckInterval",it) }
