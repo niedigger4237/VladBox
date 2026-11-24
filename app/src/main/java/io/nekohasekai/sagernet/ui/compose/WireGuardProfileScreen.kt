@@ -133,7 +133,7 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
         if (section == "Import / Export") item {
             WgCard("Import / Export") {
                 FilledTonalButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("Import .conf") }
-                if (!awg) OutlinedButton(onClick = onExport, modifier = Modifier.fillMaxWidth()) { Text("Export .conf") }
+                OutlinedButton(onClick = onExport, modifier = Modifier.fillMaxWidth()) { Text("Export .conf") }
             }
         }
         if (awg) {
