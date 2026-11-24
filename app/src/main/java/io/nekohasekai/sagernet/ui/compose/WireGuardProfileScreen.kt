@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 import io.nekohasekai.sagernet.database.DataStore
 
 @Composable
-fun WireGuardProfileScreen(onPeers: () -> Unit, onImport: () -> Unit, onExport: () -> Unit, onLegacy: () -> Unit, onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pair<String, () -> Unit>> = emptyList()) {
+fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onLegacy: () -> Unit, onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pair<String, () -> Unit>> = emptyList()) {
     val store = DataStore.profileCacheStore
     var revision by remember { mutableStateOf(0) }
     fun read(key: String): String { revision; return store.getString(key, "") ?: "" }
