@@ -329,15 +329,25 @@ data class ProxyEntity(
     private fun StandardV2RayBean.toMux() = MultiplexOptions().also {
         it.enabled = enableMux
         it.padding = muxPadding
-        it.max_streams = muxConcurrency
-        if (muxMaxConnections > 0) it.max_connections = muxMaxConnections
-        if (muxMinStreams > 0) it.min_streams = muxMinStreams
+        if (enableMux) {
+            require(muxConcurrency >= 0 && muxMaxConnections >= 0 && muxMinStreams >= 0) {
+                "Multiplex limits cannot be negative"
+            }
+            // Explicit connection limits take precedence over the legacy default max_streams=1.
+            if (muxMaxConnections > 0 || muxMinStreams > 0) {
+                if (muxMaxConnections > 0) it.max_connections = muxMaxConnections
+                if (muxMinStreams > 0) it.min_streams = muxMinStreams
+            } else if (muxConcurrency > 0) {
+                it.max_streams = muxConcurrency
+            }
+        }
         it.protocol = when (muxType) {
             1 -> "smux"
             2 -> "yamux"
             else -> "h2mux"
         }
-        if (muxBrutal) it.brutal = OutboundBrutalOptions().apply {
+        if (enableMux && muxBrutal) it.brutal = OutboundBrutalOptions().apply {
+            require(muxBrutalUp > 0 && muxBrutalDown > 0) { "TCP Brutal requires positive upload and download speeds" }
             enabled = true
             up_mbps = muxBrutalUp
             down_mbps = muxBrutalDown
