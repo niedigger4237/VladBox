@@ -62,8 +62,7 @@ fun WireGuardProfileScreen(onPeers: () -> Unit, onImport: () -> Unit, onExport: 
         }
         item {
             WgCard("Dialer settings") {
-                WgText("Dialer extra JSON",read("wgDialer")) { write("wgDialer",it) }
-                Text("Individual dialer fields are available in the legacy editor.",style = MaterialTheme.typography.bodySmall)
+                WgDialer(read("wgDialer")) { write("wgDialer",it) }
             }
         }
         item {
@@ -102,4 +101,68 @@ fun WireGuardProfileScreen(onPeers: () -> Unit, onImport: () -> Unit, onExport: 
             options.forEach { (key,title) -> DropdownMenuItem(text = { Text(title) },onClick = { change(key); expanded = false }) }
         }
     }
+}
+
+@Composable private fun WgDialer(raw: String, change: (String)->Unit) {
+    var advanced by remember { mutableStateOf(false) }
+    val json = remember(raw) { runCatching { org.json.JSONObject(raw.ifBlank { "{}" }) }.getOrNull() }
+    fun update(key: String, value: Any?) {
+        if (json == null) return
+        val copy = org.json.JSONObject(json.toString())
+        if (value == null) copy.remove(key) else copy.put(key,value)
+        change(copy.toString())
+    }
+    if (json == null) {
+        Text("Invalid dialer JSON. Correct the JSON below.",color = MaterialTheme.colorScheme.error)
+    } else {
+        val fields = linkedMapOf(
+            "bind_interface" to "Bind interface",
+            "inet4_bind_address" to "IPv4 bind address",
+            "inet6_bind_address" to "IPv6 bind address",
+            "protect_path" to "Protect path",
+            "routing_mark" to "Routing mark",
+            "netns" to "Network namespace",
+            "connect_timeout" to "Connect timeout",
+            "tcp_keep_alive" to "TCP keepalive",
+            "tcp_keep_alive_interval" to "TCP keepalive interval",
+            "fallback_delay" to "Fallback delay"
+        )
+        for ((key,label) in fields) {
+            WgText(label,json.opt(key)?.toString().orEmpty()) { update(key,it.takeIf { v -> v.isNotBlank() }) }
+        }
+        for ((key,label) in linkedMapOf(
+            "bind_address_no_port" to "Bind address without port",
+            "reuse_addr" to "Reuse address",
+            "tcp_fast_open" to "TCP Fast Open",
+            "tcp_multi_path" to "Multipath TCP",
+            "disable_tcp_keep_alive" to "Disable TCP keepalive",
+            "udp_fragment" to "UDP fragmentation"
+        )) {
+            WgChoice(label,json.opt(key)?.toString().orEmpty(),listOf("" to "Default","true" to "Enabled","false" to "Disabled")) {
+                update(key,it.takeIf { v -> v.isNotBlank() }?.toBooleanStrict())
+            }
+        }
+        WgText("Network strategy",json.optString("network_strategy")) { update("network_strategy",it.takeIf { v -> v.isNotBlank() }) }
+        for ((key,label) in listOf("network_type" to "Network types","fallback_network_type" to "Fallback network types")) {
+            val values = json.optJSONArray(key)
+            val selected = if (values != null) (0 until values.length()).map { values.optString(it) }.toSet() else setOf(json.optString(key)).filter { it.isNotBlank() }.toSet()
+            Text(label,style = MaterialTheme.typography.titleSmall)
+            for (type in listOf("wifi","cellular","ethernet","other")) {
+                WgToggle(type,type in selected) { enabled ->
+                    val next = if (enabled) selected + type else selected - type
+                    update(key,if (next.isEmpty()) null else org.json.JSONArray(next.toList()))
+                }
+            }
+        }
+        var resolver by remember(raw) { mutableStateOf(json.opt("domain_resolver")?.toString().orEmpty()) }
+        WgText("Domain resolver (tag or JSON)",resolver) { resolver = it }
+        OutlinedButton(onClick = {
+            runCatching {
+                val value = resolver.trim()
+                update("domain_resolver",if (value.isBlank()) null else if (value.startsWith("{")) org.json.JSONObject(value) else value)
+            }
+        },modifier = Modifier.fillMaxWidth()) { Text("Apply domain resolver") }
+    }
+    TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide extra JSON" else "Show extra JSON") }
+    if (advanced || json == null) WgText("Dialer extra JSON",raw,change = change)
 }
