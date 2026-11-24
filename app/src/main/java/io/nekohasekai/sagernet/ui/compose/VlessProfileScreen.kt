@@ -24,7 +24,14 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     var reality by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(read("realityPubKey").isNotBlank()) }
     val muxValid = !mux || (listOf("muxConcurrency","muxMaxConnections","muxMinStreams").all { read(it).toIntOrNull()?.let { n -> n >= 0 } == true } && (!store.getBoolean("muxBrutal",false) || listOf("muxBrutalUp","muxBrutalDown").all { read(it).toIntOrNull()?.let { n -> n > 0 } == true }))
     val dialerValid = runCatching { org.json.JSONObject(read("outboundDialer").ifBlank { "{}" }) }.isSuccess
-    val valid = dialerValid && muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && read("uuid").isNotBlank() && (!reality || read("realityPubKey").isNotBlank())
+    val transportValid = when (transport) {
+        "ws" -> read("wsMaxEarlyData").toIntOrNull()?.let { it >= 0 } == true
+        "grpc" -> listOf("grpcIdleTimeout","grpcPingTimeout").all { read(it).toIntOrNull()?.let { n -> n >= 0 } == true }
+        "kcp" -> listOf("kcpMtu","kcpTti","kcpUp","kcpDown","kcpRead","kcpWrite").all { read(it).isBlank() || read(it).toLongOrNull()?.let { n -> n in 1L..4294967295L } == true }
+        "xhttp" -> runCatching { org.json.JSONObject(read("xhttpExtra").ifBlank { "{}" }) }.isSuccess
+        else -> true
+    }
+    val valid = transportValid && dialerValid && muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && read("uuid").isNotBlank() && (!reality || read("realityPubKey").isNotBlank())
     androidx.activity.compose.BackHandler(enabled = section.isNotEmpty()) { section = "" }
     Column(Modifier.fillMaxSize()) {
     VladTopAppBar(title = section.ifEmpty { "VLESS" }, onBack = { if (section.isNotEmpty()) section = "" else onClose() }, extraActions = {
@@ -88,7 +95,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 }
                 if (transport in listOf("http","ws","httpupgrade")) ProfileText("Headers", "transportHeaders", read("transportHeaders"), ::write)
                 if (transport == "kcp") {
-                    listOf("kcpMtu","kcpTti","kcpUp","kcpDown","kcpRead","kcpWrite","kcpHeader","kcpSeed").forEach { ProfileText(it, it, read(it), ::write) }
+                    listOf("kcpMtu" to "MTU","kcpTti" to "TTI (ms)","kcpUp" to "Uplink capacity","kcpDown" to "Downlink capacity","kcpRead" to "Read buffer size","kcpWrite" to "Write buffer size","kcpHeader" to "Header type","kcpSeed" to "Seed").forEach { (key,label) -> ProfileText(label,key,read(key),::write) }
                     ProfileSwitch("Congestion control", store.getBoolean("kcpCongestion", false)) { toggle("kcpCongestion", it) }
                 }
             }
