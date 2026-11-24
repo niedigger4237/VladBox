@@ -91,6 +91,11 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
     private val kcpHeader = pbm.add(PreferenceBinding(Type.Text, "kcpHeader"))
     private val kcpSeed = pbm.add(PreferenceBinding(Type.Text, "kcpSeed"))
     private val kcpCongestion = pbm.add(PreferenceBinding(Type.Bool, "kcpCongestion"))
+    private val tlsEngine = pbm.add(PreferenceBinding(Type.Text, "tlsEngine"))
+    private val tlsCertificatePath = pbm.add(PreferenceBinding(Type.Text, "tlsCertificatePath"))
+    private val tlsClientCertificatePath = pbm.add(PreferenceBinding(Type.Text, "tlsClientCertificatePath"))
+    private val tlsClientKeyPath = pbm.add(PreferenceBinding(Type.Text, "tlsClientKeyPath"))
+    private val echConfigPath = pbm.add(PreferenceBinding(Type.Text, "echConfigPath"))
     private val httpExtra = PreferenceBindingManager()
     private val httpPath = httpExtra.add(PreferenceBinding(Type.Text, "httpPath"))
     private val httpHeaders = httpExtra.add(PreferenceBinding(Type.Text, "httpHeaders"))
@@ -299,6 +304,11 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
         tlsClientKey.preference.isVisible = isTLS
         echQueryName.preference.isVisible = isTLS
         realityHybrid.preference.isVisible = isTLS
+        tlsEngine.preference.isVisible = isTLS
+        tlsCertificatePath.preference.isVisible = isTLS
+        tlsClientCertificatePath.preference.isVisible = isTLS
+        tlsClientKeyPath.preference.isVisible = isTLS
+        echConfigPath.preference.isVisible = isTLS
     }
 
 }
