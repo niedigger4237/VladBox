@@ -20,6 +20,29 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
     fun checked(key: String): Boolean { revision; return store.getBoolean(key,false) }
     fun toggle(key: String, value: Boolean) { store.putBoolean(key,value); revision++ }
     val awg = checked("awgEnabled")
+    val awgNumbers = listOf("awgJc","awgJmin","awgJmax","awgS1","awgS2","awgS3","awgS4")
+    val awgTexts = (1..4).map { "awgH$it" } + (1..5).map { "awgI$it" } + listOf("awgHpk","awgCpa","awgRekeyAfter","awgRekeyTimeout","awgRejectAfter","awgKeepaliveTimeout","awgMaxHandshake")
+    fun validKey(key: String, optional: Boolean = false): Boolean {
+        val value = read(key).trim()
+        return (optional && value.isEmpty()) || runCatching { android.util.Base64.decode(value,android.util.Base64.DEFAULT).size == 32 }.getOrDefault(false)
+    }
+    val error = when {
+        !validKey("privateKey") -> "Private key must contain 32 bytes in Base64."
+        !validKey("peerPublicKey") -> "Public key must contain 32 bytes in Base64."
+        !validKey("peerPreSharedKey",true) -> "Invalid pre-shared key."
+        read("localAddress").isBlank() -> "Local address is required."
+        read("serverAddress").isBlank() -> "Endpoint address is required."
+        read("serverPort").toIntOrNull()?.let { it in 1..65535 } != true -> "Invalid endpoint port."
+        read("mtu").toIntOrNull()?.let { it in 1..65535 } != true -> "Invalid MTU."
+        read("workers").toIntOrNull()?.let { it >= 0 } != true -> "Invalid workers value."
+        read("persistentKeepalive").toIntOrNull()?.let { it in 0..65535 } != true -> "Invalid keepalive."
+        !awg && read("wgAllowedIps").isBlank() -> "Allowed IPs are required."
+        !awg && read("wgListenPort").toIntOrNull()?.let { it in 0..65535 } != true -> "Invalid listen port."
+        awg && awgNumbers.any { read(it).toIntOrNull()?.let { n -> n >= 0 } != true } -> "Invalid AmneziaWG numeric parameter."
+        awg && (read("awgJmin").toIntOrNull() ?: 0) > (read("awgJmax").toIntOrNull() ?: 0) -> "Jmin must not exceed Jmax."
+        awg && awgNumbers.none { (read(it).toIntOrNull() ?: 0) > 0 } && awgTexts.none { read(it).isNotBlank() } && !checked("awgRandomTrailers") && !checked("awgDisableCookies") -> "Configure AmneziaWG parameters before saving."
+        else -> null
+    }
     val natModes = listOf("" to "Default", "endpoint_independent" to "Endpoint independent", "address_dependent" to "Address dependent", "address_and_port_dependent" to "Address and port dependent")
     var section by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     androidx.activity.compose.BackHandler(enabled = section.isNotEmpty()) { section = "" }
@@ -30,7 +53,7 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
             onBack = { if (section.isNotEmpty()) section = "" else onClose() },
             extraActions = {
                 var expanded by remember { mutableStateOf(false) }
-                TextButton(onClick = onSave) { Text("Save") }
+                TextButton(onClick = onSave, enabled = error == null) { Text("Save") }
                 Box {
                     IconButton(onClick = { expanded = true }) {
                         Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_baseline_more_vert_24), "More options")
@@ -63,9 +86,6 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
             WgCard("General") {
                 WgText("Profile name",read("name")) { write("name",it) }
                 WgChoice("Protocol",if (awg) "awg" else "wg",listOf("wg" to "WireGuard","awg" to "AmneziaWG")) {
-                    if (it == "awg" && !awg && (read("awgJc").toIntOrNull() ?: 0) == 0) {
-                        write("awgJc","4"); write("awgJmin","40"); write("awgJmax","70")
-                    }
                     toggle("awgEnabled",it == "awg")
                 }
             }
@@ -137,7 +157,8 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
             }
         }
         if (section.isEmpty()) item {
-            Button(onClick = onSave, modifier = Modifier.fillMaxWidth(), enabled = read("privateKey").isNotBlank() && read("peerPublicKey").isNotBlank() && read("localAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 0..65535 } == true) { Text("Save profile") }
+            if (error != null) Text(error,color = MaterialTheme.colorScheme.error)
+            Button(onClick = onSave, modifier = Modifier.fillMaxWidth(), enabled = error == null) { Text("Save profile") }
         }
     }
     }
