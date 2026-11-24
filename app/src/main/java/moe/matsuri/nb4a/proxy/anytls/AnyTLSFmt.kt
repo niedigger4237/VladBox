@@ -112,6 +112,11 @@ fun AnyTLSBean.toUri(): String {
     if (!utlsFingerprint.isNullOrBlank()) {
         builder.addQueryParameter("fp", utlsFingerprint)
     }
+    if (!alpn.isNullOrBlank()) builder.addQueryParameter("alpn", alpn)
+    val extra = org.json.JSONObject(tlsExtras.orEmpty().ifBlank { "{}" })
+    for ((key, parameter) in listOf("reality_public_key" to "pbk", "reality_short_id" to "sid", "certificate_public_key_sha256" to "pinSHA256")) {
+        extra.optString(key).takeIf { it.isNotBlank() }?.let { builder.addQueryParameter(parameter,it) }
+    }
     return builder.toLink("anytls")
 }
 
@@ -126,8 +131,14 @@ fun parseAnytls(url: String): AnyTLSBean {
         name = link.fragment
         password = link.username
         sni = link.queryParameter("sni") ?: ""
+        alpn = link.queryParameter("alpn") ?: ""
+        val extra = org.json.JSONObject()
+        for ((key, parameter) in listOf("reality_public_key" to "pbk", "reality_short_id" to "sid", "certificate_public_key_sha256" to "pinSHA256")) {
+            link.queryParameter(parameter)?.takeIf { it.isNotBlank() }?.let { extra.put(key,it) }
+        }
+        tlsExtras = extra.toString()
         link.queryParameter("insecure")?.also {
-            allowInsecure = it == "1" || it == "true"
+            allowInsecure = it == "1" || it.equals("true", ignoreCase = true)
         }
         link.queryParameter("fp")?.let {
             utlsFingerprint = it
