@@ -14,6 +14,8 @@ class SocksSettingsActivity : ProfileSettingsActivity<SOCKSBean>() {
     override fun createEntity() = SOCKSBean()
 
     override fun SOCKSBean.init() {
+        DataStore.profileCacheStore.putString("outboundNetwork", outboundNetwork)
+        DataStore.profileCacheStore.putString("outboundDialer", outboundDialer)
         DataStore.profileName = name
         DataStore.serverAddress = serverAddress
         DataStore.serverPort = serverPort
@@ -26,6 +28,8 @@ class SocksSettingsActivity : ProfileSettingsActivity<SOCKSBean>() {
     }
 
     override fun SOCKSBean.serialize() {
+        outboundNetwork = DataStore.profileCacheStore.getString("outboundNetwork", "").orEmpty()
+        outboundDialer = DataStore.profileCacheStore.getString("outboundDialer", "").orEmpty()
         name = DataStore.profileName
         serverAddress = DataStore.serverAddress
         serverPort = DataStore.serverPort
