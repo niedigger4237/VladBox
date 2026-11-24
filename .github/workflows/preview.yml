@@ -90,86 +90,110 @@ jobs:
           done
           exit $fail
   libcore:
-    name: Native Build (LibCore)
+    name: Go Compile Check (LibCore / sing-box)
     if: ${{ !inputs.awg_test }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
-      - name: Golang Status
-        run: find buildScript libcore -maxdepth 6 -type f \( -path "buildScript/*" -o -name "*.sh" \) -not -path "libcore/*/*" | LC_ALL=C sort | xargs cat | sha1sum > golang_status
-      - name: Libcore Status
-        run: git ls-files libcore | LC_ALL=C sort | xargs cat | sha1sum > libcore_status
-      - name: LibCore Cache
+      - name: Go core cache
         id: cache
         uses: actions/cache@v4
         with:
           path: |
             app/libs/libcore.aar
             app/src/main/jniLibs/*/libsingbox.so
-            app/src/main/jniLibs/*/libasteriskd.so
-            app/src/main/jniLibs/*/libhevtun.so
-            app/src/main/jniLibs/*/libbpf2socks.so
-          key: ${{ hashFiles('buildScript/**', 'libcore/**', 'run', '.github/workflows/preview.yml') }}-${{ inputs.fast }}
-      - name: Go cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('buildScript/lib/core/get_source_env.sh') }}-${{ github.run_id }}
-          restore-keys: |
-            go-${{ runner.os }}-${{ hashFiles('buildScript/lib/core/get_source_env.sh') }}-
-            go-${{ runner.os }}-
+          key: go-core-v3-${{ runner.os }}-${{ hashFiles('libcore/**', 'buildScript/init/**', 'buildScript/lib/core.sh', 'buildScript/lib/core/init.sh', 'buildScript/lib/core/build.sh', 'buildScript/lib/core/build_root_core.sh', 'buildScript/lib/core/get_source*.sh', 'buildScript/lib/core/patches/**', 'run', '.github/workflows/preview.yml') }}-${{ inputs.fast }}
       - name: Install Golang
         if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
         uses: actions/setup-go@v5
         with:
           go-version: "1.26.4"
           cache: false
-      - name: Fetch core sources
+      - name: Go compiler cache
         if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
-        run: bash buildScript/lib/core/get_source.sh
-      - name: Generate libcore go.mod
-        if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
-        working-directory: libcore
-        run: bash ./sync_gomod.sh
-      - name: Build libcore (type check, android/arm64)
-        if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
-        working-directory: libcore
-        env:
-          GOOS: android
-          GOARCH: arm64
-          CGO_ENABLED: "1"
-        run: |
-          export CC="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
-          go build -tags with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0 ./...
-      - name: Native Build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-build-v3-${{ runner.os }}-${{ hashFiles('libcore/**', 'buildScript/lib/core/get_source*.sh', 'buildScript/lib/core/patches/**') }}-${{ github.run_id }}
+          restore-keys: |
+            go-build-v3-${{ runner.os }}-
+      - name: Compile Go libraries
         if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
         env:
           LIBCORE_TARGETS: ${{ inputs.fast && 'android/arm64' || '' }}
           ROOTCORE_ABIS: ${{ inputs.fast && 'arm64-v8a' || '' }}
         run: |
+          set -e
           ./run lib core
-          ./run lib rootcore
-      - name: Upload native libraries
-        uses: actions/upload-artifact@v4
+          bash buildScript/lib/core/build_root_core.sh
+      - name: Validate Go outputs
+        run: |
+          set -e
+          test -s app/libs/libcore.aar
+          unzip -tq app/libs/libcore.aar
+          abis="arm64-v8a"
+          if [ "${{ inputs.fast }}" != "true" ]; then abis="arm64-v8a armeabi-v7a x86_64"; fi
+          for abi in $abis; do
+            test -s "app/src/main/jniLibs/$abi/libsingbox.so"
+            unzip -Z1 app/libs/libcore.aar | grep -F "jni/$abi/" >/dev/null
+          done
+      - uses: actions/upload-artifact@v4
         with:
-          name: native-core
+          name: go-core
           path: |
             app/libs/libcore.aar
             app/src/main/jniLibs/*/libsingbox.so
+          if-no-files-found: error
+  native:
+    name: Native Compile Check (ROOT helpers)
+    if: ${{ !inputs.awg_test }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix permissions
+        run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
+      - name: Native helpers cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
             app/src/main/jniLibs/*/libasteriskd.so
             app/src/main/jniLibs/*/libhevtun.so
             app/src/main/jniLibs/*/libbpf2socks.so
+          key: native-helpers-v3-${{ runner.os }}-${{ hashFiles('buildScript/init/**', 'buildScript/lib/core/build_asteriskd.sh', 'buildScript/lib/core/build_root_helpers.sh', '.github/workflows/preview.yml') }}-${{ inputs.fast }}
+      - name: Compile ROOT helpers
+        if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
+        env:
+          ROOTCORE_ABIS: ${{ inputs.fast && 'arm64-v8a' || '' }}
+        run: |
+          set -e
+          bash buildScript/lib/core/build_asteriskd.sh
+          bash buildScript/lib/core/build_root_helpers.sh
+      - name: Validate native outputs
+        run: |
+          set -e
+          abis="arm64-v8a"
+          if [ "${{ inputs.fast }}" != "true" ]; then abis="arm64-v8a armeabi-v7a x86_64"; fi
+          for abi in $abis; do
+            for lib in libasteriskd.so libhevtun.so libbpf2socks.so; do
+              test -s "app/src/main/jniLibs/$abi/$lib"
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-helpers
+          path: app/src/main/jniLibs/
           if-no-files-found: error
   build:
     name: Build OSS APK
     runs-on: ubuntu-latest
     needs:
       - libcore
+      - native
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -178,8 +202,13 @@ jobs:
       - name: Download native libraries
         uses: actions/download-artifact@v4
         with:
-          name: native-core
+          name: go-core
           path: app
+      - name: Download ROOT helpers
+        uses: actions/download-artifact@v4
+        with:
+          name: native-helpers
+          path: app/src/main/jniLibs
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
