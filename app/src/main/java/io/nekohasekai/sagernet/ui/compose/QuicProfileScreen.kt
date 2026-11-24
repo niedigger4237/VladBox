@@ -98,8 +98,27 @@ fun QuicProfileScreen(tuic: Boolean, onSave: () -> Unit, onClose: () -> Unit, me
                             if (!hy2) field("ALPN",DataStore.serverALPN) { DataStore.serverALPN = it }
                             field("CA certificate (PEM)",DataStore.serverCertificates) { DataStore.serverCertificates = it }
                             toggle("Allow insecure",DataStore.serverAllowInsecure) { DataStore.serverAllowInsecure = it }
-                            extra("quicTlsOptions","Advanced TLS options (JSON)")
-                            Text("QUIC uses TLS 1.3. Advanced options: certificate pin, client certificate and key, certificate paths, curves and handshake timeout.")
+                            val tlsRaw = store.getString("quicTlsOptions","").orEmpty()
+                            val tls = runCatching { org.json.JSONObject(tlsRaw.ifBlank { "{}" }) }.getOrNull()
+                            if (tls == null) {
+                                extra("quicTlsOptions","Repair TLS options (JSON)")
+                            } else {
+                                listOf("certificate_path" to "CA certificate path", "client_certificate" to "Client certificate (PEM)", "client_certificate_path" to "Client certificate path", "client_key" to "Client private key (PEM)", "client_key_path" to "Client private key path", "handshake_timeout" to "Handshake timeout").forEach { (key,label) ->
+                                    field(label,tls.optString(key),key == "client_key") {
+                                        if (it.isBlank()) tls.remove(key) else tls.put(key,it)
+                                        store.putString("quicTlsOptions",tls.toString())
+                                    }
+                                }
+                                listOf("certificate_public_key_sha256" to "SHA-256 public key pins", "curve_preferences" to "Curve preferences").forEach { (key,label) ->
+                                    val array = tls.optJSONArray(key)
+                                    val value = if (array != null) (0 until array.length()).joinToString(", ") { array.getString(it) } else tls.optString(key)
+                                    field(label,value) {
+                                        if (it.isBlank()) tls.remove(key) else tls.put(key,org.json.JSONArray(it.split(",").map { v -> v.trim() }.filter { v -> v.isNotEmpty() }))
+                                        store.putString("quicTlsOptions",tls.toString())
+                                    }
+                                }
+                            }
+                            Text("QUIC uses TLS 1.3. Client certificate and key must be supplied together.")
                         }
                         "Transport" -> {
                             if (tuic) {
