@@ -17,6 +17,50 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
 
     override fun createEntity() = WireGuardBean()
 
+    private var legacyRequested = false
+
+    override fun PreferenceFragmentCompat.viewCreated(view: android.view.View, savedInstanceState: Bundle?) {
+        legacyRequested = savedInstanceState?.getBoolean("wgLegacyRequested", false) ?: legacyRequested
+        if (DataStore.profileCacheStore.getBoolean("awgEnabled", false) || legacyRequested) return
+        val legacyList = listView
+        val parent = legacyList.parent as? android.view.ViewGroup ?: return
+        val index = parent.indexOfChild(legacyList)
+        val params = legacyList.layoutParams
+        legacyList.visibility = android.view.View.GONE
+        val host = androidx.compose.ui.platform.ComposeView(requireContext())
+        host.setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        parent.addView(host, index, params)
+        host.setContent {
+            io.nekohasekai.sagernet.ui.compose.HubTheme {
+                io.nekohasekai.sagernet.ui.compose.WireGuardProfileScreen(
+                    onPeers = { showPeers(wgExtraPeers.preference as EditTextPreference) },
+                    onImport = {
+                        com.google.android.material.dialog.MaterialAlertDialogBuilder(this@WireGuardSettingsActivity)
+                            .setMessage("Replace current connection settings?")
+                            .setPositiveButton("Import") { _, _ -> importConf.launch(arrayOf("*/*")) }
+                            .setNegativeButton(android.R.string.cancel, null).show()
+                    },
+                    onExport = {
+                        com.google.android.material.dialog.MaterialAlertDialogBuilder(this@WireGuardSettingsActivity)
+                            .setMessage("The exported file contains private keys. Keep it secure.")
+                            .setPositiveButton("Export") { _, _ -> exportConf.launch("wireguard.conf") }
+                            .setNegativeButton(android.R.string.cancel, null).show()
+                    },
+                    onLegacy = {
+                        legacyRequested = true
+                        // Recreate preferences from cache so their displayed values are current.
+                        supportFragmentManager.beginTransaction()
+                            .replace(R.id.settings, ProfileSettingsActivity.MyPreferenceFragmentCompat()).commitNow()
+                        DataStore.dirty = true
+                    },
+                    onSave = {
+                        io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() }
+                    }
+                )
+            }
+        }
+    }
+
     private val importConf = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null && !DataStore.profileCacheStore.getBoolean("awgEnabled", false)) {
             try {
