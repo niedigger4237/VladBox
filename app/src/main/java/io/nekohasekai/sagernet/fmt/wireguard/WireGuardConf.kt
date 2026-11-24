@@ -93,8 +93,8 @@ object WireGuardConf {
             if (bean.isAmnezia) {
                 for ((key, field) in awgInts) {
                     val value = WireGuardBean::class.java.getField(field).get(bean) as Int
-                    // Match the endpoint generator: zero means the optional field is unset.
-                    if (value > 0) appendLine("${key.replaceFirstChar { it.uppercaseChar() }} = $value")
+                    // Preserve zero padding values; the bean cannot distinguish absent from explicit zero.
+                    if (value > 0 || key in setOf("s1","s2","s3","s4")) appendLine("${key.replaceFirstChar { it.uppercaseChar() }} = $value")
                 }
                 for ((key, field) in awgStrings.entries.distinctBy { it.value }) {
                     val value = WireGuardBean::class.java.getField(field).get(bean) as String
