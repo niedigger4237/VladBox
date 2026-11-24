@@ -31,6 +31,11 @@ public class HysteriaBean extends AbstractBean {
     public Integer connectionReceiveWindow;
     public Boolean disableMtuDiscovery;
     public Integer hopInterval;
+    public String hy2ObfsType;
+    public String hy2BbrProfile;
+    public String hy2HopIntervalMax;
+    public String hy2GeckoMin;
+    public String hy2GeckoMax;
 
     // HY1
 
@@ -78,11 +83,16 @@ public class HysteriaBean extends AbstractBean {
         if (disableMtuDiscovery == null) disableMtuDiscovery = false;
         if (hopInterval == null) hopInterval = 10;
         if (serverPorts == null) serverPorts = "443";
+        if (hy2ObfsType == null) hy2ObfsType = "salamander";
+        if (hy2BbrProfile == null) hy2BbrProfile = "";
+        if (hy2HopIntervalMax == null) hy2HopIntervalMax = "";
+        if (hy2GeckoMin == null) hy2GeckoMin = "";
+        if (hy2GeckoMax == null) hy2GeckoMax = "";
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(7);
+        output.writeInt(8);
         super.serialize(output);
 
         output.writeInt(protocolVersion);
@@ -104,6 +114,11 @@ public class HysteriaBean extends AbstractBean {
         output.writeBoolean(disableMtuDiscovery);
         output.writeInt(hopInterval);
         output.writeString(serverPorts);
+        output.writeString(hy2ObfsType);
+        output.writeString(hy2BbrProfile);
+        output.writeString(hy2HopIntervalMax);
+        output.writeString(hy2GeckoMin);
+        output.writeString(hy2GeckoMax);
     }
 
     @Override
@@ -147,6 +162,13 @@ public class HysteriaBean extends AbstractBean {
             } else {
                 serverPorts = serverPort.toString();
             }
+        }
+        if (version >= 8) {
+            hy2ObfsType = input.readString();
+            hy2BbrProfile = input.readString();
+            hy2HopIntervalMax = input.readString();
+            hy2GeckoMin = input.readString();
+            hy2GeckoMax = input.readString();
         }
     }
 
