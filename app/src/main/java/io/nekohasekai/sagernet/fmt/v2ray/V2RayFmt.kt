@@ -852,7 +852,7 @@ fun buildSingBoxOutboundStandardV2RayBean(bean: StandardV2RayBean): Outbound {
             }
             return Outbound_VMessOptions().apply {
                 type = "vmess"
-                applyStandardDialer(bean, _hack_config_map)
+                applyClientDialer(bean.outboundDialer, bean.vlessNetwork, _hack_config_map)
                 server = bean.serverAddress
                 server_port = bean.serverPort
                 uuid = bean.uuid
@@ -873,7 +873,7 @@ fun buildSingBoxOutboundStandardV2RayBean(bean: StandardV2RayBean): Outbound {
         is TrojanBean -> {
             return Outbound_TrojanOptions().apply {
                 type = "trojan"
-                applyStandardDialer(bean, _hack_config_map)
+                applyClientDialer(bean.outboundDialer, bean.vlessNetwork, _hack_config_map)
                 server = bean.serverAddress
                 server_port = bean.serverPort
                 password = bean.password
