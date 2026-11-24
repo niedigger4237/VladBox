@@ -14,20 +14,26 @@ public class HttpBean extends StandardV2RayBean {
 
     public String username;
     public String password;
+    public String httpPath;
+    public String httpHeaders;
 
     @Override
     public void initializeDefaultValues() {
         super.initializeDefaultValues();
         if (username == null) username = "";
         if (password == null) password = "";
+        if (httpPath == null) httpPath = "";
+        if (httpHeaders == null) httpHeaders = "";
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(0);
+        output.writeInt(1);
         super.serialize(output);
         output.writeString(username);
         output.writeString(password);
+        output.writeString(httpPath);
+        output.writeString(httpHeaders);
     }
 
     @Override
@@ -36,6 +42,10 @@ public class HttpBean extends StandardV2RayBean {
         super.deserialize(input);
         username = input.readString();
         password = input.readString();
+        if (version >= 1) {
+            httpPath = input.readString();
+            httpHeaders = input.readString();
+        }
     }
 
     @NotNull
