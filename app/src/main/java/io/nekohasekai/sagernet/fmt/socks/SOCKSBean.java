@@ -15,6 +15,8 @@ public class SOCKSBean extends AbstractBean {
     public Integer protocol;
 
     public Boolean sUoT;
+    public String outboundNetwork;
+    public String outboundDialer;
 
     public int protocolVersion() {
         switch (protocol) {
@@ -69,16 +71,20 @@ public class SOCKSBean extends AbstractBean {
         if (username == null) username = "";
         if (password == null) password = "";
         if (sUoT == null) sUoT = false;
+        if (outboundNetwork == null) outboundNetwork = "";
+        if (outboundDialer == null) outboundDialer = "";
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(2);
+        output.writeInt(3);
         super.serialize(output);
         output.writeInt(protocol);
         output.writeString(username);
         output.writeString(password);
         output.writeBoolean(sUoT);
+        output.writeString(outboundNetwork);
+        output.writeString(outboundDialer);
     }
 
     @Override
@@ -92,6 +98,10 @@ public class SOCKSBean extends AbstractBean {
         password = input.readString();
         if (version >= 2) {
             sUoT = input.readBoolean();
+        }
+        if (version >= 3) {
+            outboundNetwork = input.readString();
+            outboundDialer = input.readString();
         }
     }
 
