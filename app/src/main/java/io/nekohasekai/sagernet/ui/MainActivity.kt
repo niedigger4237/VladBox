@@ -98,14 +98,8 @@ class MainActivity : ThemedActivity(),
             }
         }
 
-        val connectionModel = androidx.lifecycle.ViewModelProvider(this)[io.nekohasekai.sagernet.ui.compose.ConnectionViewModel::class.java]
-        binding.powerCompose.setContent {
-            val ui = connectionModel.state.collectAsState().value
-            io.nekohasekai.sagernet.ui.compose.HubTheme {
-                io.nekohasekai.sagernet.ui.compose.ConnectionPower(ui.serviceState) {
-                    if (DataStore.serviceState.canStop) SagerNet.stopService() else connect.launch(null)
-                }
-            }
+        binding.stats.onPowerClick = {
+            if (DataStore.serviceState.canStop) SagerNet.stopService() else connect.launch(null)
         }
         binding.stats.setOnClickListener { if (DataStore.serviceState.connected) binding.stats.testConnection() }
 
