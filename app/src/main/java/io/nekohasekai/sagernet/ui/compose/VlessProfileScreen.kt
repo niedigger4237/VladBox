@@ -34,7 +34,18 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
         "xhttp" -> runCatching { org.json.JSONObject(read("xhttpExtra").ifBlank { "{}" }) }.isSuccess
         else -> true
     }
-    val valid = transportValid && dialerValid && muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && read("uuid").isNotBlank() && (!isVmess || read("alterId").toIntOrNull()?.let { it >= 0 } == true) && (!reality || read("realityPubKey").isNotBlank())
+    val tlsValid = security != "tls" || run {
+        val versions = listOf("1.0","1.1","1.2","1.3")
+        val min = read("tlsMinVersion"); val max = read("tlsMaxVersion")
+        (min.isBlank() || min in versions) && (max.isBlank() || max in versions) &&
+            (min.isBlank() || max.isBlank() || versions.indexOf(min) <= versions.indexOf(max)) &&
+            (read("certificates").isBlank() || read("tlsCertificatePath").isBlank()) &&
+            (read("tlsClientCertificate").isBlank() || read("tlsClientCertificatePath").isBlank()) &&
+            (read("tlsClientKey").isBlank() || read("tlsClientKeyPath").isBlank()) &&
+            ((read("tlsClientCertificate").isNotBlank() || read("tlsClientCertificatePath").isNotBlank()) == (read("tlsClientKey").isNotBlank() || read("tlsClientKeyPath").isNotBlank())) &&
+            (!store.getBoolean("enableECH",false) || read("echConfig").isBlank() || read("echConfigPath").isBlank())
+    }
+    val valid = tlsValid && transportValid && dialerValid && muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && read("uuid").isNotBlank() && (!isVmess || read("alterId").toIntOrNull()?.let { it >= 0 } == true) && (!reality || read("realityPubKey").isNotBlank())
     androidx.activity.compose.BackHandler(enabled = section.isNotEmpty()) { section = "" }
     Column(Modifier.fillMaxSize()) {
     VladTopAppBar(title = section.ifEmpty { protocol }, onNavigation = onClose, onBack = { if (section.isNotEmpty()) section = "" else onClose() }, extraActions = {
@@ -231,6 +242,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
             item { ProfileSection("Network") { ProfileChoices(listOf("" to "TCP + UDP","tcp" to "TCP","udp" to "UDP"), read("vlessNetwork")) { write("vlessNetwork",it) } } }
             item { ProfileSection("Dialer settings") { VlessDialer(read("outboundDialer")) { write("outboundDialer",it) } } }
         }
+        if (!tlsValid) item { Text("Check TLS version range, certificate sources and client certificate/key pair.", color = MaterialTheme.colorScheme.error) }
         if (section.isEmpty()) item { Button(onClick = onSave, modifier = Modifier.fillMaxWidth(), enabled = valid) { Text("Save profile") } }
     }
     }
