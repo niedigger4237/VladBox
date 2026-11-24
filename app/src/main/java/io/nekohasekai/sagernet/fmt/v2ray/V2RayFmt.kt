@@ -233,6 +233,11 @@ fun StandardV2RayBean.parseDuckSoft(url: HttpUrl) {
         "xhttp" -> parseXhttpQuery(url)
     }
 
+    if (isVLESS) {
+        url.queryParameter("encryption")?.let { vlessEncryption = it }
+        url.queryParameter("network")?.let { vlessNetwork = it }
+    }
+
     // maybe from matsuri vmess exoprt
     if (this is VMessBean && !isVLESS) {
         url.queryParameter("encryption")?.let {
@@ -446,7 +451,8 @@ fun StandardV2RayBean.toUriVMessVLESSTrojan(isTrojan: Boolean): String {
         .addQueryParameter("type", type)
 
     if (isVLESS) {
-        builder.addQueryParameter("encryption", "none")
+        builder.addQueryParameter("encryption", vlessEncryption.ifBlank { "none" })
+        if (vlessNetwork.isNotBlank()) builder.addQueryParameter("network", vlessNetwork)
         if (encryption != "auto") builder.addQueryParameter("flow", encryption)
     }
 
@@ -717,6 +723,11 @@ fun buildSingBoxOutboundStandardV2RayBean(bean: StandardV2RayBean): Outbound {
                 server = bean.serverAddress
                 server_port = bean.serverPort
                 uuid = bean.uuid
+                bean.vlessEncryption.trim().takeIf { it.isNotEmpty() && it != "none" }?.let { _hack_config_map["encryption"] = it }
+                bean.vlessNetwork.trim().takeIf { it.isNotEmpty() }?.let {
+                    require(it in listOf("tcp", "udp")) { "Invalid VLESS network" }
+                    _hack_config_map["network"] = it
+                }
                 if (bean.encryption.isNotBlank() && bean.encryption != "auto" && bean.encryption != "none") {
                     flow = bean.encryption
                 }
