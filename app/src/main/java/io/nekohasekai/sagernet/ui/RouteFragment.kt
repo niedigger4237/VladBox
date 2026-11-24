@@ -89,8 +89,6 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                         title = barTitle.value,
                         subtitle = barSubtitle.value,
                         onNavigation = { activity.binding.drawerLayout.openDrawer(androidx.core.view.GravityCompat.START) },
-                        onAdd = if (barCanGoBack.value) ({ handleRouteAction(R.id.action_new_route); Unit }) else null,
-                        addLabel = getString(R.string.route_add),
                         onBack = if (barCanGoBack.value) ({ renderProfileHome() }) else null,
                         onReset = { handleRouteAction(R.id.action_reset_route) },
                         resetLabel = getString(R.string.route_reset)
@@ -468,7 +466,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                 },
                 onAssets = {
                     startActivity(Intent(requireContext(), AssetsActivity::class.java))
-                })
+                }, onAddRule = { handleRouteAction(R.id.action_new_route); Unit })
             }
         }
 
