@@ -108,6 +108,10 @@ public abstract class StandardV2RayBean extends AbstractBean {
     public String tlsClientCertificatePath;
     public String tlsClientKeyPath;
     public String echConfigPath;
+    public String tlsSpoof;
+    public String tlsSpoofMethod;
+    public Boolean tlsKernelTx;
+    public Boolean tlsKernelRx;
 
 
     // --------------------------------------- //
@@ -200,11 +204,15 @@ public abstract class StandardV2RayBean extends AbstractBean {
         if (tlsClientCertificatePath == null) tlsClientCertificatePath = "";
         if (tlsClientKeyPath == null) tlsClientKeyPath = "";
         if (echConfigPath == null) echConfigPath = "";
+        if (tlsSpoof == null) tlsSpoof = "";
+        if (tlsSpoofMethod == null) tlsSpoofMethod = "";
+        if (tlsKernelTx == null) tlsKernelTx = false;
+        if (tlsKernelRx == null) tlsKernelRx = false;
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(9);
+        output.writeInt(10);
         super.serialize(output);
         output.writeString(uuid);
         output.writeString(encryption);
@@ -306,6 +314,10 @@ public abstract class StandardV2RayBean extends AbstractBean {
         output.writeString(tlsClientCertificatePath);
         output.writeString(tlsClientKeyPath);
         output.writeString(echConfigPath);
+        output.writeString(tlsSpoof);
+        output.writeString(tlsSpoofMethod);
+        output.writeBoolean(tlsKernelTx);
+        output.writeBoolean(tlsKernelRx);
     }
 
     @Override
@@ -455,6 +467,12 @@ public abstract class StandardV2RayBean extends AbstractBean {
             tlsClientCertificatePath = input.readString();
             tlsClientKeyPath = input.readString();
             echConfigPath = input.readString();
+        }
+        if (version >= 10) {
+            tlsSpoof = input.readString();
+            tlsSpoofMethod = input.readString();
+            tlsKernelTx = input.readBoolean();
+            tlsKernelRx = input.readBoolean();
         }
     }
 
