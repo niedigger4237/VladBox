@@ -22,6 +22,11 @@ public class SSHBean extends AbstractBean {
     public String privateKey;
     public String privateKeyPassphrase;
     public String publicKey;
+    public String hostKeyAlgorithms;
+    public String clientVersion;
+    public String cipherAlgorithms;
+    public String macAlgorithms;
+    public String kexAlgorithms;
 
     @Override
     public void initializeDefaultValues() {
@@ -35,11 +40,16 @@ public class SSHBean extends AbstractBean {
         if (privateKey == null) privateKey = "";
         if (privateKeyPassphrase == null) privateKeyPassphrase = "";
         if (publicKey == null) publicKey = "";
+        if (hostKeyAlgorithms == null) hostKeyAlgorithms = "";
+        if (clientVersion == null) clientVersion = "";
+        if (cipherAlgorithms == null) cipherAlgorithms = "";
+        if (macAlgorithms == null) macAlgorithms = "";
+        if (kexAlgorithms == null) kexAlgorithms = "";
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(0);
+        output.writeInt(1);
         super.serialize(output);
         output.writeString(username);
         output.writeInt(authType);
@@ -55,6 +65,11 @@ public class SSHBean extends AbstractBean {
                 break;
         }
         output.writeString(publicKey);
+        output.writeString(hostKeyAlgorithms);
+        output.writeString(clientVersion);
+        output.writeString(cipherAlgorithms);
+        output.writeString(macAlgorithms);
+        output.writeString(kexAlgorithms);
     }
 
     @Override
@@ -75,6 +90,13 @@ public class SSHBean extends AbstractBean {
                 break;
         }
         publicKey = input.readString();
+        if (version >= 1) {
+            hostKeyAlgorithms = input.readString();
+            clientVersion = input.readString();
+            cipherAlgorithms = input.readString();
+            macAlgorithms = input.readString();
+            kexAlgorithms = input.readString();
+        }
     }
 
     @NotNull
