@@ -93,7 +93,7 @@ class StatsBar @JvmOverloads constructor(
             }
         } else {
             postWhenStarted {
-                performHide()
+                if (allowShow) performShow() else performHide()
             }
             updateSpeed(0, 0)
             setStatus(
