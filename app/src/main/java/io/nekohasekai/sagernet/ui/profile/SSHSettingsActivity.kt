@@ -12,9 +12,16 @@ import moe.matsuri.nb4a.ui.SimpleMenuPreference
 
 class SSHSettingsActivity : ProfileSettingsActivity<SSHBean>() {
 
+    private val extra = moe.matsuri.nb4a.proxy.PreferenceBindingManager()
+    private val hostKeyAlgorithms = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hostKeyAlgorithms"))
+    private val clientVersion = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "clientVersion"))
+    private val cipherAlgorithms = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "cipherAlgorithms"))
+    private val macAlgorithms = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "macAlgorithms"))
+    private val kexAlgorithms = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "kexAlgorithms"))
     override fun createEntity() = SSHBean()
 
     override fun SSHBean.init() {
+        extra.writeToCacheAll(this)
         DataStore.profileName = name
         DataStore.serverAddress = serverAddress
         DataStore.serverPort = serverPort
@@ -27,6 +34,7 @@ class SSHSettingsActivity : ProfileSettingsActivity<SSHBean>() {
     }
 
     override fun SSHBean.serialize() {
+        extra.fromCacheAll(this)
         name = DataStore.profileName
         serverAddress = DataStore.serverAddress
         serverPort = DataStore.serverPort
