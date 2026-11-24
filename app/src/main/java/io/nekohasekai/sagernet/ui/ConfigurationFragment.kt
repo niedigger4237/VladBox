@@ -1,5 +1,7 @@
 package io.nekohasekai.sagernet.ui
 
+import androidx.compose.runtime.collectAsState
+
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Color
@@ -1482,54 +1484,33 @@ class ConfigurationFragment @JvmOverloads constructor(
 
             lateinit var entity: ProxyEntity
 
-            val profileName: TextView = view.findViewById(R.id.profile_name)
-            val profileType: TextView = view.findViewById(R.id.profile_type)
-            val profileAddress: TextView = view.findViewById(R.id.profile_address)
-            val profileStatus: TextView = view.findViewById(R.id.profile_status)
-
-            val trafficText: TextView = view.findViewById(R.id.traffic_text)
-            val selectedView: LinearLayout = view.findViewById(R.id.selected_view)
-            val editButton: ImageView = view.findViewById(R.id.edit)
-            val shareLayout: LinearLayout = view.findViewById(R.id.share)
-            val shareLayer: LinearLayout = view.findViewById(R.id.share_layer)
-            val shareButton: ImageView = view.findViewById(R.id.shareIcon)
-            val removeButton: ImageView = view.findViewById(R.id.remove)
-
-            val overflowButton: ImageView = view.findViewById(R.id.profile_overflow)
-
-            private val composeSelected = androidx.compose.runtime.mutableStateOf(false)
-            private val composeEditEnabled = androidx.compose.runtime.mutableStateOf(true)
-            private val composeRevision = androidx.compose.runtime.mutableStateOf(0)
+            private val cardState = kotlinx.coroutines.flow.MutableStateFlow<io.nekohasekai.sagernet.ui.compose.ProfileUiState?>(null)
             private val composeView = view.findViewById<androidx.compose.ui.platform.ComposeView>(R.id.profile_compose)
+            private var editAction: () -> Unit = {}
+            private var removeAction: () -> Unit = {}
+            private var shareAction: () -> Unit = {}
 
             init {
                 composeView.setContent {
-                    val revision = composeRevision.value
-                    if (revision > 0) {
+                    val state = cardState.collectAsState().value
+                    if (state != null) {
                         io.nekohasekai.sagernet.ui.compose.HubTheme {
                             io.nekohasekai.sagernet.ui.compose.ProfileCard(
-                                name = profileName.text.toString(),
-                                protocol = profileType.text.toString(),
-                                address = profileAddress.text.toString(),
-                                status = profileStatus.text.toString(),
-                                selected = composeSelected.value,
+                                name = state.name, protocol = state.protocol, address = state.address,
+                                status = state.status, selected = state.selected,
                                 onSelect = { view.performClick() },
-                                onEdit = { editButton.performClick() },
-                                onMore = {},
-                                menuKey = entity.id,
-                                canShare = entity.type != ProxyEntity.TYPE_CHAIN && entity.nekoBean == null,
-                                onShare = { shareLayout.performClick() },
-                                onRemove = {
-                                    if (!DataStore.serviceState.started || DataStore.currentProfile != entity.id) removeButton.performClick()
+                                onEdit = { editAction() }, onMore = {},
+                                menuKey = state.id, canShare = state.canShare,
+                                onShare = { shareAction() },
+                                onRemove = { removeAction() },
+                                traffic = state.traffic, actionsVisible = !select,
+                                editEnabled = state.editEnabled,
+                                statusColor = when (state.statusCode) {
+                                    1 -> if (androidx.compose.foundation.isSystemInDarkTheme()) androidx.compose.ui.graphics.Color(0xFFA5D6A7) else androidx.compose.ui.graphics.Color(0xFF276738)
+                                    2, 3 -> androidx.compose.material3.MaterialTheme.colorScheme.error
+                                    else -> androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
                                 },
-                                traffic = trafficText.text.toString().takeIf { trafficText.isVisible } ?: "",
-                                actionsVisible = !select,
-                                editEnabled = composeEditEnabled.value,
-                                statusColor = if (entity.status == 1) {
-                                    if (androidx.compose.foundation.isSystemInDarkTheme()) androidx.compose.ui.graphics.Color(0xFFA5D6A7)
-                                    else androidx.compose.ui.graphics.Color(0xFF276738)
-                                } else androidx.compose.ui.graphics.Color(profileStatus.currentTextColor),
-                                onStatus = if (profileStatus.hasOnClickListeners()) ({ profileStatus.performClick(); Unit }) else null
+                                onStatus = state.errorDetail?.let { detail -> { alert(detail).tryToShow(); Unit } }
                             )
                         }
                     }
@@ -1537,13 +1518,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
 
             private fun renderSelection(selected: Boolean) {
-                composeSelected.value = selected
-                selectedView.visibility = if (selected) View.VISIBLE else View.INVISIBLE
-                val card = view.findViewById<com.google.android.material.card.MaterialCardView>(R.id.content)
-                val surface = com.google.android.material.color.MaterialColors.getColor(card, com.google.android.material.R.attr.colorSurface)
-                val primary = com.google.android.material.color.MaterialColors.getColor(card, androidx.appcompat.R.attr.colorPrimary)
-                card.setCardBackgroundColor(if (selected) androidx.core.graphics.ColorUtils.blendARGB(surface, primary, 0.20f) else surface)
-                card.findViewById<TextView>(R.id.profile_name).setTextColor(com.google.android.material.color.MaterialColors.getColor(card, com.google.android.material.R.attr.colorOnSurface))
+                cardState.value = cardState.value?.copy(selected = selected)
             }
 
             fun bind(proxyEntity: ProxyEntity, trafficData: TrafficData? = null) {
@@ -1587,123 +1562,46 @@ class ConfigurationFragment @JvmOverloads constructor(
                     }
                 }
 
-                profileName.text = proxyEntity.displayName()
-                profileType.text = proxyEntity.displayType()
-                profileType.background = android.graphics.drawable.GradientDrawable().apply {
-                    cornerRadius = 10 * view.resources.displayMetrics.density
-                    setColor(com.google.android.material.color.MaterialColors.getColor(view, com.google.android.material.R.attr.colorSecondaryContainer))
+                val rx = trafficData?.rx ?: proxyEntity.rx
+                val tx = trafficData?.tx ?: proxyEntity.tx
+                val traffic = if (rx + tx != 0L) view.context.getString(
+                    R.string.traffic, Formatter.formatFileSize(view.context, tx),
+                    Formatter.formatFileSize(view.context, rx)
+                ) else ""
+                val address = if (proxyEntity.requireBean().name.isBlank() || !pf.alwaysShowAddress) "" else proxyEntity.displayAddress()
+                val errorDetail = if (proxyEntity.status == 3) proxyEntity.error ?: "<?>" else null
+                val status = when (proxyEntity.status) {
+                    1 -> getString(R.string.available, proxyEntity.ping)
+                    2 -> proxyEntity.error.orEmpty()
+                    3 -> Protocols.genFriendlyMsg(errorDetail!!).let { if (it != errorDetail) it else getString(R.string.unavailable) }
+                    else -> ""
                 }
-                profileType.setTextColor(com.google.android.material.color.MaterialColors.getColor(view, com.google.android.material.R.attr.colorOnSecondaryContainer))
-                val density = view.resources.displayMetrics.density
-                profileType.setPadding((10 * density).toInt(), (4 * density).toInt(), (10 * density).toInt(), (4 * density).toInt())
-
-                var rx = proxyEntity.rx
-                var tx = proxyEntity.tx
-                if (trafficData != null) {
-                    // use new data
-                    tx = trafficData.tx
-                    rx = trafficData.rx
-                }
-
-                val showTraffic = rx + tx != 0L
-                trafficText.isVisible = showTraffic
-                if (showTraffic) {
-                    trafficText.text = view.context.getString(
-                        R.string.traffic,
-                        Formatter.formatFileSize(view.context, tx),
-                        Formatter.formatFileSize(view.context, rx)
-                    )
-                }
-
-                var address = proxyEntity.displayAddress()
-                if (showTraffic && address.length >= 30) {
-                    address = address.substring(0, 27) + "..."
-                }
-
-                if (proxyEntity.requireBean().name.isBlank() || !pf.alwaysShowAddress) {
-                    address = ""
-                }
-
-                profileAddress.text = address
-                (trafficText.parent as View).isGone =
-                    (!showTraffic || proxyEntity.status <= 0) && address.isBlank()
-
-                if (proxyEntity.status <= 0) {
-                    profileStatus.text = ""
-                    profileStatus.setTextColor(requireContext().getColorAttr(android.R.attr.textColorSecondary))
-                } else if (proxyEntity.status == 1) {
-                    profileStatus.text = getString(R.string.available, proxyEntity.ping)
-                    profileStatus.setTextColor(requireContext().getColour(R.color.material_green_500))
-                } else {
-                    profileStatus.setTextColor(requireContext().getColour(R.color.material_red_500))
-                    if (proxyEntity.status == 2) {
-                        profileStatus.text = proxyEntity.error
+                editAction = {
+                    if (!DataStore.serviceState.started || DataStore.currentProfile != proxyEntity.id) {
+                        view.context.startActivity(proxyEntity.settingIntent(view.context, proxyGroup.type == GroupType.SUBSCRIPTION))
                     }
                 }
-
-                if (proxyEntity.status == 3) {
-                    val err = proxyEntity.error ?: "<?>"
-                    val msg = Protocols.genFriendlyMsg(err)
-                    profileStatus.text = if (msg != err) msg else getString(R.string.unavailable)
-                    profileStatus.setOnClickListener {
-                        alert(err).tryToShow()
-                    }
-                } else {
-                    profileStatus.setOnClickListener(null)
-                }
-
-                editButton.setOnClickListener {
-                    it.context.startActivity(
-                        proxyEntity.settingIntent(
-                            it.context, proxyGroup.type == GroupType.SUBSCRIPTION
-                        )
-                    )
-                }
-
-                removeButton.setOnClickListener {
+                removeAction = remove@{
+                    if (DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id) return@remove
                     adapter?.let {
                         val index = it.configurationIdList.indexOf(proxyEntity.id)
                         if (index < 0) return@let
                         it.remove(index)
-                        // удаляем из базы сразу (иначе обновление списка до конца «отмены» возвращает профиль)
-                        runOnDefaultDispatcher {
-                            ProfileManager.deleteProfile(proxyEntity.groupId, proxyEntity.id)
-                        }
+                        runOnDefaultDispatcher { ProfileManager.deleteProfile(proxyEntity.groupId, proxyEntity.id) }
                         undoManager.remove(index to proxyEntity)
                     }
                 }
-
-                val selectOrChain = select || proxyEntity.type == ProxyEntity.TYPE_CHAIN
-                shareLayout.isGone = selectOrChain
-                editButton.isGone = select
-                removeButton.isGone = select
-
-                proxyEntity.nekoBean?.apply {
-                    shareLayout.isGone = true
-                }
-                val canShare = !selectOrChain && proxyEntity.nekoBean == null
-                shareLayout.setOnClickListener(null)
-                shareLayout.isGone = true
-                removeButton.isGone = true
-                overflowButton.isGone = select
-                overflowButton.setOnClickListener(null)
-
-                composeSelected.value = (selectedItem?.id ?: DataStore.selectedProxy) == proxyEntity.id
-                composeEditEnabled.value = !(DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id)
-                composeRevision.value++
+                cardState.value = io.nekohasekai.sagernet.ui.compose.ProfileUiState(
+                    id = proxyEntity.id, name = proxyEntity.displayName().orEmpty(),
+                    protocol = proxyEntity.displayType().orEmpty(), address = address,
+                    traffic = traffic, status = status, statusCode = proxyEntity.status,
+                    errorDetail = errorDetail,
+                    selected = (selectedItem?.id ?: DataStore.selectedProxy) == proxyEntity.id,
+                    editEnabled = !(DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id),
+                    canShare = !select && proxyEntity.type != ProxyEntity.TYPE_CHAIN && proxyEntity.nekoBean == null
+                )
+                shareAction = {}
                 runOnDefaultDispatcher {
-                    val selected = (selectedItem?.id ?: DataStore.selectedProxy) == proxyEntity.id
-                    val started =
-                        selected && DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id
-                    onMainDispatcher {
-                        if (entity.id == proxyEntity.id) {
-                            composeEditEnabled.value = !started
-                            editButton.isEnabled = !started
-                            removeButton.isEnabled = !started
-                            renderSelection(selected)
-                        }
-                    }
-
                     fun showShare(anchor: View) {
                         val popup = PopupMenu(requireContext(), anchor, android.view.Gravity.END)
                         popup.menuInflater.inflate(R.menu.profile_share_menu, popup.menu)
@@ -1730,20 +1628,12 @@ class ConfigurationFragment @JvmOverloads constructor(
                         popup.show()
                     }
 
-                    if (!(select || proxyEntity.type == ProxyEntity.TYPE_CHAIN)) {
-                        onMainDispatcher {
-                            shareLayer.setBackgroundColor(Color.TRANSPARENT)
-                            shareButton.setImageResource(R.drawable.ic_social_share)
-                            shareButton.setColorFilter(requireContext().getColorAttr(android.R.attr.textColorSecondary))
-                            shareButton.isVisible = true
-
-                            if (entity.id == proxyEntity.id) shareLayout.setOnClickListener {
-                                showShare(composeView)
-                            }
+                    onMainDispatcher {
+                        if (entity.id == proxyEntity.id) {
+                            shareAction = { showShare(composeView) }
                         }
                     }
                 }
-
             }
 
             var currentName = ""
