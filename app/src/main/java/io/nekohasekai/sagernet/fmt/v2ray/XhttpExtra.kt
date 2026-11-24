@@ -14,6 +14,10 @@ object XhttpExtra {
         "noGRPCHeader" to "no_grpc_header",
         "noSSEHeader" to "no_sse_header",
         "uplinkHTTPMethod" to "uplink_http_method",
+        "sessionIDPlacement" to "session_placement",
+        "sessionIDKey" to "session_key",
+        "sessionIDTable" to "session_id_table",
+        "sessionIDLength" to "session_id_length",
     )
 
     // these keep their inner keys verbatim (HTTP header names, ...)
@@ -42,7 +46,7 @@ object XhttpExtra {
         else -> v
     }
 
-    fun toSingBox(extra: String?): Map<String, Any> {
+    fun toSingBox(extra: String?, mode: String = "auto"): Map<String, Any> {
         val out = LinkedHashMap<String, Any>()
         if (!extra.isNullOrBlank()) {
             try {
@@ -60,6 +64,15 @@ object XhttpExtra {
         out.remove("type") // transport type is fixed by the generator
         out.remove("host") // host is configured separately in the profile
         out.remove("path") // path is configured separately in the profile
+        require(mode in setOf("auto", "packet-up", "stream-up", "stream-one")) { "Invalid XHTTP mode" }
+        require(mode != "stream-one" || !out.containsKey("download")) { "XHTTP download is unavailable in stream-one mode" }
+        require(mode == "packet-up" || !out["uplink_http_method"].toString().equals("GET", true)) { "XHTTP GET requires packet-up mode" }
+        require(mode == "packet-up" || out["uplink_data_placement"] !in listOf("cookie", "header")) { "XHTTP cookie/header uplink requires packet-up mode" }
+        val headers = out["headers"] as? Map<*, *>
+        require(headers?.keys?.none { it.toString().equals("host", true) } != false) { "Configure XHTTP Host separately" }
+        val xmux = out["xmux"] as? Map<*, *>
+        fun positive(value: Any?): Boolean = value?.toString()?.substringAfterLast('-')?.toLongOrNull()?.let { it > 0 } ?: false
+        require(!positive(xmux?.get("max_connections")) || !positive(xmux?.get("max_concurrency"))) { "XMUX max_connections conflicts with max_concurrency" }
         return out
     }
 }
