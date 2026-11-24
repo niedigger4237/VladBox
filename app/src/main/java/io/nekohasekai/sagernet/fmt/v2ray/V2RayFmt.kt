@@ -29,6 +29,15 @@ data class VmessQRCode(
     var sni: String = "",
     var alpn: String = "",
     var fp: String = "",
+    var pbk: String = "",
+    var sid: String = "",
+    var mode: String = "",
+    var extra: String = "",
+    var packetEncoding: String = "",
+    var seed: String = "",
+    var network: String = "",
+    var ed: Int = 0,
+    var eh: String = "",
 )
 
 fun StandardV2RayBean.isTLS(): Boolean {
@@ -240,14 +249,16 @@ fun StandardV2RayBean.parseDuckSoft(url: HttpUrl) {
 
     if (isVLESS) {
         url.queryParameter("encryption")?.let { vlessEncryption = it }
-        url.queryParameter("network")?.let { vlessNetwork = it }
         if (type == "kcp" || type == "mkcp") {
             type = "kcp"
             url.queryParameter("headerType")?.let { kcpHeader = it }
             url.queryParameter("seed")?.let { kcpSeed = it }
         }
-        url.queryParameter("pinSHA256")?.let { tlsPubKeySha256 = it }
     }
+
+    url.queryParameter("network")?.let { vlessNetwork = it }
+
+    url.queryParameter("pinSHA256")?.let { tlsPubKeySha256 = it }
 
     // maybe from matsuri vmess exoprt
     if (this is VMessBean && !isVLESS) {
@@ -354,6 +365,15 @@ fun parseV2RayN(link: String): VMessBean {
     bean.host = vmessQRCode.host
     bean.path = vmessQRCode.path
     val headerType = vmessQRCode.type
+    bean.realityPubKey = vmessQRCode.pbk.orEmpty()
+    bean.realityShortId = vmessQRCode.sid.orEmpty()
+    bean.xhttpMode = vmessQRCode.mode.orEmpty()
+    bean.xhttpExtra = vmessQRCode.extra.orEmpty()
+    bean.vlessNetwork = vmessQRCode.network.orEmpty()
+    bean.wsMaxEarlyData = vmessQRCode.ed.coerceAtLeast(0)
+    bean.earlyDataHeaderName = vmessQRCode.eh.orEmpty()
+    bean.packetEncoding = when (vmessQRCode.packetEncoding) { "packet", "packetaddr" -> 1; "xudp" -> 2; else -> 0 }
+    if (bean.type == "kcp") { bean.kcpHeader = headerType.orEmpty(); bean.kcpSeed = vmessQRCode.seed.orEmpty() }
 
     when (bean.type) {
         "tcp" -> {
@@ -443,6 +463,12 @@ fun VMessBean.toV2rayN(): String {
         sni = bean.sni
         alpn = bean.alpn.replace("\n", ",")
         fp = bean.utlsFingerprint
+        if (bean.isTLS() && bean.realityPubKey.isNotBlank()) { pbk = bean.realityPubKey; sid = bean.realityShortId }
+        if (net == "xhttp") { mode = bean.xhttpMode; extra = bean.xhttpExtra }
+        if (net == "kcp") { type = bean.kcpHeader; seed = bean.kcpSeed }
+        if (net == "ws") { ed = bean.wsMaxEarlyData; eh = bean.earlyDataHeaderName }
+        network = bean.vlessNetwork
+        packetEncoding = when (bean.packetEncoding) { 1 -> "packetaddr"; 2 -> "xudp"; else -> "" }
     }.let {
         NGUtil.encode(Gson().toJson(it))
     }
@@ -463,9 +489,10 @@ fun StandardV2RayBean.toUriVMessVLESSTrojan(isTrojan: Boolean): String {
 
     if (isVLESS) {
         builder.addQueryParameter("encryption", vlessEncryption.ifBlank { "none" })
-        if (vlessNetwork.isNotBlank()) builder.addQueryParameter("network", vlessNetwork)
         if (encryption.isNotBlank() && encryption !in listOf("auto", "none")) builder.addQueryParameter("flow", encryption)
     }
+
+    if (vlessNetwork.isNotBlank()) builder.addQueryParameter("network", vlessNetwork)
 
     when (type) {
         "tcp" -> {}
@@ -524,7 +551,7 @@ fun StandardV2RayBean.toUriVMessVLESSTrojan(isTrojan: Boolean): String {
                 if (certificates.isNotBlank()) {
                     builder.addQueryParameter("cert", certificates)
                 }
-                if (isVLESS && tlsPubKeySha256.isNotBlank()) builder.addQueryParameter("pinSHA256", tlsPubKeySha256)
+                if (tlsPubKeySha256.isNotBlank()) builder.addQueryParameter("pinSHA256", tlsPubKeySha256)
                 if (allowInsecure) {
                     builder.addQueryParameter("allowInsecure", "1")
                 }
