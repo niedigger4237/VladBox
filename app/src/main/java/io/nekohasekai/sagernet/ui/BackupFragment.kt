@@ -46,7 +46,10 @@ import org.json.JSONObject
 import java.io.File
 import java.util.*
 
-class BackupFragment : NamedFragment(R.layout.layout_backup) {
+class BackupFragment : NamedFragment() {
+
+    override fun onCreateView(inflater: android.view.LayoutInflater, container: android.view.ViewGroup?, savedInstanceState: Bundle?): View =
+        android.widget.FrameLayout(requireContext())
 
     override fun name0() = app.getString(R.string.backup)
 
