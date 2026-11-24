@@ -119,7 +119,7 @@ fun HysteriaBean.toUri(): String {
         .port(getFirstPort(serverPorts))
         .username(un)
         .password(pw)
-    if (isMultiPort(displayAddress())) {
+    if (serverPorts.trim().toIntOrNull() == null) {
         builder.addQueryParameter("mport", serverPorts)
     }
     if (name.isNotBlank()) {
@@ -269,7 +269,7 @@ fun getFirstPort(portStr: String): Int {
 }
 
 fun HysteriaBean.canUseSingBox(): Boolean {
-    if (protocol != HysteriaBean.PROTOCOL_UDP) return false
+    if (protocolVersion == 1 && protocol != HysteriaBean.PROTOCOL_UDP) return false
     return true
 }
 
@@ -278,7 +278,8 @@ fun buildSingBoxOutboundHysteriaBean(bean: HysteriaBean): SingBoxOptions.SingBox
         1 -> SingBoxOptions.Outbound_HysteriaOptions().apply {
             type = "hysteria"
             server = bean.serverAddress
-            val port = bean.serverPorts.toIntOrNull()
+            val port = bean.serverPorts.trim().toIntOrNull()
+            require(port == null || port in 1..65535) { "Invalid server port" }
             if (port != null) {
                 server_port = port
             } else {
@@ -317,7 +318,8 @@ fun buildSingBoxOutboundHysteriaBean(bean: HysteriaBean): SingBoxOptions.SingBox
         2 -> SingBoxOptions.Outbound_Hysteria2Options().apply {
             type = "hysteria2"
             server = bean.serverAddress
-            val port = bean.serverPorts.toIntOrNull()
+            val port = bean.serverPorts.trim().toIntOrNull()
+            require(port == null || port in 1..65535) { "Invalid server port" }
             if (port != null) {
                 server_port = port
             } else {
@@ -399,12 +401,12 @@ fun buildSingBoxOutboundHysteriaBean(bean: HysteriaBean): SingBoxOptions.SingBox
 }
 
 fun hopPortsToSingboxList(s: String): List<String> {
-    return s.split(",").mapNotNull {
-        val pRange = it.replace("-", ":")
-        if (pRange.split(":").size == 2) {
-            pRange
-        } else {
-            null
-        }
+    return s.split(",").map { entry ->
+        val parts = entry.trim().replace("-", ":").split(":")
+        require(parts.size in 1..2) { "Invalid port range" }
+        val first = parts.first().trim().toIntOrNull() ?: error("Invalid port")
+        val last = parts.last().trim().toIntOrNull() ?: error("Invalid port")
+        require(first in 1..65535 && last in first..65535) { "Invalid port range" }
+        "$first:$last"
     }
 }
