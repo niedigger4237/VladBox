@@ -31,24 +31,24 @@ fun installRouteEditor(activity: RouteSettingsActivity, host: ComposeView) {
                         IconButton(onClick = { activity.editorSave() }) { Text("✓", style = MaterialTheme.typography.headlineSmall) }
                     }
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        RouteField(stringResource(R.string.route_name), DataStore.routeName) { DataStore.routeName = it }
-                        RouteField(stringResource(R.string.custom_config), DataStore.serverConfig) { DataStore.serverConfig = it }
+                        RouteField("Rule name", DataStore.routeName) { DataStore.routeName = it }
+                        RouteField("Custom configuration", DataStore.serverConfig) { DataStore.serverConfig = it }
                         Text(stringResource(R.string.cag_route), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
                         key(revision) {
                             OutlinedButton(onClick = { activity.selectAppList.launch(Intent(activity, AppListActivity::class.java)) }, modifier = Modifier.fillMaxWidth()) {
-                                Text(stringResource(R.string.apps) + " · " + DataStore.routePackages.lines().count { it.isNotBlank() })
+                                Text("Applications" + " · " + DataStore.routePackages.lines().count { it.isNotBlank() })
                             }
-                            RouteField("domain", DataStore.routeDomain) { DataStore.routeDomain = it }
-                            Button(onClick = { activity.showInstalledSrs() }, modifier = Modifier.fillMaxWidth()) { Text("Choose installed / online SRS") }
-                            RouteField("dst ip", DataStore.routeIP) { DataStore.routeIP = it }
-                            RouteField("dst port", DataStore.routePort) { DataStore.routePort = it }
-                            RouteField("src ip", DataStore.routeSource) { DataStore.routeSource = it }
-                            RouteField("src port", DataStore.routeSourcePort) { DataStore.routeSourcePort = it }
-                            RouteChoice("network", activity.resources.getStringArray(R.array.route_protocol_entry), activity.resources.getStringArray(R.array.route_protocol_value), DataStore.routeNetwork) {
+                            RouteField("Domain names", DataStore.routeDomain, "Domains, suffixes, regular expressions or geosite selectors") { DataStore.routeDomain = it }
+                            Button(onClick = { activity.showInstalledSrs() }, modifier = Modifier.fillMaxWidth()) { Text("Select SRS rule sets") }
+                            RouteField("Destination IP addresses", DataStore.routeIP, "IP addresses, CIDR ranges or geoip selectors") { DataStore.routeIP = it }
+                            RouteField("Destination ports", DataStore.routePort, "Remote service ports or port ranges") { DataStore.routePort = it }
+                            RouteField("Source IP addresses", DataStore.routeSource, "Client IP addresses or CIDR ranges") { DataStore.routeSource = it }
+                            RouteField("Source ports", DataStore.routeSourcePort, "Client ports or port ranges") { DataStore.routeSourcePort = it }
+                            RouteChoice("Network type", activity.resources.getStringArray(R.array.route_protocol_entry), activity.resources.getStringArray(R.array.route_protocol_value), DataStore.routeNetwork) {
                                 DataStore.routeNetwork = it; activity.refreshEditor()
                             }
-                            RouteField("protocol", DataStore.routeProtocol) { DataStore.routeProtocol = it }
-                            RouteChoice("outbound", activity.resources.getStringArray(R.array.outbound_entry), activity.resources.getStringArray(R.array.outbound_value), DataStore.routeOutbound.toString()) {
+                            RouteField("Protocol", DataStore.routeProtocol, "Application-layer protocol") { DataStore.routeProtocol = it }
+                            RouteChoice("Outbound action", activity.resources.getStringArray(R.array.outbound_entry), activity.resources.getStringArray(R.array.outbound_value), DataStore.routeOutbound.toString()) {
                                 if (it == "3") activity.selectProfileForAdd.launch(Intent(activity, ProfileSelectActivity::class.java))
                                 else { it.toIntOrNull()?.let { value -> DataStore.routeOutbound = value }; activity.refreshEditor() }
                             }
@@ -60,9 +60,9 @@ fun installRouteEditor(activity: RouteSettingsActivity, host: ComposeView) {
     }
 }
 
-@Composable private fun RouteField(label: String, initial: String, change: (String) -> Unit) {
+@Composable private fun RouteField(label: String, initial: String, hint: String? = null, change: (String) -> Unit) {
     var value by remember { mutableStateOf(initial) }
-    OutlinedTextField(value, { value = it; change(it) }, Modifier.fillMaxWidth(), label = { Text(label) })
+    OutlinedTextField(value, { value = it; change(it) }, Modifier.fillMaxWidth(), label = { Text(label) }, supportingText = { hint?.let { Text(it) } })
 }
 
 @Composable private fun RouteChoice(label: String, entries: Array<String>, values: Array<String>, selected: String, change: (String) -> Unit) {
