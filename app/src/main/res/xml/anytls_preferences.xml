@@ -53,4 +53,13 @@
             app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="Session settings">
+        <EditTextPreference app:key="idleSessionCheckInterval" app:title="Idle session check interval" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="idleSessionTimeout" app:title="Idle session timeout" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="minIdleSession" app:title="Minimum idle sessions" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="clientMetadata" app:title="Client metadata" app:useSimpleSummaryProvider="true" />
+    </PreferenceCategory>
+    <PreferenceCategory app:title="ECH">
+        <EditTextPreference app:key="echConfig" app:title="ECH configuration" app:useSimpleSummaryProvider="true" />
+    </PreferenceCategory>
 </PreferenceScreen>
