@@ -13,6 +13,8 @@ class ToolsFragment : ToolbarFragment(R.layout.layout_tools) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         toolbar.setTitle(R.string.menu_backup)
+        // Backup owns its Compose top bar; the parent pager must not display another.
+        io.nekohasekai.sagernet.ui.compose.hideLegacyTopAppBar(view)
 
         val tools = mutableListOf<NamedFragment>()
         tools.add(BackupFragment())
