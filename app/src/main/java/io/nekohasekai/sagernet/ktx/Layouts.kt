@@ -40,7 +40,7 @@ class FixedLinearLayoutManager(val recyclerView: RecyclerView) :
                 (recyclerView.findViewHolderForAdapterPosition(findLastVisibleItemPosition())
                     ?: return scrollRange).itemView
             val itemLocation = Rect().also { view.getGlobalVisibleRect(it) }
-            val fabLocation = Rect().also { activity.binding.fab.getGlobalVisibleRect(it) }
+            val fabLocation = Rect().also { activity.binding.powerCompose.getGlobalVisibleRect(it) }
             if (!itemLocation.contains(fabLocation.left, fabLocation.top) && !itemLocation.contains(
                     fabLocation.right,
                     fabLocation.bottom
@@ -48,8 +48,8 @@ class FixedLinearLayoutManager(val recyclerView: RecyclerView) :
             ) {
                 return scrollRange
             }
-            activity.binding.fab.apply {
-                if (isShown) hide()
+            activity.binding.powerCompose.apply {
+                if (isShown) visibility = android.view.View.INVISIBLE
             }
         } else {
             /*val screen = Rect().also { activity.window.decorView.getGlobalVisibleRect(it) }
@@ -64,8 +64,8 @@ class FixedLinearLayoutManager(val recyclerView: RecyclerView) :
                 return scrollRange
             }*/
 
-            activity.binding.fab.apply {
-                if (!isShown) show()
+            activity.binding.powerCompose.apply {
+                if (visibility != android.view.View.VISIBLE) visibility = android.view.View.VISIBLE
             }
         }
         return scrollRange
