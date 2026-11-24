@@ -341,7 +341,11 @@ data class ProxyEntity(
         }
     }
 
-    private fun StandardV2RayBean.toMux() = MultiplexOptions().also {
+    private fun StandardV2RayBean.toMux() = buildClientMux(enableMux, muxPadding, muxType, muxConcurrency, muxMaxConnections, muxMinStreams, muxBrutal, muxBrutalUp, muxBrutalDown)
+
+    private fun ShadowsocksBean.toMux() = buildClientMux(enableMux, muxPadding, muxType, muxConcurrency, muxMaxConnections, muxMinStreams, muxBrutal, muxBrutalUp, muxBrutalDown)
+
+    private fun buildClientMux(enableMux: Boolean, muxPadding: Boolean, muxType: Int, muxConcurrency: Int, muxMaxConnections: Int, muxMinStreams: Int, muxBrutal: Boolean, muxBrutalUp: Int, muxBrutalDown: Int) = MultiplexOptions().also {
         it.enabled = enableMux
         it.padding = muxPadding
         if (enableMux) {
@@ -372,6 +376,8 @@ data class ProxyEntity(
 
     fun singMux(): MultiplexOptions? {
         return when (type) {
+            TYPE_SS -> ssBean!!.toMux()
+
             TYPE_VMESS -> vmessBean!!.toMux()
 
             TYPE_TROJAN -> trojanBean!!.toMux()
