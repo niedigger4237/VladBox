@@ -72,7 +72,12 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
     private val globalPadding = pbm.add(PreferenceBinding(Type.Bool, "globalPadding"))
     private val authenticatedLength = pbm.add(PreferenceBinding(Type.Bool, "authenticatedLength"))
 
+    private val httpExtra = PreferenceBindingManager()
+    private val httpPath = httpExtra.add(PreferenceBinding(Type.Text, "httpPath"))
+    private val httpHeaders = httpExtra.add(PreferenceBinding(Type.Text, "httpHeaders"))
+
     override fun StandardV2RayBean.init() {
+        if (this is HttpBean) httpExtra.writeToCacheAll(this)
         if (this is TrojanBean) {
             this@StandardV2RaySettingsActivity.uuid.fieldName = "password"
             this@StandardV2RaySettingsActivity.password.disable = true
@@ -84,6 +89,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
 
     override fun StandardV2RayBean.serialize() {
         pbm.fromCacheAll(this)
+        if (this is HttpBean) httpExtra.fromCacheAll(this)
     }
 
     private lateinit var securityCategory: PreferenceCategory
@@ -105,6 +111,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
 
         // vmess/vless/http/trojan
         val isHttp = tmpBean is HttpBean
+        findPreference<PreferenceCategory>("httpAdvanced")?.isVisible = isHttp
         val isVmess = tmpBean is VMessBean && tmpBean?.isVLESS == false
         val isVless = tmpBean?.isVLESS == true
 
