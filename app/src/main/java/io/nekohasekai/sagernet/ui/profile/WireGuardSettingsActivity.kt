@@ -20,7 +20,6 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
     private var legacyRequested = false
 
     override fun PreferenceFragmentCompat.viewCreated(view: android.view.View, savedInstanceState: Bundle?) {
-        legacyRequested = savedInstanceState?.getBoolean("wgLegacyRequested", false) ?: legacyRequested
         if (DataStore.profileCacheStore.getBoolean("awgEnabled", false) || legacyRequested) {
             supportActionBar?.show()
             return
@@ -35,14 +34,13 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
             .filter { it.isVisible && it.itemId != R.id.action_apply }
             .map { item -> item.title.toString() to { this@WireGuardSettingsActivity.onOptionsItemSelected(item); Unit } }
         supportActionBar?.hide()
-        legacyList.visibility = android.view.View.GONE
+        parent.removeView(legacyList)
         val host = androidx.compose.ui.platform.ComposeView(requireContext())
         host.setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         parent.addView(host, index, params)
         host.setContent {
             io.nekohasekai.sagernet.ui.compose.HubTheme {
                 io.nekohasekai.sagernet.ui.compose.WireGuardProfileScreen(
-                    onPeers = { showPeers(wgExtraPeers.preference as EditTextPreference) },
                     onImport = {
                         com.google.android.material.dialog.MaterialAlertDialogBuilder(this@WireGuardSettingsActivity)
                             .setMessage("Replace current connection settings?")
@@ -241,6 +239,10 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
         savedInstanceState: Bundle?,
         rootKey: String?,
     ) {
+        if (!DataStore.profileCacheStore.getBoolean("awgEnabled", false) && !legacyRequested) {
+            preferenceScreen = preferenceManager.createPreferenceScreen(requireContext())
+            return
+        }
         addPreferencesFromResource(R.xml.wireguard_preferences)
         val wgAdvanced = PreferenceCategory(requireContext()).apply { title = "WireGuard advanced settings"; key = "wgAdvanced" }
         preferenceScreen.addPreference(wgAdvanced)
