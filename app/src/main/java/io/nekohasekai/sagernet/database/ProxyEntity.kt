@@ -182,36 +182,51 @@ data class ProxyEntity(
         }
     }
 
-    /** " / ws+tls" в стиле v2rayNG: транспорт (кроме tcp) + безопасность. */
-    private fun v2rayDetail(b: io.nekohasekai.sagernet.fmt.v2ray.StandardV2RayBean): String {
-        val parts = mutableListOf<String>()
-        val t = b.type?.trim().orEmpty()
-        if (t.isNotEmpty() && t != "tcp") parts += t
-        val sec = b.security?.trim().orEmpty()
-        if (sec.isNotEmpty() && sec != "none") parts += sec
-        return " / " + (if (parts.isEmpty()) (if (t.isNotEmpty()) t else "tcp") else parts.joinToString("+"))
+    /** Presentation only: never modify the stored protocol or security configuration. */
+    data class ProtocolDetails(val protocol: String, val transport: String? = null, val security: String? = null) {
+        fun label(): String {
+            val detail = listOfNotNull(transport?.takeUnless { it == "tcp" && security != null }, security)
+            return if (detail.isEmpty()) protocol else protocol + " / " + detail.joinToString("+")
+        }
     }
 
-    fun displayType(): String = when (type) {
-        TYPE_SOCKS -> socksBean!!.protocolName()
-        TYPE_HTTP -> if (httpBean!!.isTLS()) "HTTPS" else "HTTP"
-        TYPE_SS -> "Shadowsocks"
-        TYPE_VMESS -> (if (vmessBean!!.isVLESS) "VLESS" else "VMess") + v2rayDetail(vmessBean!!)
-        TYPE_TROJAN -> "Trojan" + v2rayDetail(trojanBean!!)
-        TYPE_TROJAN_GO -> "Trojan-Go"
-        TYPE_MIERU -> "Mieru"
-        TYPE_NAIVE -> "Naïve"
-        TYPE_HYSTERIA -> "Hysteria" + hysteriaBean!!.protocolVersion
-        TYPE_SSH -> "SSH"
-        TYPE_WG -> if (wgBean!!.isAmnezia) "AmneziaWG" else "WireGuard"
-        TYPE_TUIC -> "TUIC"
-        TYPE_SHADOWTLS -> "ShadowTLS"
-        TYPE_ANYTLS -> "AnyTLS"
-        TYPE_CHAIN -> chainName
-        TYPE_NEKO -> nekoBean!!.displayType()
-        TYPE_CONFIG -> configBean!!.displayType()
-        else -> "Undefined type $type"
+    private fun v2rayDetails(protocol: String, bean: StandardV2RayBean): ProtocolDetails {
+        val transport = when (val value = bean.type?.trim()?.lowercase().orEmpty()) {
+            "", "raw" -> "tcp"
+            "h2" -> "http"
+            "mkcp" -> "kcp"
+            else -> value
+        }
+        val security = when (val value = bean.security?.trim()?.lowercase().orEmpty()) {
+            "tls", "reality" -> if (!bean.realityPubKey.isNullOrBlank() || value == "reality") "reality" else "tls"
+            "", "none" -> null
+            else -> value
+        }
+        return ProtocolDetails(protocol, transport, security)
     }
+
+    fun protocolDetails(): ProtocolDetails = when (type) {
+        TYPE_SOCKS -> ProtocolDetails(socksBean!!.protocolName())
+        TYPE_HTTP -> if (httpBean!!.isTLS()) ProtocolDetails("HTTPS") else ProtocolDetails("HTTP")
+        TYPE_SS -> ProtocolDetails("Shadowsocks")
+        TYPE_VMESS -> v2rayDetails(if (vmessBean!!.isVLESS) "VLESS" else "VMess", vmessBean!!)
+        TYPE_TROJAN -> v2rayDetails("Trojan", trojanBean!!)
+        TYPE_TROJAN_GO -> ProtocolDetails("Trojan-Go", trojanGoBean!!.type?.takeIf { it.isNotBlank() && it != "original" }, "tls")
+        TYPE_MIERU -> ProtocolDetails("Mieru", mieruBean!!.protocol?.lowercase())
+        TYPE_NAIVE -> ProtocolDetails("Naïve", if (naiveBean!!.proto == "quic") "quic" else "http", "tls")
+        TYPE_HYSTERIA -> ProtocolDetails("Hysteria" + hysteriaBean!!.protocolVersion, "quic", "tls")
+        TYPE_SSH -> ProtocolDetails("SSH")
+        TYPE_WG -> ProtocolDetails(if (wgBean!!.isAmnezia) "AmneziaWG" else "WireGuard")
+        TYPE_TUIC -> ProtocolDetails("TUIC", "quic", "tls")
+        TYPE_SHADOWTLS -> ProtocolDetails("ShadowTLS")
+        TYPE_ANYTLS -> ProtocolDetails("AnyTLS", security = "tls")
+        TYPE_CHAIN -> ProtocolDetails(chainName)
+        TYPE_NEKO -> ProtocolDetails(nekoBean!!.displayType())
+        TYPE_CONFIG -> ProtocolDetails(configBean!!.displayType())
+        else -> ProtocolDetails("Undefined type $type")
+    }
+
+    fun displayType(): String = protocolDetails().label()
 
     fun displayName() = requireBean().displayName()
     fun displayAddress() = requireBean().displayAddress()
