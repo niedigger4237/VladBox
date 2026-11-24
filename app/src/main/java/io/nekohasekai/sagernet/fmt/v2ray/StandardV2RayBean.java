@@ -84,6 +84,14 @@ public abstract class StandardV2RayBean extends AbstractBean {
     public Integer grpcPingTimeout;
     public Boolean globalPadding; // VMess
     public Boolean authenticatedLength; // VMess
+    public String tlsMinVersion;
+    public String tlsMaxVersion;
+    public String tlsCurves;
+    public String tlsHandshakeTimeout;
+    public String tlsClientCertificate;
+    public String tlsClientKey;
+    public String echQueryName;
+    public Boolean realityHybrid;
 
 
     // --------------------------------------- //
@@ -152,11 +160,19 @@ public abstract class StandardV2RayBean extends AbstractBean {
         if (grpcPingTimeout == null) grpcPingTimeout = 0;
         if (globalPadding == null) globalPadding = false;
         if (authenticatedLength == null) authenticatedLength = false;
+        if (tlsMinVersion == null) tlsMinVersion = "";
+        if (tlsMaxVersion == null) tlsMaxVersion = "";
+        if (tlsCurves == null) tlsCurves = "";
+        if (tlsHandshakeTimeout == null) tlsHandshakeTimeout = "";
+        if (tlsClientCertificate == null) tlsClientCertificate = "";
+        if (tlsClientKey == null) tlsClientKey = "";
+        if (echQueryName == null) echQueryName = "";
+        if (realityHybrid == null) realityHybrid = false;
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(5);
+        output.writeInt(6);
         super.serialize(output);
         output.writeString(uuid);
         output.writeString(encryption);
@@ -234,6 +250,14 @@ public abstract class StandardV2RayBean extends AbstractBean {
         output.writeInt(grpcPingTimeout);
         output.writeBoolean(globalPadding);
         output.writeBoolean(authenticatedLength);
+        output.writeString(tlsMinVersion);
+        output.writeString(tlsMaxVersion);
+        output.writeString(tlsCurves);
+        output.writeString(tlsHandshakeTimeout);
+        output.writeString(tlsClientCertificate);
+        output.writeString(tlsClientKey);
+        output.writeString(echQueryName);
+        output.writeBoolean(realityHybrid);
     }
 
     @Override
@@ -351,6 +375,16 @@ public abstract class StandardV2RayBean extends AbstractBean {
             grpcPingTimeout = input.readInt();
             globalPadding = input.readBoolean();
             authenticatedLength = input.readBoolean();
+        }
+        if (version >= 6) {
+            tlsMinVersion = input.readString();
+            tlsMaxVersion = input.readString();
+            tlsCurves = input.readString();
+            tlsHandshakeTimeout = input.readString();
+            tlsClientCertificate = input.readString();
+            tlsClientKey = input.readString();
+            echQueryName = input.readString();
+            realityHybrid = input.readBoolean();
         }
     }
 
