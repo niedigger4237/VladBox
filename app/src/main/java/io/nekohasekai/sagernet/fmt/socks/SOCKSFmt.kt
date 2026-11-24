@@ -66,6 +66,7 @@ fun SOCKSBean.toV2rayN(): String {
 fun buildSingBoxOutboundSocksBean(bean: SOCKSBean): SingBoxOptions.Outbound_SocksOptions {
     return SingBoxOptions.Outbound_SocksOptions().apply {
         type = "socks"
+        io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(bean.outboundDialer, if (bean.protocol < SOCKSBean.PROTOCOL_SOCKS5) "tcp" else bean.outboundNetwork, _hack_config_map)
         server = bean.serverAddress
         server_port = bean.serverPort
         username = bean.username
