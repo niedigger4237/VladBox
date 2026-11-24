@@ -5,7 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -33,7 +33,11 @@ fun ProfileCard(
     actionsVisible: Boolean = true,
     editEnabled: Boolean = true,
     statusColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-    onStatus: (() -> Unit)? = null
+    onStatus: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    onRemove: (() -> Unit)? = null,
+    canShare: Boolean = true,
+    menuKey: Long = 0L
 ) {
     val colors = MaterialTheme.colorScheme
     Card(
@@ -71,8 +75,20 @@ fun ProfileCard(
                     IconButton(onClick = onEdit, enabled = editEnabled, modifier = Modifier.size(44.dp)) {
                         Icon(painterResource(R.drawable.ic_image_edit), androidx.compose.ui.res.stringResource(R.string.edit), Modifier.size(22.dp), tint = if (editEnabled) colors.onSurface else colors.onSurfaceVariant.copy(alpha = 0.38f))
                     }
-                    IconButton(onClick = onMore, modifier = Modifier.size(44.dp)) {
-                        Icon(painterResource(R.drawable.ic_profile_overflow), androidx.compose.ui.res.stringResource(R.string.share), Modifier.size(22.dp), tint = colors.onSurface)
+                    var expanded by remember(menuKey) { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { if (onRemove != null) expanded = true else onMore() }, modifier = Modifier.size(44.dp)) {
+                            Icon(painterResource(R.drawable.ic_profile_overflow), androidx.compose.ui.res.stringResource(R.string.share), Modifier.size(22.dp), tint = colors.onSurface)
+                        }
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            if (canShare && onShare != null) DropdownMenuItem(
+                                text = { Text(androidx.compose.ui.res.stringResource(R.string.share)) },
+                                onClick = { expanded = false; onShare() })
+                            DropdownMenuItem(
+                                text = { Text(androidx.compose.ui.res.stringResource(R.string.delete)) },
+                                enabled = editEnabled,
+                                onClick = { expanded = false; onRemove?.invoke() })
+                        }
                     }
                 }
             }
