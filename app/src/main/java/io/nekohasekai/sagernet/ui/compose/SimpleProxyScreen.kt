@@ -40,7 +40,7 @@ fun SimpleProxyScreen(shadowsocks: Boolean, onSave: () -> Unit, onClose: () -> U
         })
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (section.isEmpty()) {
-                val sections = listOf("General" to "Server and protocol", "Authentication" to (if (shadowsocks) method else "Credentials"), "Advanced" to (if (shadowsocks) "Plugin and UDP" else "UDP options"), "Connection" to "Network and dialer") + if (shadowsocks) listOf("Multiplex" to (if (mux) "Enabled" else "Disabled")) else emptyList()
+                val sections = listOf("General" to "Server and protocol", "Authentication" to (if (shadowsocks) method else "Credentials"), "Advanced" to (if (shadowsocks) "Plugin, UDP and dialer" else "UDP and dialer options")) + if (shadowsocks) listOf("Multiplex" to (if (mux) "Enabled" else "Disabled")) else emptyList()
                 items(sections.size) { i ->
                     val (label, detail) = sections[i]
                     Card(onClick = { section = label }, modifier = Modifier.fillMaxWidth()) {
@@ -106,8 +106,8 @@ fun SimpleProxyScreen(shadowsocks: Boolean, onSave: () -> Unit, onClose: () -> U
                     }
                 }
             }
-            if (section == "Connection") item {
-                SimpleSection("Connection") {
+            if (section == "Advanced") item {
+                SimpleSection("Dialer options") {
                     if (shadowsocks || version == 2) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf("" to "TCP + UDP", "tcp" to "TCP", "udp" to "UDP").forEach { (value,label) ->
                             FilterChip(selected = store.getString("outboundNetwork","").orEmpty() == value, onClick = { write("outboundNetwork",value) }, label = { Text(label) })
@@ -118,7 +118,7 @@ fun SimpleProxyScreen(shadowsocks: Boolean, onSave: () -> Unit, onClose: () -> U
                 }
             }
             if (section == "Advanced") item {
-                SimpleSection("Advanced") {
+                SimpleSection("Protocol options") {
                     if (shadowsocks) {
                         SimpleField("Plugin",store.getString("pluginName","").orEmpty()) { write("pluginName",it) }
                         SimpleField("Plugin options",store.getString("pluginConfig","").orEmpty()) { write("pluginConfig",it) }
