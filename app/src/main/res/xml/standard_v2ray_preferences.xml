@@ -313,4 +313,8 @@
     <EditTextPreference app:key="tlsClientCertificatePath" app:title="Client certificate path" app:useSimpleSummaryProvider="true" />
     <EditTextPreference app:key="tlsClientKeyPath" app:title="Client key path" app:useSimpleSummaryProvider="true" />
     <EditTextPreference app:key="echConfigPath" app:title="ECH configuration path" app:useSimpleSummaryProvider="true" />
+    <EditTextPreference app:key="tlsSpoof" app:title="TLS spoof server name" app:useSimpleSummaryProvider="true" />
+    <EditTextPreference app:key="tlsSpoofMethod" app:title="TLS spoof method" app:useSimpleSummaryProvider="true" />
+    <SwitchPreference app:key="tlsKernelTx" app:title="Kernel TLS TX (experimental)" app:defaultValue="false" />
+    <SwitchPreference app:key="tlsKernelRx" app:title="Kernel TLS RX (experimental)" app:defaultValue="false" />
 </PreferenceScreen>
