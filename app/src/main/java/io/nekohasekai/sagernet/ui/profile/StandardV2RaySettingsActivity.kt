@@ -100,6 +100,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
     private val tlsSpoofMethod = pbm.add(PreferenceBinding(Type.Text, "tlsSpoofMethod"))
     private val tlsKernelTx = pbm.add(PreferenceBinding(Type.Bool, "tlsKernelTx"))
     private val tlsKernelRx = pbm.add(PreferenceBinding(Type.Bool, "tlsKernelRx"))
+    private val outboundDialer = pbm.add(PreferenceBinding(Type.Text, "outboundDialer"))
     private val httpExtra = PreferenceBindingManager()
     private val httpPath = httpExtra.add(PreferenceBinding(Type.Text, "httpPath"))
     private val httpHeaders = httpExtra.add(PreferenceBinding(Type.Text, "httpHeaders"))
