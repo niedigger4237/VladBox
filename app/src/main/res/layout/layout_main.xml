@@ -35,7 +35,8 @@
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:padding="12dp">
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="8dp">
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -70,8 +71,8 @@
                 </LinearLayout>
 
                 <FrameLayout
-                    android:layout_width="76dp"
-                    android:layout_height="76dp">
+                    android:layout_width="72dp"
+                    android:layout_height="72dp">
                     <io.nekohasekai.sagernet.widget.ServiceButton
                         android:id="@+id/fab"
                         android:layout_width="wrap_content"
