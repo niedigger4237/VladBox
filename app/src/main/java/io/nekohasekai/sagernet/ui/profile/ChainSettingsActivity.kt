@@ -24,6 +24,7 @@ import io.nekohasekai.sagernet.ui.compose.*
 class ChainSettingsActivity : ProfileSettingsActivity<ChainBean>() {
     override fun createEntity() = ChainBean()
     private val profiles = mutableStateListOf<ProxyEntity>()
+    private var missingIds by androidx.compose.runtime.mutableStateOf<List<Long>>(emptyList())
     private var replacing = -1
     private var loaded by androidx.compose.runtime.mutableStateOf(false)
 
@@ -33,6 +34,7 @@ class ChainSettingsActivity : ProfileSettingsActivity<ChainBean>() {
     }
     override fun ChainBean.serialize() {
         name = DataStore.profileName
+        require(loaded && missingIds.isEmpty() && profiles.isNotEmpty()) { "Chain is incomplete" }
         proxies = profiles.map { it.id }
         initializeDefaultValues()
     }
@@ -64,6 +66,11 @@ class ChainSettingsActivity : ProfileSettingsActivity<ChainBean>() {
     }
     override fun PreferenceFragmentCompat.viewCreated(view: View, savedInstanceState: Bundle?) {
         val legacy = listView
+        val menu = androidx.appcompat.widget.PopupMenu(requireContext(), legacy).menu
+        this@ChainSettingsActivity.onCreateOptionsMenu(menu)
+        val actions = (0 until menu.size()).map { menu.getItem(it) }
+            .filter { it.isVisible && it.itemId != R.id.action_apply }
+            .map { item -> item.title.toString() to { this@ChainSettingsActivity.onOptionsItemSelected(item); Unit } }
         val parent = legacy.parent as? android.view.ViewGroup ?: return
         val index = parent.indexOfChild(legacy)
         val params = legacy.layoutParams
@@ -76,7 +83,7 @@ class ChainSettingsActivity : ProfileSettingsActivity<ChainBean>() {
         parent.addView(host,index,params)
         host.setContent {
             HubTheme {
-                ChainProfileScreen(profiles,loaded,onSave = { runOnDefaultDispatcher { saveAndExit() } },onClose = { this@ChainSettingsActivity.onBackPressed() },onPick = { i ->
+                ChainProfileScreen(profiles,loaded,missingIds,actions,onDiscardMissing = { missingIds = emptyList(); DataStore.dirty = true },onRestore = { i, profile -> profiles.add(i.coerceIn(0,profiles.size),profile); DataStore.dirty = true },onSave = { runOnDefaultDispatcher { saveAndExit() } },onClose = { this@ChainSettingsActivity.onBackPressed() },onPick = { i ->
                     replacing = i
                     picker.launch(Intent(this@ChainSettingsActivity,ProfileSelectActivity::class.java).apply { if (i in profiles.indices) putExtra(ProfileSelectActivity.EXTRA_SELECTED,profiles[i]) })
                 },onMove = { from,to ->
@@ -90,6 +97,7 @@ class ChainSettingsActivity : ProfileSettingsActivity<ChainBean>() {
             onMainDispatcher {
                 profiles.clear()
                 profiles.addAll(ids.mapNotNull { found[it] })
+                missingIds = ids.filter { it !in found }
                 loaded = true
             }
         }
