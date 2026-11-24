@@ -36,6 +36,7 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
         read("mtu").toIntOrNull()?.let { it in 1..65535 } != true -> "Invalid MTU."
         read("workers").toIntOrNull()?.let { it >= 0 } != true -> "Invalid workers value."
         read("persistentKeepalive").toIntOrNull()?.let { it in 0..65535 } != true -> "Invalid keepalive."
+        !awg && runCatching { org.json.JSONObject(read("wgDialer").ifBlank { "{}" }) }.isFailure -> "Invalid dialer JSON."
         !awg && read("wgAllowedIps").isBlank() -> "Allowed IPs are required."
         !awg && read("wgListenPort").toIntOrNull()?.let { it in 0..65535 } != true -> "Invalid listen port."
         awg && awgNumbers.any { read(it).toIntOrNull()?.let { n -> n >= 0 } != true } -> "Invalid AmneziaWG numeric parameter."
@@ -229,7 +230,7 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
                 update(key,it.takeIf { v -> v.isNotBlank() }?.toBooleanStrict())
             }
         }
-        WgText("Network strategy",json.optString("network_strategy")) { update("network_strategy",it.takeIf { v -> v.isNotBlank() }) }
+        WgChoice("Network strategy",json.optString("network_strategy"),listOf("" to "Unset","default" to "Default","fallback" to "Fallback","hybrid" to "Hybrid")) { update("network_strategy",it.takeIf { v -> v.isNotBlank() }) }
         for ((key,label) in listOf("network_type" to "Network types","fallback_network_type" to "Fallback network types")) {
             val values = json.optJSONArray(key)
             val selected = if (values != null) (0 until values.length()).map { values.optString(it) }.toSet() else setOf(json.optString(key)).filter { it.isNotBlank() }.toSet()
@@ -242,12 +243,15 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
             }
         }
         var resolver by remember(raw) { mutableStateOf(json.opt("domain_resolver")?.toString().orEmpty()) }
-        WgText("Domain resolver (tag or JSON)",resolver) { resolver = it }
+        var resolverError by remember { mutableStateOf<String?>(null) }
+        WgText("Domain resolver (tag or JSON)",resolver) { resolver = it; resolverError = null }
+        resolverError?.let { Text(it,color = MaterialTheme.colorScheme.error) }
         OutlinedButton(onClick = {
             runCatching {
                 val value = resolver.trim()
-                update("domain_resolver",if (value.isBlank()) null else if (value.startsWith("{")) org.json.JSONObject(value) else value)
-            }
+                val parsed = if (value.isBlank()) null else if (value.startsWith("{")) org.json.JSONObject(value).also { require(it.optString("server").isNotBlank()) { "DNS server tag is required" } } else value
+                update("domain_resolver",parsed)
+            }.onSuccess { resolverError = null }.onFailure { resolverError = it.message ?: "Invalid domain resolver" }
         },modifier = Modifier.fillMaxWidth()) { Text("Apply domain resolver") }
     }
     TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide extra JSON" else "Show extra JSON") }
