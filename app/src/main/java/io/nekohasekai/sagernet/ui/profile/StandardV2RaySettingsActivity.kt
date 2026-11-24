@@ -80,6 +80,8 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
     private val tlsClientKey = pbm.add(PreferenceBinding(Type.Text, "tlsClientKey"))
     private val echQueryName = pbm.add(PreferenceBinding(Type.Text, "echQueryName"))
     private val realityHybrid = pbm.add(PreferenceBinding(Type.Bool, "realityHybrid"))
+    private val vlessEncryption = pbm.add(PreferenceBinding(Type.Text, "vlessEncryption"))
+    private val vlessNetwork = pbm.add(PreferenceBinding(Type.Text, "vlessNetwork"))
     private val httpExtra = PreferenceBindingManager()
     private val httpPath = httpExtra.add(PreferenceBinding(Type.Text, "httpPath"))
     private val httpHeaders = httpExtra.add(PreferenceBinding(Type.Text, "httpHeaders"))
@@ -122,6 +124,8 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
         findPreference<PreferenceCategory>("httpAdvanced")?.isVisible = isHttp
         val isVmess = tmpBean is VMessBean && tmpBean?.isVLESS == false
         val isVless = tmpBean?.isVLESS == true
+        vlessEncryption.preference.isVisible = isVless
+        vlessNetwork.preference.isVisible = isVless
 
         serverPort.preference.apply {
             this as EditTextPreference
