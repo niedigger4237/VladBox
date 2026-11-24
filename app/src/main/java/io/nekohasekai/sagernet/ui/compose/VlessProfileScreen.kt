@@ -396,7 +396,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     if (showRaw || json == null) OutlinedTextField(raw,change,label = { Text("Extra JSON") },modifier = Modifier.fillMaxWidth())
 }
 
-@Composable private fun VlessDialer(raw: String, change: (String)->Unit) {
+@Composable internal fun VlessDialer(raw: String, change: (String)->Unit) {
     var advanced by remember { mutableStateOf(false) }
     val json = remember(raw) { runCatching { org.json.JSONObject(raw.ifBlank { "{}" }) }.getOrNull() }
     fun update(key: String, value: Any?) {
