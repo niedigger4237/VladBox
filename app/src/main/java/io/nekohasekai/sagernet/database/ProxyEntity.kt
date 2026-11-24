@@ -344,6 +344,7 @@ data class ProxyEntity(
         it.protocol = when (muxType) {
             1 -> "smux"
             2 -> "yamux"
+            3 -> "rmux"
             else -> "h2mux"
         }
         if (enableMux && muxBrutal) it.brutal = OutboundBrutalOptions().apply {
