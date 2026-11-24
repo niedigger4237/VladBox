@@ -50,9 +50,10 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
         toolbar.inflateMenu(R.menu.add_group_menu)
         toolbar.setOnMenuItemClickListener(this)
         if (!SagerNet.isTv) {
-            val parent = toolbar.parent as ViewGroup
-            val index = parent.indexOfChild(toolbar)
-            toolbar.visibility = View.GONE
+            val oldBar = view.findViewById<View>(R.id.appbar)
+            val parent = oldBar.parent as ViewGroup
+            val index = parent.indexOfChild(oldBar)
+            oldBar.visibility = View.GONE
             val host = androidx.compose.ui.platform.ComposeView(requireContext())
             parent.addView(host, index, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             io.nekohasekai.sagernet.ui.compose.installGroupHeader(this, host)
