@@ -14,9 +14,17 @@ import moe.matsuri.nb4a.ui.SimpleMenuPreference
 
 class HysteriaSettingsActivity : ProfileSettingsActivity<HysteriaBean>() {
 
+    private val extra = moe.matsuri.nb4a.proxy.PreferenceBindingManager()
+    private val hy2ObfsType = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2ObfsType"))
+    private val hy2BbrProfile = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2BbrProfile"))
+    private val hy2HopIntervalMax = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2HopIntervalMax"))
+    private val hy2GeckoMin = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2GeckoMin"))
+    private val hy2GeckoMax = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2GeckoMax"))
+
     override fun createEntity() = HysteriaBean().applyDefaultValues()
 
     override fun HysteriaBean.init() {
+        extra.writeToCacheAll(this)
         DataStore.profileName = name
         DataStore.protocolVersion = protocolVersion
         DataStore.serverAddress = serverAddress
@@ -38,6 +46,7 @@ class HysteriaSettingsActivity : ProfileSettingsActivity<HysteriaBean>() {
     }
 
     override fun HysteriaBean.serialize() {
+        extra.fromCacheAll(this)
         name = DataStore.profileName
         protocolVersion = DataStore.protocolVersion
         serverAddress = DataStore.serverAddress
@@ -76,6 +85,7 @@ class HysteriaSettingsActivity : ProfileSettingsActivity<HysteriaBean>() {
         val alpn = findPreference<EditTextPreference>(Key.SERVER_ALPN)!!
 
         fun updateVersion(v: Int) {
+            findPreference<androidx.preference.PreferenceCategory>("hy2Advanced")!!.isVisible = v == 2
             if (v == 2) {
                 authPayload.isVisible = true
                 //
