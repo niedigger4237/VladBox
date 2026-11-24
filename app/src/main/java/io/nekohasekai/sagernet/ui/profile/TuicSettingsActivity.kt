@@ -60,23 +60,38 @@ class TuicSettingsActivity : ProfileSettingsActivity<TuicBean>() {
         allowInsecure = DataStore.serverAllowInsecure
     }
 
-    override fun PreferenceFragmentCompat.createPreferences(
-        savedInstanceState: Bundle?,
-        rootKey: String?,
-    ) {
-        addPreferencesFromResource(R.xml.tuic_preferences)
-
-        val disableSNI = findPreference<SwitchPreference>(Key.SERVER_DISABLE_SNI)!!
-        val sni = findPreference<EditTextPreference>(Key.SERVER_SNI)!!
-        sni.isEnabled = !disableSNI.isChecked
-        disableSNI.setOnPreferenceChangeListener { _, newValue ->
-            sni.isEnabled = !(newValue as Boolean)
-            true
-        }
-
-        findPreference<EditTextPreference>(Key.SERVER_PASSWORD)!!.apply {
-            summaryProvider = PasswordSummaryProvider
-        }
+    override fun PreferenceFragmentCompat.createPreferences(savedInstanceState: Bundle?, rootKey: String?) {
+        preferenceScreen = preferenceManager.createPreferenceScreen(requireContext())
     }
 
+    override fun PreferenceFragmentCompat.viewCreated(view: android.view.View, savedInstanceState: Bundle?) {
+        val legacyList = listView
+        val parent = legacyList.parent as? android.view.ViewGroup ?: return
+        val index = parent.indexOfChild(legacyList)
+        val params = legacyList.layoutParams
+        val menu = androidx.appcompat.widget.PopupMenu(requireContext(), legacyList).menu
+        this@TuicSettingsActivity.onCreateOptionsMenu(menu)
+        val actions = (0 until menu.size()).map { menu.getItem(it) }
+            .filter { it.isVisible && it.itemId != R.id.action_apply }
+            .map { item -> item.title.toString() to { this@TuicSettingsActivity.onOptionsItemSelected(item); Unit } }
+        supportActionBar?.hide()
+        findViewById<android.view.View>(R.id.appbar)?.visibility = android.view.View.GONE
+        findViewById<android.view.View>(R.id.settings)?.let { container ->
+            container.layoutParams = container.layoutParams.apply { height = android.view.ViewGroup.LayoutParams.MATCH_PARENT }
+        }
+        parent.removeView(legacyList)
+        val host = androidx.compose.ui.platform.ComposeView(requireContext())
+        host.setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        parent.addView(host, index, params)
+        host.setContent {
+            io.nekohasekai.sagernet.ui.compose.HubTheme {
+                io.nekohasekai.sagernet.ui.compose.QuicProfileScreen(
+                    tuic = true,
+                    onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
+                    onClose = { this@TuicSettingsActivity.onBackPressed() },
+                    menuItems = actions
+                )
+            }
+        }
+    }
 }
