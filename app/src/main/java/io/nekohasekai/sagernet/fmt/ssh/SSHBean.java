@@ -27,6 +27,8 @@ public class SSHBean extends AbstractBean {
     public String cipherAlgorithms;
     public String macAlgorithms;
     public String kexAlgorithms;
+    public String privateKeyPath;
+    public String outboundDialer;
 
     @Override
     public void initializeDefaultValues() {
@@ -45,11 +47,13 @@ public class SSHBean extends AbstractBean {
         if (cipherAlgorithms == null) cipherAlgorithms = "";
         if (macAlgorithms == null) macAlgorithms = "";
         if (kexAlgorithms == null) kexAlgorithms = "";
+        if (privateKeyPath == null) privateKeyPath = "";
+        if (outboundDialer == null) outboundDialer = "";
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(1);
+        output.writeInt(2);
         super.serialize(output);
         output.writeString(username);
         output.writeInt(authType);
@@ -70,6 +74,8 @@ public class SSHBean extends AbstractBean {
         output.writeString(cipherAlgorithms);
         output.writeString(macAlgorithms);
         output.writeString(kexAlgorithms);
+        output.writeString(privateKeyPath);
+        output.writeString(outboundDialer);
     }
 
     @Override
@@ -96,6 +102,10 @@ public class SSHBean extends AbstractBean {
             cipherAlgorithms = input.readString();
             macAlgorithms = input.readString();
             kexAlgorithms = input.readString();
+        }
+        if (version >= 2) {
+            privateKeyPath = input.readString();
+            outboundDialer = input.readString();
         }
     }
 
