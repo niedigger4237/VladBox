@@ -15,6 +15,7 @@ class ShadowTLSSettingsActivity : ProfileSettingsActivity<ShadowTLSBean>() {
     override fun createEntity() = ShadowTLSBean()
 
     private val pbm = PreferenceBindingManager()
+    private val outboundDialer = pbm.add(PreferenceBinding(Type.Text, "outboundDialer"))
     private val name = pbm.add(PreferenceBinding(Type.Text, "name"))
     private val serverAddress = pbm.add(PreferenceBinding(Type.Text, "serverAddress"))
     private val serverPort = pbm.add(PreferenceBinding(Type.TextToInt, "serverPort"))
