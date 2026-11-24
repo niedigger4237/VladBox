@@ -13,6 +13,8 @@ import moe.matsuri.nb4a.ui.SimpleMenuPreference
 class SSHSettingsActivity : ProfileSettingsActivity<SSHBean>() {
 
     private val extra = moe.matsuri.nb4a.proxy.PreferenceBindingManager()
+    private val privateKeyPath = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "privateKeyPath"))
+    private val outboundDialer = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "outboundDialer"))
     private val hostKeyAlgorithms = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hostKeyAlgorithms"))
     private val clientVersion = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "clientVersion"))
     private val cipherAlgorithms = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "cipherAlgorithms"))
