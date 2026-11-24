@@ -20,6 +20,9 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
 
     var tmpBean: StandardV2RayBean? = null
 
+    private fun editingVless(): Boolean = this is VMessSettingsActivity &&
+        (tmpBean?.isVLESS ?: (io.nekohasekai.sagernet.database.DataStore.profileCacheStore.getString("alterId", "0") == "-1"))
+
     private val pbm = PreferenceBindingManager()
     private val name = pbm.add(PreferenceBinding(Type.Text, "name"))
     private val serverAddress = pbm.add(PreferenceBinding(Type.Text, "serverAddress"))
@@ -133,7 +136,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
         savedInstanceState: Bundle?,
         rootKey: String?,
     ) {
-        if (tmpBean?.isVLESS == true || (this@StandardV2RaySettingsActivity is VMessSettingsActivity && intent.getBooleanExtra("vless", false))) {
+        if (editingVless()) {
             preferenceScreen = preferenceManager.createPreferenceScreen(requireContext())
             return
         }
@@ -238,7 +241,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
 
 
     override fun PreferenceFragmentCompat.viewCreated(view: android.view.View, savedInstanceState: Bundle?) {
-        if (tmpBean?.isVLESS != true && !(this@StandardV2RaySettingsActivity is VMessSettingsActivity && intent.getBooleanExtra("vless", false))) return
+        if (!editingVless()) return
         val legacyList = listView
         val parent = legacyList.parent as? android.view.ViewGroup ?: return
         val index = parent.indexOfChild(legacyList)
