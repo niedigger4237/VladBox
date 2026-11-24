@@ -73,14 +73,19 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 }
                 if (transport == "grpc") {
                     ProfileText("Service name", "path", read("path"), ::write)
-                    ProfileText("Idle timeout", "grpcIdleTimeout", read("grpcIdleTimeout"), ::write)
-                    ProfileText("Ping timeout", "grpcPingTimeout", read("grpcPingTimeout"), ::write)
+                    ProfileText("Idle timeout (seconds)", "grpcIdleTimeout", read("grpcIdleTimeout"), ::write)
+                    ProfileText("Ping timeout (seconds)", "grpcPingTimeout", read("grpcPingTimeout"), ::write)
+                    ProfileSwitch("Permit without stream",store.getBoolean("grpcPermitWithoutStream",false)) { toggle("grpcPermitWithoutStream",it) }
                 }
                 if (transport == "ws") {
                     ProfileText("Max early data", "wsMaxEarlyData", read("wsMaxEarlyData"), ::write)
                     ProfileText("Early data header", "earlyDataHeaderName", read("earlyDataHeaderName"), ::write)
                 }
-                if (transport == "http") ProfileText("HTTP method", "httpMethod", read("httpMethod"), ::write)
+                if (transport == "http") {
+                    ProfileText("HTTP method", "httpMethod", read("httpMethod"), ::write)
+                    ProfileText("Idle timeout (e.g. 30s)", "httpIdleTimeout", read("httpIdleTimeout"), ::write)
+                    ProfileText("Ping timeout (e.g. 15s)", "httpPingTimeout", read("httpPingTimeout"), ::write)
+                }
                 if (transport in listOf("http","ws","httpupgrade")) ProfileText("Headers", "transportHeaders", read("transportHeaders"), ::write)
                 if (transport == "kcp") {
                     listOf("kcpMtu","kcpTti","kcpUp","kcpDown","kcpRead","kcpWrite","kcpHeader","kcpSeed").forEach { ProfileText(it, it, read(it), ::write) }
