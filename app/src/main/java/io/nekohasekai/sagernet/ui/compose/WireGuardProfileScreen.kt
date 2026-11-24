@@ -12,19 +12,20 @@ import androidx.compose.ui.unit.dp
 import io.nekohasekai.sagernet.database.DataStore
 
 @Composable
-fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onLegacy: () -> Unit, onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pair<String, () -> Unit>> = emptyList()) {
+fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pair<String, () -> Unit>> = emptyList()) {
     val store = DataStore.profileCacheStore
     var revision by remember { mutableStateOf(0) }
     fun read(key: String): String { revision; return store.getString(key, "") ?: "" }
     fun write(key: String, value: String) { store.putString(key,value); revision++ }
     fun checked(key: String): Boolean { revision; return store.getBoolean(key,false) }
     fun toggle(key: String, value: Boolean) { store.putBoolean(key,value); revision++ }
+    val awg = checked("awgEnabled")
     val natModes = listOf("" to "Default", "endpoint_independent" to "Endpoint independent", "address_dependent" to "Address dependent", "address_and_port_dependent" to "Address and port dependent")
     var section by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     androidx.activity.compose.BackHandler(enabled = section.isNotEmpty()) { section = "" }
     Column(Modifier.fillMaxSize()) {
         VladTopAppBar(
-            title = section.ifEmpty { "WireGuard" },
+            title = section.ifEmpty { if (awg) "AmneziaWG" else "WireGuard" },
             onNavigation = onClose,
             onBack = { if (section.isNotEmpty()) section = "" else onClose() },
             extraActions = {
@@ -44,14 +45,14 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onLegacy:
         )
     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (section.isEmpty()) {
-            items(6) { index ->
-                val names = listOf("General","Interface","Peers","UDP & NAT","Dialer settings","Import / Export")
-                val descriptions = listOf("Profile name and protocol","Address, keys and MTU","Endpoints and allowed IPs","Mapping, filtering and limits","Connection and network options","WireGuard configuration files")
+            val names = listOf("General","Interface","Peers","UDP & NAT","Import / Export") + if (awg) listOf("Junk packets","Packet padding","Header obfuscation","Signature packets","Advanced AmneziaWG 3.1") else listOf("Dialer settings")
+            val descriptions = mapOf("General" to "Profile name and protocol","Interface" to "Address, keys and MTU","Peers" to "Endpoints and keys","UDP & NAT" to "Timeout and limits","Import / Export" to "Configuration files","Dialer settings" to "Connection and network options","Junk packets" to "Jc, Jmin, Jmax","Packet padding" to "S1–S4","Header obfuscation" to "H1–H4","Signature packets" to "I1–I5","Advanced AmneziaWG 3.1" to "Protection and timers")
+            items(names.size) { index ->
                 Card(onClick = { section = names[index] }, modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(names[index],style = MaterialTheme.typography.titleLarge)
-                            Text(descriptions[index],style = MaterialTheme.typography.bodyMedium)
+                            Text(descriptions[names[index]].orEmpty(),style = MaterialTheme.typography.bodyMedium)
                         }
                         Text("›",style = MaterialTheme.typography.headlineMedium)
                     }
@@ -61,7 +62,12 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onLegacy:
         if (section == "General") item {
             WgCard("General") {
                 WgText("Profile name",read("name")) { write("name",it) }
-                OutlinedButton(onClick = onLegacy, modifier = Modifier.fillMaxWidth()) { Text("AmneziaWG / legacy editor") }
+                WgChoice("Protocol",if (awg) "awg" else "wg",listOf("wg" to "WireGuard","awg" to "AmneziaWG")) {
+                    if (it == "awg" && !awg && (read("awgJc").toIntOrNull() ?: 0) == 0) {
+                        write("awgJc","4"); write("awgJmin","40"); write("awgJmax","70")
+                    }
+                    toggle("awgEnabled",it == "awg")
+                }
             }
         }
         if (section == "Interface") item {
@@ -69,8 +75,8 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onLegacy:
                 WgText("Local address",read("localAddress")) { write("localAddress",it) }
                 WgText("Private key",read("privateKey"),true) { write("privateKey",it) }
                 WgToggle("System interface",checked("system")) { toggle("system",it) }
-                if (checked("system")) WgText("Interface name",read("wgInterfaceName")) { write("wgInterfaceName",it) }
-                WgText("Listen port",read("wgListenPort")) { write("wgListenPort",it) }
+                if (!awg && checked("system")) WgText("Interface name",read("wgInterfaceName")) { write("wgInterfaceName",it) }
+                if (!awg) WgText("Listen port",read("wgListenPort")) { write("wgListenPort",it) }
                 WgText("MTU",read("mtu")) { write("mtu",it) }
                 WgText("Workers",read("workers")) { write("workers",it) }
             }
@@ -81,20 +87,22 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onLegacy:
                 WgText("Endpoint port",read("serverPort")) { write("serverPort",it) }
                 WgText("Public key",read("peerPublicKey")) { write("peerPublicKey",it) }
                 WgText("Pre-shared key",read("peerPreSharedKey"),true) { write("peerPreSharedKey",it) }
-                WgText("Allowed IPs",read("wgAllowedIps")) { write("wgAllowedIps",it) }
+                if (!awg) WgText("Allowed IPs",read("wgAllowedIps")) { write("wgAllowedIps",it) }
                 WgText("Persistent keepalive",read("persistentKeepalive")) { write("persistentKeepalive",it) }
                 WgText("Reserved (compatibility only)",read("reserved")) { write("reserved",it) }
-                WgPeers(read("wgExtraPeers")) { write("wgExtraPeers",it) }
+                if (!awg) WgPeers(read("wgExtraPeers")) { write("wgExtraPeers",it) }
             }
         }
         if (section == "UDP & NAT") item {
             WgCard("UDP & NAT") {
                 WgText("UDP timeout",read("udpTimeout")) { write("udpTimeout",it) }
+                if (!awg) {
                 WgChoice("UDP mapping",read("wgUdpMapping"),natModes) { write("wgUdpMapping",it) }
                 WgChoice("UDP filtering",read("wgUdpFiltering"),natModes) { write("wgUdpFiltering",it) }
                 WgText("UDP NAT max",read("wgUdpNatMax")) { write("wgUdpNatMax",it) }
                 WgText("Preallocated buffers per pool",read("wgBuffers")) { write("wgBuffers",it) }
                 WgToggle("Disable pauses",checked("wgDisablePauses")) { toggle("wgDisablePauses",it) }
+                }
             }
         }
         if (section == "Dialer settings") item {
@@ -105,7 +113,27 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onLegacy:
         if (section == "Import / Export") item {
             WgCard("Import / Export") {
                 FilledTonalButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("Import .conf") }
-                OutlinedButton(onClick = onExport, modifier = Modifier.fillMaxWidth()) { Text("Export .conf") }
+                if (!awg) OutlinedButton(onClick = onExport, modifier = Modifier.fillMaxWidth()) { Text("Export .conf") }
+            }
+        }
+        if (awg) {
+            val groups = mapOf(
+                "Junk packets" to listOf("Jc" to "awgJc","Jmin" to "awgJmin","Jmax" to "awgJmax"),
+                "Packet padding" to (1..4).map { "S$it" to "awgS$it" },
+                "Header obfuscation" to (1..4).map { "H$it" to "awgH$it" },
+                "Signature packets" to (1..5).map { "I$it" to "awgI$it" },
+                "Advanced AmneziaWG 3.1" to listOf("Header protection key" to "awgHpk","Content padding addition" to "awgCpa","Rekey after time" to "awgRekeyAfter","Rekey timeout" to "awgRekeyTimeout","Reject after time" to "awgRejectAfter","Keepalive timeout" to "awgKeepaliveTimeout","Max handshake attempts" to "awgMaxHandshake")
+            )
+            groups[section]?.let { fields ->
+                item {
+                    WgCard(section) {
+                        fields.forEach { (label,key) -> WgText(label,read(key),key == "awgHpk") { write(key,it) } }
+                        if (section == "Advanced AmneziaWG 3.1") {
+                            WgToggle("Random trailers",checked("awgRandomTrailers")) { toggle("awgRandomTrailers",it) }
+                            WgToggle("Disable cookies",checked("awgDisableCookies")) { toggle("awgDisableCookies",it) }
+                        }
+                    }
+                }
             }
         }
         if (section.isEmpty()) item {
