@@ -10,13 +10,15 @@ data class ConnectionUiState(
     val mode: String = "",
     val tx: String = "",
     val rx: String = "",
-    val connected: Boolean = false
+    val connected: Boolean = false,
+    val serviceState: io.nekohasekai.sagernet.bg.BaseService.State = io.nekohasekai.sagernet.bg.BaseService.State.Stopped
 )
 
 class ConnectionViewModel : ViewModel() {
     private val mutableState = MutableStateFlow(ConnectionUiState())
     val state = mutableState.asStateFlow()
 
+    fun updateServiceState(value: io.nekohasekai.sagernet.bg.BaseService.State) { mutableState.update { it.copy(serviceState = value) } }
     fun updateStatus(value: String) { mutableState.update { it.copy(status = value) } }
     fun updateMode(value: String) { mutableState.update { it.copy(mode = value) } }
     fun updateConnected(value: Boolean) { mutableState.update { it.copy(connected = value) } }
