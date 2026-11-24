@@ -20,10 +20,6 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
     private var legacyRequested = false
 
     override fun PreferenceFragmentCompat.viewCreated(view: android.view.View, savedInstanceState: Bundle?) {
-        if (DataStore.profileCacheStore.getBoolean("awgEnabled", false) || legacyRequested) {
-            supportActionBar?.show()
-            return
-        }
         val legacyList = listView
         val parent = legacyList.parent as? android.view.ViewGroup ?: return
         val index = parent.indexOfChild(legacyList)
@@ -52,13 +48,6 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
                             .setMessage("The exported file contains private keys. Keep it secure.")
                             .setPositiveButton("Export") { _, _ -> exportConf.launch("wireguard.conf") }
                             .setNegativeButton(android.R.string.cancel, null).show()
-                    },
-                    onLegacy = {
-                        legacyRequested = true
-                        // Recreate preferences from cache so their displayed values are current.
-                        supportFragmentManager.beginTransaction()
-                            .replace(R.id.settings, ProfileSettingsActivity.MyPreferenceFragmentCompat()).commitNow()
-                        DataStore.dirty = true
                     },
                     onClose = { this@WireGuardSettingsActivity.onBackPressed() },
                     menuItems = actions,
@@ -247,7 +236,7 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
         savedInstanceState: Bundle?,
         rootKey: String?,
     ) {
-        if (!DataStore.profileCacheStore.getBoolean("awgEnabled", false) && !legacyRequested) {
+        if (!legacyRequested) {
             preferenceScreen = preferenceManager.createPreferenceScreen(requireContext())
             return
         }
