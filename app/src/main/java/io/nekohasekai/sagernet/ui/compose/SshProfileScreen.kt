@@ -35,7 +35,7 @@ fun SshProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pa
         })
         LazyColumn(Modifier.weight(1f),contentPadding = PaddingValues(16.dp),verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (section.isEmpty()) {
-                val sections = listOf("General" to "Server and username","Authentication" to "Password or private key","Security" to "Host key and SSH algorithms","Connection" to "Dialer options")
+                val sections = listOf("General" to "Server and username","Authentication" to "Password or private key","Security" to "Host key and SSH algorithms","Advanced" to "Dialer options")
                 items(sections.size) { i ->
                     val (label,detail) = sections[i]
                     Card(onClick = { section = label },modifier = Modifier.fillMaxWidth()) {
@@ -73,7 +73,7 @@ fun SshProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pa
                                 Text("Set a trusted server host key to verify the SSH server identity.",style = MaterialTheme.typography.bodySmall)
                                 listOf("hostKeyAlgorithms" to "Host key algorithms","clientVersion" to "Client version","cipherAlgorithms" to "Cipher algorithms","macAlgorithms" to "MAC algorithms","kexAlgorithms" to "Key exchange algorithms").forEach { (k,label) -> SimpleField(label,read(k)) { write(k,it) } }
                             }
-                            "Connection" -> VlessDialer(read("outboundDialer")) { write("outboundDialer",it) }
+                            "Advanced" -> VlessDialer(read("outboundDialer")) { write("outboundDialer",it) }
                         }
                         if (!valid) Text("Check required fields and authentication settings.",color = MaterialTheme.colorScheme.error)
                     }
