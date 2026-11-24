@@ -23,7 +23,9 @@ fun SimpleProxyScreen(shadowsocks: Boolean, onSave: () -> Unit, onClose: () -> U
     val method = remember(revision) { store.getString("method", "").orEmpty() }
     val password = remember(revision) { if (shadowsocks) store.getString("password", "").orEmpty() else DataStore.serverPassword }
     val dialerValid = runCatching { io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(store.getString("outboundDialer","").orEmpty(), store.getString("outboundNetwork","").orEmpty(), mutableMapOf()) }.isSuccess
-    val valid = dialerValid && address.isNotBlank() && port.toIntOrNull()?.let { it in 1..65535 } == true && (!shadowsocks || (method.isNotBlank() && (method == "none" || password.isNotBlank())))
+    val mux = shadowsocks && store.getBoolean("enableMux",false)
+    val muxValid = !mux || (!store.getBoolean("sUoT",false) && listOf("muxConcurrency","muxMaxConnections","muxMinStreams").all { store.getString(it,"").orEmpty().toIntOrNull()?.let { n -> n >= 0 } == true } && (!store.getBoolean("muxBrutal",false) || listOf("muxBrutalUp","muxBrutalDown").all { store.getString(it,"").orEmpty().toIntOrNull()?.let { n -> n > 0 } == true }))
+    val valid = muxValid && dialerValid && address.isNotBlank() && port.toIntOrNull()?.let { it in 1..65535 } == true && (!shadowsocks || (method.isNotBlank() && (method == "none" || password.isNotBlank())))
     val title = if (shadowsocks) "Shadowsocks" else when(version) { 0 -> "SOCKS4"; 1 -> "SOCKS4A"; else -> "SOCKS5" }
     fun write(key: String, value: String) { store.putString(key,value); revision++ }
     androidx.activity.compose.BackHandler(section.isNotEmpty()) { section = "" }
@@ -38,7 +40,7 @@ fun SimpleProxyScreen(shadowsocks: Boolean, onSave: () -> Unit, onClose: () -> U
         })
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (section.isEmpty()) {
-                val sections = listOf("General" to "Server and protocol", "Authentication" to (if (shadowsocks) method else "Credentials"), "Advanced" to (if (shadowsocks) "Plugin and UDP" else "UDP options"), "Connection" to "Network and dialer")
+                val sections = listOf("General" to "Server and protocol", "Authentication" to (if (shadowsocks) method else "Credentials"), "Advanced" to (if (shadowsocks) "Plugin and UDP" else "UDP options"), "Connection" to "Network and dialer") + if (shadowsocks) listOf("Multiplex" to (if (mux) "Enabled" else "Disabled")) else emptyList()
                 items(sections.size) { i ->
                     val (label, detail) = sections[i]
                     Card(onClick = { section = label }, modifier = Modifier.fillMaxWidth()) {
@@ -79,6 +81,31 @@ fun SimpleProxyScreen(shadowsocks: Boolean, onSave: () -> Unit, onClose: () -> U
                     if (shadowsocks || version == 2) SimpleField("Password",password,true) { if (shadowsocks) write("password",it) else { DataStore.serverPassword = it; revision++ } }
                 }
             }
+            if (section == "Multiplex" && shadowsocks) item {
+                SimpleSection("Multiplex") {
+                    SimpleToggle("Enable multiplex",mux) {
+                        store.putBoolean("enableMux",it)
+                        if (it) store.putBoolean("sUoT",false)
+                        revision++
+                    }
+                    if (mux) {
+                        ProfileChoices(listOf("0" to "h2mux","1" to "smux","2" to "yamux","3" to "rmux (experimental)"),store.getString("muxType","0").orEmpty()) { write("muxType",it) }
+                        SimpleToggle("Padding",store.getBoolean("muxPadding",false)) { store.putBoolean("muxPadding",it); revision++ }
+                        val connectionMode = listOf("muxMaxConnections","muxMinStreams").any { (store.getString(it,"0").orEmpty().toIntOrNull() ?: 0) > 0 }
+                        if (!connectionMode) SimpleField("Maximum streams",store.getString("muxConcurrency","1").orEmpty()) { write("muxConcurrency",it) }
+                        listOf("muxMaxConnections" to "Maximum connections","muxMinStreams" to "Minimum streams").forEach { (key,label) ->
+                            SimpleField(label,store.getString(key,"0").orEmpty()) { write(key,it); if ((it.toIntOrNull() ?: 0) > 0) write("muxConcurrency","0") }
+                        }
+                        val brutal = store.getBoolean("muxBrutal",false)
+                        SimpleToggle("TCP Brutal",brutal) { store.putBoolean("muxBrutal",it); revision++ }
+                        if (brutal) {
+                            SimpleField("Upload bandwidth (Mbps)",store.getString("muxBrutalUp","0").orEmpty()) { write("muxBrutalUp",it) }
+                            SimpleField("Download bandwidth (Mbps)",store.getString("muxBrutalDown","0").orEmpty()) { write("muxBrutalDown",it) }
+                        }
+                        if (!muxValid) Text("Check multiplex limits and bandwidth",color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
             if (section == "Connection") item {
                 SimpleSection("Connection") {
                     if (shadowsocks || version == 2) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -98,7 +125,7 @@ fun SimpleProxyScreen(shadowsocks: Boolean, onSave: () -> Unit, onClose: () -> U
                     }
                     if (shadowsocks || version == 2) Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Text("UDP over TCP", Modifier.weight(1f))
-                        Switch(store.getBoolean("sUoT",false), { store.putBoolean("sUoT",it); revision++ })
+                        Switch(store.getBoolean("sUoT",false), { store.putBoolean("sUoT",it); revision++ }, enabled = !mux)
                     } else Text("SOCKS4 and SOCKS4A support TCP only.")
                 }
             }
@@ -110,4 +137,8 @@ fun SimpleProxyScreen(shadowsocks: Boolean, onSave: () -> Unit, onClose: () -> U
 }
 @Composable private fun SimpleField(label: String, value: String, secret: Boolean = false, change: (String) -> Unit) {
     OutlinedTextField(value, change, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None)
+}
+
+@Composable private fun SimpleToggle(label: String, value: Boolean, change: (Boolean)->Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(label,Modifier.weight(1f)); Switch(value,change) }
 }
