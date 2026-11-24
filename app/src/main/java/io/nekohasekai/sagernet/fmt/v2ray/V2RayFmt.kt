@@ -40,6 +40,11 @@ fun StandardV2RayBean.setTLS(boolean: Boolean) {
 }
 
 fun parseV2Ray(link: String): StandardV2RayBean {
+    if (link.startsWith("vless://", ignoreCase = true)) {
+        val url = ("https://" + link.substringAfter("://")).toHttpUrl()
+        require(url.username.isNotBlank() && url.password.isEmpty()) { "Invalid VLESS user info" }
+        return VMessBean().apply { alterId = -1; parseDuckSoft(url) }
+    }
     // Try parse stupid formats first
 
     if (!link.contains("?")) {
@@ -207,7 +212,7 @@ fun StandardV2RayBean.parseDuckSoft(url: HttpUrl) {
                 path = it
             }
             url.queryParameter("ed")?.let { ed ->
-                wsMaxEarlyData = ed.toInt()
+                wsMaxEarlyData = ed.toIntOrNull()?.takeIf { it >= 0 } ?: 0
 
                 url.queryParameter("eh")?.let {
                     earlyDataHeaderName = it
@@ -236,6 +241,12 @@ fun StandardV2RayBean.parseDuckSoft(url: HttpUrl) {
     if (isVLESS) {
         url.queryParameter("encryption")?.let { vlessEncryption = it }
         url.queryParameter("network")?.let { vlessNetwork = it }
+        if (type == "kcp" || type == "mkcp") {
+            type = "kcp"
+            url.queryParameter("headerType")?.let { kcpHeader = it }
+            url.queryParameter("seed")?.let { kcpSeed = it }
+        }
+        url.queryParameter("pinSHA256")?.let { tlsPubKeySha256 = it }
     }
 
     // maybe from matsuri vmess exoprt
@@ -247,7 +258,7 @@ fun StandardV2RayBean.parseDuckSoft(url: HttpUrl) {
 
     url.queryParameter("packetEncoding")?.let {
         when (it) {
-            "packet" -> packetEncoding = 1
+            "packet", "packetaddr" -> packetEncoding = 1
             "xudp" -> packetEncoding = 2
         }
     }
@@ -453,7 +464,7 @@ fun StandardV2RayBean.toUriVMessVLESSTrojan(isTrojan: Boolean): String {
     if (isVLESS) {
         builder.addQueryParameter("encryption", vlessEncryption.ifBlank { "none" })
         if (vlessNetwork.isNotBlank()) builder.addQueryParameter("network", vlessNetwork)
-        if (encryption != "auto") builder.addQueryParameter("flow", encryption)
+        if (encryption.isNotBlank() && encryption !in listOf("auto", "none")) builder.addQueryParameter("flow", encryption)
     }
 
     when (type) {
@@ -478,6 +489,12 @@ fun StandardV2RayBean.toUriVMessVLESSTrojan(isTrojan: Boolean): String {
             }
         }
 
+        "kcp" -> {
+            if (isVLESS) {
+                if (kcpHeader.isNotBlank()) builder.addQueryParameter("headerType", kcpHeader)
+                if (kcpSeed.isNotBlank()) builder.addQueryParameter("seed", kcpSeed)
+            }
+        }
         "grpc" -> {
             if (path.isNotBlank()) {
                 builder.setQueryParameter("serviceName", path)
@@ -507,6 +524,7 @@ fun StandardV2RayBean.toUriVMessVLESSTrojan(isTrojan: Boolean): String {
                 if (certificates.isNotBlank()) {
                     builder.addQueryParameter("cert", certificates)
                 }
+                if (isVLESS && tlsPubKeySha256.isNotBlank()) builder.addQueryParameter("pinSHA256", tlsPubKeySha256)
                 if (allowInsecure) {
                     builder.addQueryParameter("allowInsecure", "1")
                 }
