@@ -1546,11 +1546,12 @@ class ConfigurationFragment @JvmOverloads constructor(
                 val surface = com.google.android.material.color.MaterialColors.getColor(view, com.google.android.material.R.attr.colorSurface)
                 val primary = com.google.android.material.color.MaterialColors.getColor(view, androidx.appcompat.R.attr.colorPrimary)
                 profileType.background = android.graphics.drawable.GradientDrawable().apply {
-                    cornerRadius = dp2px(10).toFloat()
+                    cornerRadius = 10 * view.resources.displayMetrics.density
                     setColor(androidx.core.graphics.ColorUtils.blendARGB(surface, primary, 0.12f))
                 }
                 profileType.setTextColor(requireContext().getColorAttr(android.R.attr.textColorPrimary))
-                profileType.setPadding(dp2px(10), dp2px(4), dp2px(10), dp2px(4))
+                val density = view.resources.displayMetrics.density
+                profileType.setPadding((10 * density).toInt(), (4 * density).toInt(), (10 * density).toInt(), (4 * density).toInt())
 
                 var rx = proxyEntity.rx
                 var tx = proxyEntity.tx
