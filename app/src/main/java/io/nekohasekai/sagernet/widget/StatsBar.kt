@@ -7,6 +7,11 @@ import io.nekohasekai.sagernet.ui.compose.ConnectionViewModel
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import io.nekohasekai.sagernet.ui.compose.ConnectionPower
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +42,7 @@ class StatsBar @JvmOverloads constructor(
     private val model by lazy { ViewModelProvider(context as MainActivity)[ConnectionViewModel::class.java] }
     private var composeInitialized = false
     var allowShow = true
+    var onPowerClick: () -> Unit = {}
 
     fun performShow() {
         if (allowShow) visibility = View.VISIBLE
@@ -61,30 +67,48 @@ class StatsBar @JvmOverloads constructor(
             findViewById<ComposeView>(R.id.stats_compose).setContent {
                 val ui = model.state.collectAsState().value
                 HubTheme {
-                    Column(Modifier.padding(start = 4.dp, end = 8.dp)) {
-                        Text((if (ui.connected) "●  " else "") + ui.status,
-                            fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(ui.mode, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Surface(modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.medium,
-                                color = MaterialTheme.colorScheme.secondaryContainer) {
-                                Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                                    Text("Download", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                                    Text(ui.rx, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                                }
-                            }
-                            Surface(modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.medium,
-                                color = MaterialTheme.colorScheme.tertiaryContainer) {
-                                Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                                    Text("Upload", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                                    Text(ui.tx, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                                }
-                            }
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(Modifier.fillMaxWidth().clickable { performClick() },
+                            horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text((if (ui.connected) "●  " else "") + ui.status,
+                                fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            Text(ui.mode, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SpeedIndicator("Download", ui.rx, false, Modifier.weight(1f).clickable { performClick() })
+                            Box(Modifier.size(76.dp)) { ConnectionPower(ui.serviceState, onPowerClick) }
+                            SpeedIndicator("Upload", ui.tx, true, Modifier.weight(1f).clickable { performClick() })
                         }
                     }
                 }
             }
+        }
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun SpeedIndicator(label: String, speed: String, upload: Boolean, modifier: Modifier) {
+        val tint = MaterialTheme.colorScheme.primary
+        Column(modifier, horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Canvas(Modifier.size(20.dp)) {
+                val x = size.width / 2
+                val top = size.height * .2f
+                val bottom = size.height * .8f
+                val tip = if (upload) top else bottom
+                val shoulder = if (upload) size.height * .45f else size.height * .55f
+                val stroke = 2.dp.toPx()
+                drawLine(tint, Offset(x, top), Offset(x, bottom), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
+                drawLine(tint, Offset(x, tip), Offset(size.width * .25f, shoulder), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
+                drawLine(tint, Offset(x, tip), Offset(size.width * .75f, shoulder), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
+            }
+            Text(speed.trimStart('▲', '▼', ' ').ifBlank { "0 B/s" }, fontSize = 13.sp,
+                fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 
