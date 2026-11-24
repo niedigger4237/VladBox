@@ -10,16 +10,16 @@ fi
 ./sync_gomod.sh || exit 1
 
 # Install gomobile
-if [ ! -f "$GOPATH/bin/gomobile-matsuri" ]; then
-    git clone https://github.com/MatsuriDayo/gomobile.git
+if [ -n "${GOMOBILE_REVISION:-}" ] || [ ! -f "$GOPATH/bin/gomobile-matsuri" ]; then
+    git clone https://github.com/MatsuriDayo/gomobile.git || exit 1
     pushd gomobile
-	git checkout origin/master2
+	git checkout "${GOMOBILE_REVISION:-origin/master2}" || exit 1
     pushd cmd
     pushd gomobile
-    go install -v
+    go install -v || exit 1
     popd
     pushd gobind
-    go install -v
+    go install -v || exit 1
     popd
     popd
     rm -rf gomobile
