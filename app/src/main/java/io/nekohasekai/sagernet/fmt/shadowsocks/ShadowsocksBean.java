@@ -20,6 +20,15 @@ public class ShadowsocksBean extends AbstractBean {
     public Boolean sUoT;
     public String outboundNetwork;
     public String outboundDialer;
+    public Boolean enableMux;
+    public Boolean muxPadding;
+    public Integer muxType;
+    public Integer muxConcurrency;
+    public Integer muxMaxConnections;
+    public Integer muxMinStreams;
+    public Boolean muxBrutal;
+    public Integer muxBrutalUp;
+    public Integer muxBrutalDown;
 
     @Override
     public void initializeDefaultValues() {
@@ -32,11 +41,20 @@ public class ShadowsocksBean extends AbstractBean {
         if (sUoT == null) sUoT = false;
         if (outboundNetwork == null) outboundNetwork = "";
         if (outboundDialer == null) outboundDialer = "";
+        if (enableMux == null) enableMux = false;
+        if (muxPadding == null) muxPadding = false;
+        if (muxType == null) muxType = 0;
+        if (muxConcurrency == null) muxConcurrency = 1;
+        if (muxMaxConnections == null) muxMaxConnections = 0;
+        if (muxMinStreams == null) muxMinStreams = 0;
+        if (muxBrutal == null) muxBrutal = false;
+        if (muxBrutalUp == null) muxBrutalUp = 0;
+        if (muxBrutalDown == null) muxBrutalDown = 0;
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(3);
+        output.writeInt(4);
         super.serialize(output);
         output.writeString(method);
         output.writeString(password);
@@ -44,6 +62,15 @@ public class ShadowsocksBean extends AbstractBean {
         output.writeBoolean(sUoT);
         output.writeString(outboundNetwork);
         output.writeString(outboundDialer);
+        output.writeBoolean(enableMux);
+        output.writeBoolean(muxPadding);
+        output.writeInt(muxType);
+        output.writeInt(muxConcurrency);
+        output.writeInt(muxMaxConnections);
+        output.writeInt(muxMinStreams);
+        output.writeBoolean(muxBrutal);
+        output.writeInt(muxBrutalUp);
+        output.writeInt(muxBrutalDown);
     }
 
     @Override
@@ -57,6 +84,17 @@ public class ShadowsocksBean extends AbstractBean {
         if (version >= 3) {
             outboundNetwork = input.readString();
             outboundDialer = input.readString();
+        }
+        if (version >= 4) {
+            enableMux = input.readBoolean();
+            muxPadding = input.readBoolean();
+            muxType = input.readInt();
+            muxConcurrency = input.readInt();
+            muxMaxConnections = input.readInt();
+            muxMinStreams = input.readInt();
+            muxBrutal = input.readBoolean();
+            muxBrutalUp = input.readInt();
+            muxBrutalDown = input.readInt();
         }
     }
 
