@@ -102,6 +102,7 @@ class StatsBar @JvmOverloads constructor(
         refreshMode()
         val connected = state == BaseService.State.Connected
         model.updateConnected(connected)
+        if (!connected) connectionTestJob?.cancel()
         if (state == BaseService.State.Connected) {
             postWhenStarted {
                 if (allowShow) performShow()
@@ -139,40 +140,40 @@ class StatsBar @JvmOverloads constructor(
         model.updateSpeed(tx, rx)
     }
 
+    private var connectionTestJob: kotlinx.coroutines.Job? = null
+
     fun testConnection() {
         val activity = context as MainActivity
+        if (connectionTestJob?.isActive == true) return
+        if (!DataStore.serviceState.connected) return
         isEnabled = false
         setStatus(app.getText(R.string.connection_test_testing))
-        runOnDefaultDispatcher {
+        connectionTestJob = activity.lifecycleScope.launch {
             try {
-                val elapsed = activity.urlTest()
-                onMainDispatcher {
-                    isEnabled = true
-                    setStatus(
-                        app.getString(
-                            if (DataStore.connectionTestURL.startsWith("https://")) {
-                                R.string.connection_test_available
-                            } else {
-                                R.string.connection_test_available_http
-                            }, elapsed
-                        )
-                    )
+                val elapsed = kotlinx.coroutines.withTimeout(12000L) {
+                    kotlinx.coroutines.suspendCancellableCoroutine<Int> { continuation ->
+                        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                            val result = runCatching { activity.urlTest() }
+                            if (continuation.isActive) continuation.resumeWith(result)
+                        }
+                    }
                 }
-
+                if (DataStore.serviceState.connected) {
+                    setStatus(app.getString(
+                        if (DataStore.connectionTestURL.startsWith("https://")) R.string.connection_test_available
+                        else R.string.connection_test_available_http, elapsed))
+                }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException && e !is kotlinx.coroutines.TimeoutCancellationException) throw e
                 Logs.w(e.toString())
-                onMainDispatcher {
-                    isEnabled = true
-                    setStatus(app.getText(R.string.connection_test_testing))
-
-                    activity.snackbar(
-                        app.getString(
-                            R.string.connection_test_error, e.readableMessage
-                        )
-                    ).show()
+                if (DataStore.serviceState.connected) {
+                    val message = app.getString(R.string.connection_test_error, e.readableMessage)
+                    setStatus(message)
+                    activity.snackbar(message).show()
                 }
+            } finally {
+                isEnabled = true
             }
         }
     }
-
 }
