@@ -6,6 +6,10 @@ on:
         description: "Fast: arm64 only (debug builds). Disable for a full multi-ABI build."
         type: boolean
         default: true
+      compile_only:
+        description: "Check Android Kotlin/Java compilation only (no APK, R8 or signing)."
+        type: boolean
+        default: false
       force_core_rebuild:
         description: "Force native core rebuild and Go validation."
         type: boolean
@@ -189,7 +193,7 @@ jobs:
           path: app/src/main/jniLibs/
           if-no-files-found: error
   build:
-    name: Build OSS APK
+    name: ${{ inputs.compile_only && 'Android Compile Check' || 'Build OSS APK' }}
     runs-on: ubuntu-latest
     needs:
       - libcore
@@ -219,11 +223,13 @@ jobs:
         with:
           cache-read-only: false
       - name: Install Go for SRS compiler
+        if: ${{ !inputs.compile_only }}
         uses: actions/setup-go@v5
         with:
           go-version: "1.26.4"
           cache: false
       - name: Cache SRS compiler
+        if: ${{ !inputs.compile_only }}
         uses: actions/cache@v4
         with:
           path: |
@@ -231,8 +237,18 @@ jobs:
             ~/.cache/go-build
           key: srs-compiler-v1-${{ runner.os }}-${{ hashFiles('buildScript/lib/assets.sh') }}
       - name: Restore keystore
+        if: ${{ !inputs.compile_only }}
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+      - name: Android Compile Check
+        if: ${{ inputs.compile_only }}
+        env:
+          BUILD_PLUGIN: none
+        run: |
+          echo "sdk.dir=${ANDROID_HOME}" > local.properties
+          echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
+          ./gradlew --build-cache --profile -PpreviewArm64Only=${{ inputs.fast }} app:compilePreviewReleaseKotlin app:compilePreviewReleaseJavaWithJavac
       - name: Gradle Build
+        if: ${{ !inputs.compile_only }}
         env:
           BUILD_PLUGIN: none
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
@@ -255,6 +271,7 @@ jobs:
           path: build/reports/profile/
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.compile_only }}
         with:
           name: APKs
           path: ${{ env.APK }}
