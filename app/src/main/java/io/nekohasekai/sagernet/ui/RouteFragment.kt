@@ -40,6 +40,13 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
 
     private lateinit var routeBackCallback: OnBackPressedCallback
     private var showingRules = false
+    private val barTitle = androidx.compose.runtime.mutableStateOf("")
+    private val barSubtitle = androidx.compose.runtime.mutableStateOf<String?>(null)
+
+    private fun syncComposeBar() {
+        barTitle.value = toolbar.title?.toString().orEmpty()
+        barSubtitle.value = toolbar.subtitle?.toString()
+    }
     private lateinit var profileHome: LinearLayout
     lateinit var activity: MainActivity
     lateinit var ruleListView: RecyclerView
@@ -61,6 +68,29 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         toolbar.inflateMenu(R.menu.add_route_menu)
         toolbar.menu.add(0, 0x741231, 0, "Profiles").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
         toolbar.setOnMenuItemClickListener(this)
+        if (!io.nekohasekai.sagernet.SagerNet.isTv) {
+            val oldBar = view.findViewById<View>(R.id.appbar)
+            val parent = oldBar.parent as ViewGroup
+            val host = androidx.compose.ui.platform.ComposeView(requireContext())
+            host.setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            oldBar.visibility = View.GONE
+            parent.addView(host, parent.indexOfChild(oldBar), ViewGroup.LayoutParams(-1, -2))
+            syncComposeBar()
+            host.setContent {
+                io.nekohasekai.sagernet.ui.compose.HubTheme {
+                    io.nekohasekai.sagernet.ui.compose.VladTopAppBar(
+                        title = barTitle.value,
+                        subtitle = barSubtitle.value,
+                        onNavigation = { activity.binding.drawerLayout.openDrawer(androidx.core.view.GravityCompat.START) },
+                        onAdd = { handleRouteAction(R.id.action_new_route) },
+                        addLabel = getString(R.string.route_add),
+                        onProfiles = { handleRouteAction(0x741231) },
+                        onReset = { handleRouteAction(R.id.action_reset_route) },
+                        resetLabel = getString(R.string.route_reset)
+                    )
+                }
+            }
+        }
 
         val content = view.findViewById<LinearLayout>(R.id.route_content)
         profileHome = LinearLayout(requireContext()).apply {
@@ -137,6 +167,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         super.onResume()
         if (showingRules) {
             toolbar.subtitle = RouteProfiles.all().firstOrNull { it.id == RouteProfiles.selectedId() }?.name ?: "Default"
+            syncComposeBar()
             if (::ruleAdapter.isInitialized) runOnDefaultDispatcher { ruleAdapter.reload() }
         } else renderProfileHome()
     }
@@ -151,6 +182,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         ruleListView.visibility = View.VISIBLE
         toolbar.setTitle(R.string.menu_route)
         toolbar.subtitle = RouteProfiles.all().firstOrNull { it.id == RouteProfiles.selectedId() }?.name
+        syncComposeBar()
         runOnDefaultDispatcher { ruleAdapter.reload() }
     }
 
@@ -190,6 +222,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         routeBackCallback.isEnabled = false
         toolbar.subtitle = null
         toolbar.title = "Routing profiles"
+        syncComposeBar()
         ruleListView.visibility = View.GONE
         (profileHome.parent as View).visibility = View.VISIBLE
         profileHome.removeAllViews()
@@ -227,8 +260,10 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         super.onDestroy()
     }
 
-    override fun onMenuItemClick(item: MenuItem): Boolean {
-        when (item.itemId) {
+    override fun onMenuItemClick(item: MenuItem): Boolean = handleRouteAction(item.itemId)
+
+    private fun handleRouteAction(itemId: Int): Boolean {
+        when (itemId) {
             0x741231 -> renderProfileHome()
             R.id.action_new_route -> {
                 startActivity(Intent(context, RouteSettingsActivity::class.java))
