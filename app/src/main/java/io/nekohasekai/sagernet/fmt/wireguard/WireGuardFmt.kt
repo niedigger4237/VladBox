@@ -69,6 +69,24 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean): SingBoxOptions.Endpo
             if (bean.persistentKeepalive > 0) persistent_keepalive_interval = bean.persistentKeepalive
         })
         if (!bean.isAmnezia) {
+            if (bean.wgDialer.isNotBlank()) {
+                val dialer = org.json.JSONObject(bean.wgDialer)
+                val allowed = setOf("bind_interface", "inet4_bind_address", "inet6_bind_address",
+                    "bind_address_no_port", "protect_path", "routing_mark", "reuse_addr", "netns",
+                    "connect_timeout", "tcp_fast_open", "tcp_multi_path", "disable_tcp_keep_alive",
+                    "tcp_keep_alive", "tcp_keep_alive_interval", "udp_fragment", "domain_resolver",
+                    "network_strategy", "network_type", "fallback_network_type", "fallback_delay")
+                fun native(value: Any): Any? = when (value) {
+                    org.json.JSONObject.NULL -> null
+                    is org.json.JSONObject -> value.keys().asSequence().associateWith { native(value.get(it)) }
+                    is org.json.JSONArray -> (0 until value.length()).map { native(value.get(it)) }
+                    else -> value
+                }
+                for (key in dialer.keys()) {
+                    require(key in allowed) { "Unsupported WireGuard dialer field: $key" }
+                    native(dialer.get(key))?.let { _hack_config_map[key] = it }
+                }
+            }
             require(bean.wgListenPort in 0..65535) { "Invalid WireGuard listen port" }
             require(bean.wgUdpNatMax >= 0 && bean.wgBuffers >= 0) { "Invalid WireGuard resource limits" }
             if (bean.system && bean.wgInterfaceName.isNotBlank()) _hack_config_map["name"] = bean.wgInterfaceName.trim()
