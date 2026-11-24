@@ -16,30 +16,35 @@ import androidx.preference.*
 import io.nekohasekai.sagernet.R
 import kotlinx.coroutines.flow.StateFlow
 
-fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, revision: StateFlow<Int>, changed: () -> Unit) {
+fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: SettingsViewModel, changed: () -> Unit) {
     host.setContent {
         HubTheme {
-            val rev by revision.collectAsState()
-            var category by remember { mutableStateOf<Int?>(null) }
-            var query by remember { mutableStateOf("") }
-            val groups = remember(rev) { (0 until screen.preferenceCount).mapNotNull { screen.getPreference(it) as? PreferenceCategory } }
+            val state by model.state.collectAsState()
+            val category = state.category
+            val query = state.query
             val mode = screen.findPreference<ListPreference>("serviceMode")
+            val modeValue = remember(state.revision) { mode?.value ?: "vpn" }
+            fun visible(pref: Preference) = pref.isVisible && settingVisible(pref.key, modeValue)
+            val groups = remember(state.revision) {
+                (0 until screen.preferenceCount).mapNotNull { screen.getPreference(it) as? PreferenceCategory }
+                    .filter { group -> (0 until group.preferenceCount).any { visible(group.getPreference(it)) } }
+            }
             Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
                 if (category != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { category = null }) { Text("‹") }
-                        Text(groups.getOrNull(category ?: -1)?.title?.toString().orEmpty(), style = MaterialTheme.typography.titleLarge)
+                        TextButton(onClick = { model.select(null) }) { Text("‹") }
+                        Text(groups.firstOrNull { it.title.toString() == category }?.title?.toString().orEmpty(), style = MaterialTheme.typography.titleLarge)
                     }
-                    androidx.activity.compose.BackHandler { category = null }
+                    androidx.activity.compose.BackHandler { model.select(null) }
                 } else {
-                    OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(vertical = 8.dp), label = { Text("Search settings") }, singleLine = true)
+                    OutlinedTextField(query, { model.search(it) }, Modifier.fillMaxWidth().padding(vertical = 8.dp), label = { Text("Search settings") }, singleLine = true)
                 }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
                     if (category == null && query.isBlank()) {
-                        if (mode != null) item { SettingTile(mode, changed, true) }
+                        if (mode != null) item { SettingTile(mode, changed, true, state.revision) }
                         items(groups.size) { index ->
                             val group = groups[index]
-                            Card(Modifier.fillMaxWidth().clickable { category = index }, shape = RoundedCornerShape(22.dp)) {
+                            Card(Modifier.fillMaxWidth().clickable { model.select(group.title.toString()) }, shape = RoundedCornerShape(22.dp)) {
                                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
                                         Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
@@ -49,17 +54,17 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, revision:
                                     Spacer(Modifier.width(12.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(group.title.toString(), style = MaterialTheme.typography.titleMedium)
-                                        Text((0 until group.preferenceCount).map { group.getPreference(it) }.filter { it.isVisible }.take(3).joinToString(" · ") { it.title.toString() }, style = MaterialTheme.typography.bodySmall)
+                                        Text((0 until group.preferenceCount).map { group.getPreference(it) }.filter { visible(it) }.take(3).joinToString(" · ") { it.title.toString() }, style = MaterialTheme.typography.bodySmall)
                                     }
                                     Text("›", style = MaterialTheme.typography.headlineSmall)
                                 }
                             }
                         }
                     } else {
-                        val visible = groups.filterIndexed { index, _ -> category == null || category == index }.flatMap { group ->
+                        val visible = groups.filter { category == null || category == it.title.toString() }.flatMap { group ->
                             (0 until group.preferenceCount).map { group.getPreference(it) }
-                        }.filter { it.isVisible && (query.isBlank() || it.title.toString().contains(query, true) || it.key.orEmpty().contains(query, true) || it.summary.toString().contains(query, true)) }
-                        items(visible, key = { it.key }) { pref -> SettingTile(pref, changed) }
+                        }.filter { visible(it) && (query.isBlank() || it.title.toString().contains(query, true) || it.key.orEmpty().contains(query, true) || it.summary.toString().contains(query, true)) }
+                        items(visible, key = { it.key }) { pref -> SettingTile(pref, changed, revision = state.revision) }
                     }
                 }
             }
@@ -67,12 +72,13 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, revision:
     }
 }
 
-@Composable private fun SettingTile(pref: Preference, changed: () -> Unit, featured: Boolean = false) {
+@Composable private fun SettingTile(pref: Preference, changed: () -> Unit, featured: Boolean = false, revision: Int = 0) {
     var expanded by remember(pref.key) { mutableStateOf(false) }
     var edit by remember(pref.key) { mutableStateOf(false) }
     var extra by remember(pref.key) { mutableStateOf(false) }
     var draft by remember(pref.key) { mutableStateOf("") }
     var concurrent by remember(pref.key) { mutableStateOf("") }
+    val checked = remember(revision, pref.key) { (pref as? TwoStatePreference)?.isChecked ?: false }
     val data = io.nekohasekai.sagernet.database.DataStore
     if (edit || extra) {
         val port = pref.key in setOf("mixedPort", "socksPort", "rootTproxyPort", "bpfBridgePort")
@@ -125,7 +131,7 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, revision:
                 if (summary.isNotBlank()) Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (pref is TwoStatePreference) {
-                Switch(pref.isChecked, { value -> if (pref.callChangeListener(value)) { pref.isChecked = value; changed() } }, enabled = pref.isEnabled)
+                Switch(checked, { value -> if (pref.callChangeListener(value)) { pref.isChecked = value; changed() } }, enabled = pref.isEnabled)
             } else {
                 Box {
                     Text("›", style = MaterialTheme.typography.headlineSmall)
