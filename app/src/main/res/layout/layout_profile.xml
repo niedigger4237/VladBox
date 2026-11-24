@@ -13,8 +13,8 @@
     app:cardBackgroundColor="?attr/colorSurface"
     app:cardCornerRadius="22dp"
     app:cardElevation="0dp"
-    app:strokeColor="@color/niefiger_card_stroke"
-    app:strokeWidth="1dp">
+    app:strokeColor="?attr/colorOutline"
+    app:strokeWidth="0dp">
 
     <LinearLayout
         android:id="@+id/content_lin"
@@ -64,12 +64,11 @@
                         android:layout_height="48dp"
                         android:gravity="center"
                         android:visibility="invisible">
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="✓"
-                            android:textSize="22sp"
-                            android:textColor="?android:attr/textColorPrimary" />
+                        <androidx.appcompat.widget.AppCompatImageView
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            app:srcCompat="@drawable/ic_profile_selected"
+                            app:tint="?attr/colorOnPrimaryContainer" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -146,18 +145,19 @@
                         android:textAppearance="?android:attr/textAppearanceSmall"
                         android:textColor="?attr/accentOrTextSecondary" />
 
+                    <TextView
+                        android:id="@+id/profile_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:textAppearance="?android:attr/textAppearanceSmall"
+                        android:textColor="?attr/accentOrTextSecondary" />
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1" />
 
-                    <TextView
-                        android:id="@+id/profile_status"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="4dp"
-                        android:textAppearance="?android:attr/textAppearanceSmall"
-                        android:textColor="?attr/accentOrTextSecondary" />
+
                     <androidx.appcompat.widget.AppCompatImageView
                         android:id="@+id/edit"
                         android:layout_width="wrap_content"
