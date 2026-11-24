@@ -92,6 +92,8 @@ public abstract class StandardV2RayBean extends AbstractBean {
     public String tlsClientKey;
     public String echQueryName;
     public Boolean realityHybrid;
+    public String vlessEncryption;
+    public String vlessNetwork;
 
 
     // --------------------------------------- //
@@ -168,11 +170,13 @@ public abstract class StandardV2RayBean extends AbstractBean {
         if (tlsClientKey == null) tlsClientKey = "";
         if (echQueryName == null) echQueryName = "";
         if (realityHybrid == null) realityHybrid = false;
+        if (vlessEncryption == null) vlessEncryption = "";
+        if (vlessNetwork == null) vlessNetwork = "";
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(6);
+        output.writeInt(7);
         super.serialize(output);
         output.writeString(uuid);
         output.writeString(encryption);
@@ -258,6 +262,8 @@ public abstract class StandardV2RayBean extends AbstractBean {
         output.writeString(tlsClientKey);
         output.writeString(echQueryName);
         output.writeBoolean(realityHybrid);
+        output.writeString(vlessEncryption);
+        output.writeString(vlessNetwork);
     }
 
     @Override
@@ -385,6 +391,10 @@ public abstract class StandardV2RayBean extends AbstractBean {
             tlsClientKey = input.readString();
             echQueryName = input.readString();
             realityHybrid = input.readBoolean();
+        }
+        if (version >= 7) {
+            vlessEncryption = input.readString();
+            vlessNetwork = input.readString();
         }
     }
 
