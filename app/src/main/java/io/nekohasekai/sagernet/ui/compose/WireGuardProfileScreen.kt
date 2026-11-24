@@ -20,14 +20,38 @@ fun WireGuardProfileScreen(onPeers: () -> Unit, onImport: () -> Unit, onExport: 
     fun checked(key: String): Boolean { revision; return store.getBoolean(key,false) }
     fun toggle(key: String, value: Boolean) { store.putBoolean(key,value); revision++ }
     val natModes = listOf("" to "Default", "endpoint_independent" to "Endpoint independent", "address_dependent" to "Address dependent", "address_and_port_dependent" to "Address and port dependent")
+    var section by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    androidx.activity.compose.BackHandler(enabled = section.isNotEmpty()) { section = "" }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
+        if (section.isEmpty()) {
+            items(6) { index ->
+                val names = listOf("General","Interface","Peers","UDP & NAT","Dialer settings","Import / Export")
+                val descriptions = listOf("Profile name and protocol","Address, keys and MTU","Endpoints and allowed IPs","Mapping, filtering and limits","Connection and network options","WireGuard configuration files")
+                Card(onClick = { section = names[index] }, modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(names[index],style = MaterialTheme.typography.titleLarge)
+                            Text(descriptions[index],style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Text("›",style = MaterialTheme.typography.headlineMedium)
+                    }
+                }
+            }
+        } else {
+            item {
+                Row(Modifier.fillMaxWidth(),verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { section = "" }) { Text("‹ Back") }
+                    Text(section,style = MaterialTheme.typography.titleLarge)
+                }
+            }
+        }
+        if (section == "General") item {
             WgCard("General") {
                 WgText("Profile name",read("name")) { write("name",it) }
                 OutlinedButton(onClick = onLegacy, modifier = Modifier.fillMaxWidth()) { Text("AmneziaWG / legacy editor") }
             }
         }
-        item {
+        if (section == "Interface") item {
             WgCard("Interface") {
                 WgText("Local address",read("localAddress")) { write("localAddress",it) }
                 WgText("Private key",read("privateKey"),true) { write("privateKey",it) }
@@ -38,7 +62,7 @@ fun WireGuardProfileScreen(onPeers: () -> Unit, onImport: () -> Unit, onExport: 
                 WgText("Workers",read("workers")) { write("workers",it) }
             }
         }
-        item {
+        if (section == "Peers") item {
             WgCard("Peers") {
                 WgText("Endpoint address",read("serverAddress")) { write("serverAddress",it) }
                 WgText("Endpoint port",read("serverPort")) { write("serverPort",it) }
@@ -50,7 +74,7 @@ fun WireGuardProfileScreen(onPeers: () -> Unit, onImport: () -> Unit, onExport: 
                 WgPeers(read("wgExtraPeers")) { write("wgExtraPeers",it) }
             }
         }
-        item {
+        if (section == "UDP & NAT") item {
             WgCard("UDP & NAT") {
                 WgText("UDP timeout",read("udpTimeout")) { write("udpTimeout",it) }
                 WgChoice("UDP mapping",read("wgUdpMapping"),natModes) { write("wgUdpMapping",it) }
@@ -60,18 +84,18 @@ fun WireGuardProfileScreen(onPeers: () -> Unit, onImport: () -> Unit, onExport: 
                 WgToggle("Disable pauses",checked("wgDisablePauses")) { toggle("wgDisablePauses",it) }
             }
         }
-        item {
+        if (section == "Dialer settings") item {
             WgCard("Dialer settings") {
                 WgDialer(read("wgDialer")) { write("wgDialer",it) }
             }
         }
-        item {
+        if (section == "Import / Export") item {
             WgCard("Import / Export") {
                 FilledTonalButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("Import .conf") }
                 OutlinedButton(onClick = onExport, modifier = Modifier.fillMaxWidth()) { Text("Export .conf") }
             }
         }
-        item {
+        if (section.isEmpty()) item {
             Button(onClick = onSave, modifier = Modifier.fillMaxWidth(), enabled = read("privateKey").isNotBlank() && read("peerPublicKey").isNotBlank() && read("localAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 0..65535 } == true) { Text("Save profile") }
         }
     }
