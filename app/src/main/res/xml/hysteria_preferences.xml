@@ -109,5 +109,16 @@
         <EditTextPreference app:key="hy2HopIntervalMax" app:title="Maximum hop interval" app:summary="Duration, e.g. 30s" />
         <EditTextPreference app:key="hy2GeckoMin" app:title="Gecko minimum packet size" app:summary="Optional positive integer" />
         <EditTextPreference app:key="hy2GeckoMax" app:title="Gecko maximum packet size" app:summary="Optional positive integer" />
+        <EditTextPreference app:key="hy2Network" app:title="Network (tcp / udp)" />
+        <EditTextPreference app:key="hy2IdleTimeout" app:title="QUIC idle timeout" />
+        <EditTextPreference app:key="hy2KeepAlive" app:title="QUIC keep alive period" />
+        <EditTextPreference app:key="hy2StreamWindow" app:title="Stream receive window" />
+        <EditTextPreference app:key="hy2ConnectionWindow" app:title="Connection receive window" />
+        <EditTextPreference app:key="hy2MaxStreams" app:title="Maximum concurrent streams" />
+        <EditTextPreference app:key="hy2InitialPacket" app:title="Initial packet size" />
+        <EditTextPreference app:key="hy2Realm" app:title="Realm JSON" />
+        <SwitchPreference app:key="hy2BrutalDebug" app:title="Brutal debug" />
+        <SwitchPreference app:key="hy2DisableChrome" app:title="Disable Chrome parrot" />
+        <SwitchPreference app:key="hy2DisablePathMtu" app:title="Disable path MTU discovery" />
     </PreferenceCategory>
 </PreferenceScreen> 
