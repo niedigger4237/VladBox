@@ -123,6 +123,10 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
     }
 
     override fun StandardV2RayBean.serialize() {
+        if (this is TrojanBean) {
+            this@StandardV2RaySettingsActivity.uuid.fieldName = "password"
+            this@StandardV2RaySettingsActivity.password.disable = true
+        }
         pbm.fromCacheAll(this)
         if (this is HttpBean) httpExtra.fromCacheAll(this)
     }
