@@ -129,6 +129,10 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
         savedInstanceState: Bundle?,
         rootKey: String?,
     ) {
+        if (tmpBean?.isVLESS == true || (this@StandardV2RaySettingsActivity is VMessSettingsActivity && intent.getBooleanExtra("vless", false))) {
+            preferenceScreen = preferenceManager.createPreferenceScreen(requireContext())
+            return
+        }
         addPreferencesFromResource(R.xml.standard_v2ray_preferences)
         pbm.setPreferenceFragment(this)
         securityCategory = findPreference(Key.SERVER_SECURITY_CATEGORY)!!
@@ -228,6 +232,37 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
         }
     }
 
+
+    override fun PreferenceFragmentCompat.viewCreated(view: android.view.View, savedInstanceState: Bundle?) {
+        if (tmpBean?.isVLESS != true && !(this@StandardV2RaySettingsActivity is VMessSettingsActivity && intent.getBooleanExtra("vless", false))) return
+        val legacyList = listView
+        val parent = legacyList.parent as? android.view.ViewGroup ?: return
+        val index = parent.indexOfChild(legacyList)
+        val params = legacyList.layoutParams
+        val menu = androidx.appcompat.widget.PopupMenu(requireContext(), legacyList).menu
+        this@StandardV2RaySettingsActivity.onCreateOptionsMenu(menu)
+        val actions = (0 until menu.size()).map { menu.getItem(it) }
+            .filter { it.isVisible && it.itemId != R.id.action_apply }
+            .map { item -> item.title.toString() to { this@StandardV2RaySettingsActivity.onOptionsItemSelected(item); Unit } }
+        supportActionBar?.hide()
+        findViewById<android.view.View>(R.id.appbar)?.visibility = android.view.View.GONE
+        findViewById<android.view.View>(R.id.settings)?.let { container ->
+            container.layoutParams = container.layoutParams.apply { height = android.view.ViewGroup.LayoutParams.MATCH_PARENT }
+        }
+        parent.removeView(legacyList)
+        val host = androidx.compose.ui.platform.ComposeView(requireContext())
+        host.setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        parent.addView(host, index, params)
+        host.setContent {
+            io.nekohasekai.sagernet.ui.compose.HubTheme {
+                io.nekohasekai.sagernet.ui.compose.VlessProfileScreen(
+                    onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
+                    onClose = { this@StandardV2RaySettingsActivity.onBackPressed() },
+                    menuItems = actions
+                )
+            }
+        }
+    }
 
     private fun PreferenceFragmentCompat.addXhttpFields() {
         val category = PreferenceCategory(requireContext()).apply {
