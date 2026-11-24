@@ -631,7 +631,7 @@ fun buildSingBoxOutboundStreamSettings(bean: StandardV2RayBean): V2RayTransportO
                 if (bean.host.isNotBlank()) host = bean.host
                 path = bean.path.takeIf { it.isNotBlank() } ?: "/"
                 mode = bean.xhttpMode.takeIf { it.isNotBlank() } ?: "auto"
-                XhttpExtra.toSingBox(bean.xhttpExtra).forEach { (k, v) ->
+                XhttpExtra.toSingBox(bean.xhttpExtra, mode).forEach { (k, v) ->
                     try {
                         javaClass.getField(k).set(this, v)
                     } catch (_: NoSuchFieldException) {
