@@ -177,10 +177,10 @@ class ConfigurationFragment @JvmOverloads constructor(
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        if (!select) {
+        if (!select && SagerNet.isTv) {
             toolbar.inflateMenu(R.menu.add_profile_menu)
             toolbar.setOnMenuItemClickListener(this)
-        } else {
+        } else if (select) {
             toolbar.setTitle(titleRes)
             toolbar.setNavigationIcon(R.drawable.ic_navigation_close)
             toolbar.setNavigationOnClickListener {
@@ -358,8 +358,23 @@ class ConfigurationFragment @JvmOverloads constructor(
 
     override fun onMenuItemClick(item: MenuItem): Boolean = onProfileAction(item.itemId)
 
+    fun currentProfileOrder(): Int = getCurrentGroupFragment()?.proxyGroup?.order ?: GroupOrder.ORIGIN
+
     fun onProfileAction(actionId: Int): Boolean {
         when (actionId) {
+            R.id.action_order_origin, R.id.action_order_by_name, R.id.action_order_by_delay -> {
+                val group = getCurrentGroupFragment()?.proxyGroup ?: return true
+                val order = when (actionId) {
+                    R.id.action_order_by_name -> GroupOrder.BY_NAME
+                    R.id.action_order_by_delay -> GroupOrder.BY_DELAY
+                    else -> GroupOrder.ORIGIN
+                }
+                if (group.order != order) runOnDefaultDispatcher {
+                    group.order = order
+                    GroupManager.updateGroup(group)
+                }
+            }
+
             R.id.action_scan_qr_code -> {
                 startActivity(Intent(context, ScannerActivity::class.java))
             }
@@ -1123,7 +1138,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         }
 
         fun checkOrderMenu() {
-            if (select) return
+            if (select || !SagerNet.isTv) return
 
             val pf = requireParentFragment() as? ToolbarFragment ?: return
             val menu = pf.toolbar.menu
