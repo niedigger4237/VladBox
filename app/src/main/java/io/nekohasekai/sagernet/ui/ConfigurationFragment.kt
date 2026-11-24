@@ -119,7 +119,7 @@ import java.util.zip.ZipInputStream
 
 class ConfigurationFragment @JvmOverloads constructor(
     val select: Boolean = false, val selectedItem: ProxyEntity? = null, val titleRes: Int = 0
-) : ToolbarFragment(R.layout.layout_group_list),
+) : ToolbarFragment(if (select || SagerNet.isTv) R.layout.layout_group_list else R.layout.layout_group_compose),
     PopupMenu.OnMenuItemClickListener,
     Toolbar.OnMenuItemClickListener,
     SearchView.OnQueryTextListener,
@@ -130,7 +130,7 @@ class ConfigurationFragment @JvmOverloads constructor(
     }
 
     lateinit var adapter: GroupPagerAdapter
-    lateinit var tabLayout: TabLayout
+    private var tabLayout: TabLayout? = null
     lateinit var groupPager: ViewPager2
 
     val alwaysShowAddress by lazy { DataStore.alwaysShowAddress }
@@ -188,22 +188,25 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
         }
 
-        val foreground = requireContext().getColorAttr(android.R.attr.textColorPrimary)
-        toolbar.overflowIcon = toolbar.overflowIcon?.mutate()?.apply { setTint(foreground) }
-        for (index in 0 until toolbar.menu.size()) {
-            val item = toolbar.menu.getItem(index)
-            item.icon = item.icon?.mutate()?.apply { setTint(foreground) }
-        }
-        val searchView = toolbar.findViewById<SearchView>(R.id.action_search)
-        if (searchView != null) {
-            searchView.setOnQueryTextListener(this)
-            searchView.maxWidth = Int.MAX_VALUE
+        if (select || SagerNet.isTv) {
+            val foreground = requireContext().getColorAttr(android.R.attr.textColorPrimary)
+            toolbar.overflowIcon = toolbar.overflowIcon?.mutate()?.apply { setTint(foreground) }
+            for (index in 0 until toolbar.menu.size()) {
+                val item = toolbar.menu.getItem(index)
+                item.icon = item.icon?.mutate()?.apply { setTint(foreground) }
+            }
+            val searchView = toolbar.findViewById<SearchView>(R.id.action_search)
+            if (searchView != null) {
+                searchView.setOnQueryTextListener(this)
+                searchView.maxWidth = Int.MAX_VALUE
 
-            searchView.setOnQueryTextFocusChangeListener { _, hasFocus ->
-                if (!hasFocus) {
-                    cancelSearch(searchView)
+                searchView.setOnQueryTextFocusChangeListener { _, hasFocus ->
+                    if (!hasFocus) {
+                        cancelSearch(searchView)
+                    }
                 }
             }
+
         }
 
         groupPager = view.findViewById(R.id.group_pager)
@@ -215,7 +218,8 @@ class ConfigurationFragment @JvmOverloads constructor(
         groupPager.adapter = adapter
         groupPager.offscreenPageLimit = 2
 
-        TabLayoutMediator(tabLayout, groupPager) { tab, position ->
+        tabLayout?.let { legacyTabs ->
+        TabLayoutMediator(legacyTabs, groupPager) { tab, position ->
             if (adapter.groupList.size > position) {
                 tab.text = adapter.groupList[position].displayName()
             }
@@ -225,6 +229,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         }.attach()
 
         toolbar.setOnClickListener { scrollToSelectedProfile() }
+        }
 
         if (!select && !SagerNet.isTv) {
             io.nekohasekai.sagernet.ui.compose.installProfileHeader(this, view)
@@ -975,8 +980,10 @@ class ConfigurationFragment @JvmOverloads constructor(
                         notifyDataSetChanged()
                         if (set) groupPager.setCurrentItem(selectedGroupIndex, false)
                         val hideTab = groupList.size < 2
-                        tabLayout.isGone = hideTab
-                        toolbar.elevation = if (hideTab) 0F else dp2px(4).toFloat()
+                        tabLayout?.let {
+                            it.isGone = hideTab
+                            toolbar.elevation = if (hideTab) 0F else dp2px(4).toFloat()
+                        }
                         if (!select) {
                             groupPager.registerOnPageChangeCallback(updateSelectedCallback)
                         }
@@ -1012,15 +1019,15 @@ class ConfigurationFragment @JvmOverloads constructor(
         }
 
         override suspend fun groupAdd(group: ProxyGroup) {
-            tabLayout.post {
+            groupPager.post {
                 groupList.add(group)
 
-                if (groupList.any { !it.ungrouped }) tabLayout.post {
-                    tabLayout.visibility = View.VISIBLE
+                if (groupList.any { !it.ungrouped }) groupPager.post {
+                    tabLayout?.visibility = View.VISIBLE
                 }
 
                 notifyItemInserted(groupList.size - 1)
-                tabLayout.getTabAt(groupList.size - 1)?.select()
+                groupPager.setCurrentItem(groupList.size - 1, true)
             }
         }
 
@@ -1028,7 +1035,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             val index = groupList.indexOfFirst { it.id == groupId }
             if (index == -1) return
 
-            tabLayout.post {
+            groupPager.post {
                 groupList.removeAt(index)
                 notifyItemRemoved(index)
             }
@@ -1038,8 +1045,10 @@ class ConfigurationFragment @JvmOverloads constructor(
             val index = groupList.indexOfFirst { it.id == group.id }
             if (index == -1) return
 
-            tabLayout.post {
-                tabLayout.getTabAt(index)?.text = group.displayName()
+            groupPager.post {
+                groupList[index] = group
+                tabLayout?.getTabAt(index)?.text = group.displayName()
+                notifyItemChanged(index)
             }
         }
 
