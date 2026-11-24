@@ -60,6 +60,7 @@ public class WireGuardBean extends AbstractBean {
     public Boolean wgDisablePauses;
     public String wgAllowedIps;
     public String wgExtraPeers;
+    public String wgDialer;
 
     /** Сбросить все параметры AmneziaWG (превратить в обычный WireGuard). */
     public void clearAmnezia() {
@@ -118,6 +119,7 @@ public class WireGuardBean extends AbstractBean {
         if (wgDisablePauses == null) wgDisablePauses = false;
         if (wgAllowedIps == null) wgAllowedIps = "0.0.0.0/0, ::/0";
         if (wgExtraPeers == null) wgExtraPeers = "";
+        if (wgDialer == null) wgDialer = "";
     }
 
     /** true when any AmneziaWG obfuscation parameter is set */
@@ -138,7 +140,7 @@ public class WireGuardBean extends AbstractBean {
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(6);
+        output.writeInt(7);
         super.serialize(output);
         output.writeString(localAddress);
         output.writeString(privateKey);
@@ -187,6 +189,7 @@ public class WireGuardBean extends AbstractBean {
         output.writeBoolean(wgDisablePauses);
         output.writeString(wgAllowedIps);
         output.writeString(wgExtraPeers);
+        output.writeString(wgDialer);
     }
 
     @Override
@@ -245,6 +248,7 @@ public class WireGuardBean extends AbstractBean {
             wgAllowedIps = input.readString();
             wgExtraPeers = input.readString();
         }
+        if (version >= 7) wgDialer = input.readString();
     }
 
     @Override
