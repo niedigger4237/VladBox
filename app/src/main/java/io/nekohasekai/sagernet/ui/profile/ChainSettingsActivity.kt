@@ -23,7 +23,7 @@ import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProfileManager
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.databinding.LayoutAddEntityBinding
-import io.nekohasekai.sagernet.databinding.LayoutProfileBinding
+import io.nekohasekai.sagernet.databinding.LayoutChainProfileBinding
 import io.nekohasekai.sagernet.fmt.internal.ChainBean
 import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.ui.ProfileSelectActivity
@@ -160,7 +160,7 @@ class ChainSettingsActivity : ProfileSettingsActivity<ChainBean>(R.layout.layout
             return if (viewType == 0) {
                 AddHolder(LayoutAddEntityBinding.inflate(layoutInflater, parent, false))
             } else {
-                ProfileHolder(LayoutProfileBinding.inflate(layoutInflater, parent, false))
+                ProfileHolder(LayoutChainProfileBinding.inflate(layoutInflater, parent, false))
             }
         }
 
@@ -250,7 +250,7 @@ class ChainSettingsActivity : ProfileSettingsActivity<ChainBean>(R.layout.layout
         }
     }
 
-    inner class ProfileHolder(binding: LayoutProfileBinding) :
+    inner class ProfileHolder(binding: LayoutChainProfileBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
         val profileName = binding.profileName
