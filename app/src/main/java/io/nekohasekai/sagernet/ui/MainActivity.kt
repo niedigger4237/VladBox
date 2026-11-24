@@ -74,6 +74,7 @@ class MainActivity : ThemedActivity(),
             binding.drawerLayout.removeView(binding.navView)
         }
         navigation.setNavigationItemSelectedListener(this)
+        if (!SagerNet.isTv) io.nekohasekai.sagernet.ui.compose.installHubDrawer(this, navigation)
 
         if (savedInstanceState == null) {
             displayFragmentWithId(R.id.nav_configuration)
