@@ -186,6 +186,12 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
         }
 
+        val foreground = requireContext().getColorAttr(android.R.attr.textColorPrimary)
+        toolbar.overflowIcon = toolbar.overflowIcon?.mutate()?.apply { setTint(foreground) }
+        for (index in 0 until toolbar.menu.size()) {
+            val item = toolbar.menu.getItem(index)
+            item.icon = item.icon?.mutate()?.apply { setTint(foreground) }
+        }
         val searchView = toolbar.findViewById<SearchView>(R.id.action_search)
         if (searchView != null) {
             searchView.setOnQueryTextListener(this)
@@ -1669,7 +1675,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                         onMainDispatcher {
                             shareLayer.setBackgroundColor(Color.TRANSPARENT)
                             shareButton.setImageResource(R.drawable.ic_social_share)
-                            shareButton.setColorFilter(Color.GRAY)
+                            shareButton.setColorFilter(requireContext().getColorAttr(android.R.attr.textColorSecondary))
                             shareButton.isVisible = true
 
                             shareLayout.setOnClickListener {
