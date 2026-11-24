@@ -26,7 +26,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     var section by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var reality by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(read("realityPubKey").isNotBlank()) }
     val muxValid = !mux || (listOf("muxConcurrency","muxMaxConnections","muxMinStreams").all { read(it).toIntOrNull()?.let { n -> n >= 0 } == true } && (!store.getBoolean("muxBrutal",false) || listOf("muxBrutalUp","muxBrutalDown").all { read(it).toIntOrNull()?.let { n -> n > 0 } == true }))
-    val dialerValid = !isVless || runCatching { org.json.JSONObject(read("outboundDialer").ifBlank { "{}" }) }.isSuccess
+    val dialerValid = runCatching { org.json.JSONObject(read("outboundDialer").ifBlank { "{}" }) }.isSuccess
     val transportValid = when (transport) {
         "ws" -> read("wsMaxEarlyData").toIntOrNull()?.let { it >= 0 } == true
         "grpc" -> listOf("grpcIdleTimeout","grpcPingTimeout").all { read(it).toIntOrNull()?.let { n -> n >= 0 } == true }
@@ -47,7 +47,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     })
     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (section.isEmpty()) {
-            val sections = listOf("General" to (if (isTrojan) "Server and password" else if (isVmess) "Server, UUID and encryption" else "Server, UUID and flow"), "Transport" to transport.uppercase(), "Security" to (if (reality) "Reality" else security.ifBlank { "None" }), "Multiplex" to (if (mux) "Enabled" else "Disabled"), "Connection" to "Network options").filter { isVless || it.first != "Connection" }
+            val sections = listOf("General" to (if (isTrojan) "Server and password" else if (isVmess) "Server, UUID and encryption" else "Server, UUID and flow"), "Transport" to transport.uppercase(), "Security" to (if (reality) "Reality" else security.ifBlank { "None" }), "Multiplex" to (if (mux) "Enabled" else "Disabled"), "Connection" to "Network options")
             items(sections.size) { index ->
                 val (name, description) = sections[index]
                 Card(onClick = { section = name }, modifier = Modifier.fillMaxWidth()) {
@@ -227,7 +227,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 }
             }
         }
-        if (section == "Connection" && isVless) {
+        if (section == "Connection") {
             item { ProfileSection("Network") { ProfileChoices(listOf("" to "TCP + UDP","tcp" to "TCP","udp" to "UDP"), read("vlessNetwork")) { write("vlessNetwork",it) } } }
             item { ProfileSection("Dialer settings") { VlessDialer(read("outboundDialer")) { write("outboundDialer",it) } } }
         }
