@@ -295,4 +295,6 @@
         <EditTextPreference app:key="echQueryName" app:title="ECH query server name" app:useSimpleSummaryProvider="true" />
         <SwitchPreference app:key="realityHybrid" app:title="Reality X25519MLKEM768" />
     </PreferenceCategory>
+    <EditTextPreference app:key="vlessEncryption" app:title="VLESS encryption" app:useSimpleSummaryProvider="true" />
+    <EditTextPreference app:key="vlessNetwork" app:title="Network (tcp / udp)" app:useSimpleSummaryProvider="true" />
 </PreferenceScreen>
