@@ -28,6 +28,8 @@ class ShadowsocksSettingsActivity : ProfileSettingsActivity<ShadowsocksBean>() {
     private val sUoT = pbm.add(PreferenceBinding(Type.Bool, "sUoT"))
 
     override fun ShadowsocksBean.init() {
+        DataStore.profileCacheStore.putString("outboundNetwork", outboundNetwork)
+        DataStore.profileCacheStore.putString("outboundDialer", outboundDialer)
         pbm.writeToCacheAll(this)
 
         DataStore.profileCacheStore.putString("pluginName", plugin.substringBefore(";"))
@@ -35,6 +37,8 @@ class ShadowsocksSettingsActivity : ProfileSettingsActivity<ShadowsocksBean>() {
     }
 
     override fun ShadowsocksBean.serialize() {
+        outboundNetwork = DataStore.profileCacheStore.getString("outboundNetwork", "").orEmpty()
+        outboundDialer = DataStore.profileCacheStore.getString("outboundDialer", "").orEmpty()
         pbm.fromCacheAll(this)
 
         val pn = pluginName.readStringFromCache()
