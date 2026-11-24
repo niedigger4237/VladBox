@@ -29,6 +29,7 @@ data class VmessQRCode(
     var sni: String = "",
     var alpn: String = "",
     var fp: String = "",
+    var pinSHA256: String = "",
     var pbk: String = "",
     var sid: String = "",
     var mode: String = "",
@@ -365,6 +366,7 @@ fun parseV2RayN(link: String): VMessBean {
     bean.host = vmessQRCode.host
     bean.path = vmessQRCode.path
     val headerType = vmessQRCode.type
+    bean.tlsPubKeySha256 = vmessQRCode.pinSHA256.orEmpty()
     bean.realityPubKey = vmessQRCode.pbk.orEmpty()
     bean.realityShortId = vmessQRCode.sid.orEmpty()
     bean.xhttpMode = vmessQRCode.mode.orEmpty()
@@ -376,7 +378,7 @@ fun parseV2RayN(link: String): VMessBean {
     if (bean.type == "kcp") { bean.kcpHeader = headerType.orEmpty(); bean.kcpSeed = vmessQRCode.seed.orEmpty() }
 
     when (bean.type) {
-        "tcp" -> {
+        "", "tcp", "raw" -> {
             if (headerType == "http") {
                 bean.type = "http"
             }
@@ -463,6 +465,7 @@ fun VMessBean.toV2rayN(): String {
         sni = bean.sni
         alpn = bean.alpn.replace("\n", ",")
         fp = bean.utlsFingerprint
+        if (bean.isTLS()) pinSHA256 = bean.tlsPubKeySha256
         if (bean.isTLS() && bean.realityPubKey.isNotBlank()) { pbk = bean.realityPubKey; sid = bean.realityShortId }
         if (net == "xhttp") { mode = bean.xhttpMode; extra = bean.xhttpExtra }
         if (net == "kcp") { type = bean.kcpHeader; seed = bean.kcpSeed }
@@ -686,7 +689,7 @@ fun buildSingBoxOutboundStreamSettings(bean: StandardV2RayBean): V2RayTransportO
         }
     }
 
-    return null
+    error("Unsupported transport: ${bean.type}")
 }
 
 /** "Name: value" lines -> header map */
