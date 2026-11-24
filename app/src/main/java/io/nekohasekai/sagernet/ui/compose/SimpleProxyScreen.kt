@@ -132,13 +132,13 @@ fun SimpleProxyScreen(shadowsocks: Boolean, onSave: () -> Unit, onClose: () -> U
         }
     }
 }
-@Composable private fun SimpleSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+@Composable internal fun SimpleSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { Text(title, style = MaterialTheme.typography.titleLarge); content() } }
 }
-@Composable private fun SimpleField(label: String, value: String, secret: Boolean = false, change: (String) -> Unit) {
+@Composable internal fun SimpleField(label: String, value: String, secret: Boolean = false, change: (String) -> Unit) {
     OutlinedTextField(value, change, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None)
 }
 
-@Composable private fun SimpleToggle(label: String, value: Boolean, change: (Boolean)->Unit) {
+@Composable internal fun SimpleToggle(label: String, value: Boolean, change: (Boolean)->Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(label,Modifier.weight(1f)); Switch(value,change) }
 }
