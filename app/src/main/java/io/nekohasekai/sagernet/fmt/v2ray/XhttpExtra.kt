@@ -23,7 +23,7 @@ object XhttpExtra {
     // these keep their inner keys verbatim (HTTP header names, ...)
     private val verbatim = setOf("headers")
 
-    // not representable 1:1 (different structure in sing-box), ignored
+    // Xray download settings require a separate structural conversion.
     private val unsupported = setOf("downloadSettings")
 
     fun snake(key: String): String {
@@ -46,13 +46,59 @@ object XhttpExtra {
         else -> v
     }
 
+    private fun convertDownload(source: JSONObject): Map<String, Any> {
+        val network = source.optString("network", source.optString("method", "xhttp"))
+        require(network in setOf("xhttp", "splithttp")) { "XHTTP download requires XHTTP transport" }
+        require(!source.has("sockopt") && !source.has("finalmask")) { "Xray download socket options require manual conversion" }
+        val settings = source.optJSONObject("xhttpSettings") ?: source.optJSONObject("splithttpSettings") ?: JSONObject()
+        val result = LinkedHashMap<String, Any>()
+        val extra = settings.optJSONObject("extra")
+        if (extra != null) result.putAll(toSingBox(extra.toString()))
+        val direct = JSONObject(settings.toString())
+        direct.remove("extra")
+        direct.remove("mode")
+        @Suppress("UNCHECKED_CAST")
+        val converted = convert(direct, false) as Map<String, Any?>
+        converted.forEach { (k, v) -> if (v != null) result[k] = v }
+        result.putIfAbsent("x_padding_bytes", "100-1000")
+        source.optString("address").takeIf { it.isNotBlank() }?.let { result["server"] = it }
+        if (source.has("port")) {
+            val port = source.getInt("port")
+            require(port in 1..65535) { "Invalid XHTTP download port" }
+            result["server_port"] = port
+        }
+        val security = source.optString("security", "none")
+        require(security in setOf("none", "tls", "reality")) { "Unsupported XHTTP download security" }
+        if (security != "none") {
+            val tls = linkedMapOf<String, Any>("enabled" to true)
+            val opts = source.optJSONObject(if (security == "reality") "realitySettings" else "tlsSettings") ?: JSONObject()
+            opts.optString("serverName").takeIf { it.isNotBlank() }?.let { tls["server_name"] = it }
+            opts.optString("fingerprint").takeIf { it.isNotBlank() && it != "none" }?.let { tls["utls"] = mapOf("enabled" to true, "fingerprint" to it) }
+            if (security == "tls") {
+                if (opts.has("allowInsecure")) tls["insecure"] = opts.getBoolean("allowInsecure")
+                opts.optJSONArray("alpn")?.let { arr -> tls["alpn"] = (0 until arr.length()).map { arr.getString(it) } }
+            } else {
+                val key = opts.optString("publicKey", opts.optString("password"))
+                require(key.isNotBlank()) { "Missing XHTTP download Reality public key" }
+                tls["reality"] = mapOf("enabled" to true, "public_key" to key, "short_id" to opts.optString("shortId"))
+            }
+            result["tls"] = tls
+        }
+        return result
+    }
+
     fun toSingBox(extra: String?, mode: String = "auto"): Map<String, Any> {
         val out = LinkedHashMap<String, Any>()
         if (!extra.isNullOrBlank()) {
             try {
                 @Suppress("UNCHECKED_CAST")
-                (convert(JSONObject(extra), false) as Map<String, Any?>).forEach { (k, v) ->
+                val source = JSONObject(extra)
+                (convert(source, false) as Map<String, Any?>).forEach { (k, v) ->
                     if (v != null) out[k] = v
+                }
+                source.optJSONObject("downloadSettings")?.let {
+                    require(!out.containsKey("download")) { "Duplicate XHTTP download configuration" }
+                    out["download"] = convertDownload(it)
                 }
             } catch (e: Exception) {
                 throw IllegalArgumentException("Invalid XHTTP extra JSON", e)
