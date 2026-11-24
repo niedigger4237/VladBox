@@ -54,24 +54,37 @@ class MieruSettingsActivity : ProfileSettingsActivity<MieruBean>() {
         mtu = DataStore.serverMTU
     }
 
-    override fun PreferenceFragmentCompat.createPreferences(
-        savedInstanceState: Bundle?,
-        rootKey: String?,
-    ) {
-        addPreferencesFromResource(R.xml.mieru_preferences)
-        findPreference<EditTextPreference>(Key.SERVER_PORT)!!.apply {
-            setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
-        }
-        findPreference<EditTextPreference>(Key.SERVER_PASSWORD)!!.apply {
-            summaryProvider = PasswordSummaryProvider
-        }
-        val protocol = findPreference<SimpleMenuPreference>(Key.SERVER_PROTOCOL)!!
-        val mtu = findPreference<EditTextPreference>(Key.SERVER_MTU)!!
-        mtu.isVisible = protocol.value.equals("UDP")
-        protocol.setOnPreferenceChangeListener { _, newValue ->
-            mtu.isVisible = newValue.equals("UDP")
-            true
-        }
+    override fun PreferenceFragmentCompat.createPreferences(savedInstanceState: Bundle?, rootKey: String?) {
+        preferenceScreen = preferenceManager.createPreferenceScreen(requireContext())
     }
 
+    override fun PreferenceFragmentCompat.viewCreated(view: android.view.View, savedInstanceState: Bundle?) {
+        val legacyList = listView
+        val parent = legacyList.parent as? android.view.ViewGroup ?: return
+        val index = parent.indexOfChild(legacyList)
+        val params = legacyList.layoutParams
+        val menu = androidx.appcompat.widget.PopupMenu(requireContext(), legacyList).menu
+        this@MieruSettingsActivity.onCreateOptionsMenu(menu)
+        val actions = (0 until menu.size()).map { menu.getItem(it) }
+            .filter { it.isVisible && it.itemId != R.id.action_apply }
+            .map { item -> item.title.toString() to { this@MieruSettingsActivity.onOptionsItemSelected(item); Unit } }
+        supportActionBar?.hide()
+        findViewById<android.view.View>(R.id.appbar)?.visibility = android.view.View.GONE
+        findViewById<android.view.View>(R.id.settings)?.let { container ->
+            container.layoutParams = container.layoutParams.apply { height = android.view.ViewGroup.LayoutParams.MATCH_PARENT }
+        }
+        parent.removeView(legacyList)
+        val host = androidx.compose.ui.platform.ComposeView(requireContext())
+        host.setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        parent.addView(host, index, params)
+        host.setContent {
+            io.nekohasekai.sagernet.ui.compose.HubTheme {
+                io.nekohasekai.sagernet.ui.compose.MieruProfileScreen(
+                    onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
+                    onClose = { this@MieruSettingsActivity.onBackPressed() },
+                    menuItems = actions
+                )
+            }
+        }
+    }
 }
