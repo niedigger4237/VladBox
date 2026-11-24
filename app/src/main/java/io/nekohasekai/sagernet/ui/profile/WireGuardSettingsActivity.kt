@@ -21,11 +21,20 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
 
     override fun PreferenceFragmentCompat.viewCreated(view: android.view.View, savedInstanceState: Bundle?) {
         legacyRequested = savedInstanceState?.getBoolean("wgLegacyRequested", false) ?: legacyRequested
-        if (DataStore.profileCacheStore.getBoolean("awgEnabled", false) || legacyRequested) return
+        if (DataStore.profileCacheStore.getBoolean("awgEnabled", false) || legacyRequested) {
+            supportActionBar?.show()
+            return
+        }
         val legacyList = listView
         val parent = legacyList.parent as? android.view.ViewGroup ?: return
         val index = parent.indexOfChild(legacyList)
         val params = legacyList.layoutParams
+        val menu = androidx.appcompat.widget.PopupMenu(requireContext(), legacyList).menu
+        this@WireGuardSettingsActivity.onCreateOptionsMenu(menu)
+        val actions = (0 until menu.size()).map { menu.getItem(it) }
+            .filter { it.isVisible && it.itemId != R.id.action_apply }
+            .map { item -> item.title.toString() to { this@WireGuardSettingsActivity.onOptionsItemSelected(item); Unit } }
+        supportActionBar?.hide()
         legacyList.visibility = android.view.View.GONE
         val host = androidx.compose.ui.platform.ComposeView(requireContext())
         host.setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
@@ -53,6 +62,8 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
                             .replace(R.id.settings, ProfileSettingsActivity.MyPreferenceFragmentCompat()).commitNow()
                         DataStore.dirty = true
                     },
+                    onClose = { this@WireGuardSettingsActivity.onBackPressed() },
+                    menuItems = actions,
                     onSave = {
                         io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() }
                     }
