@@ -28,7 +28,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var serviceState = BaseService.State.Idle
 
     val configurationStore = RoomPreferenceDataStore(PublicDatabase.kvPairDao)
-    val profileCacheStore = RoomPreferenceDataStore(TempDatabase.profileCacheDao)
+    val profileCacheStore = RoomPreferenceDataStore(TempDatabase.profileCacheDao, observable = true)
 
     // last used, but may not be running
     var currentProfile by configurationStore.long(Key.PROFILE_CURRENT)
