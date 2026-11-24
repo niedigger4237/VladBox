@@ -68,6 +68,7 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
     private val wgBuffers = pbm.add(PreferenceBinding(Type.TextToInt, "wgBuffers"))
     private val wgDisablePauses = pbm.add(PreferenceBinding(Type.Bool, "wgDisablePauses"))
     private val wgAllowedIps = pbm.add(PreferenceBinding(Type.Text, "wgAllowedIps"))
+    private val wgDialer = pbm.add(PreferenceBinding(Type.Text, "wgDialer"))
     private val wgExtraPeers = pbm.add(PreferenceBinding(Type.Text, "wgExtraPeers"))
     private val awgJc = pbm.add(PreferenceBinding(Type.TextToInt, "awgJc"))
     private val awgJmin = pbm.add(PreferenceBinding(Type.TextToInt, "awgJmin"))
@@ -237,7 +238,69 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
             title = "Additional peers (JSON array)"
             summary = "Additional peers in native sing-box JSON format"
         })
+        wgAdvanced.addPreference(EditTextPreference(requireContext()).apply {
+            key = "wgDialer"
+            title = "Dialer extra JSON"
+            summary = "Advanced native sing-box dial fields"
+        })
         pbm.setPreferenceFragment(this)
+        val dialerJson = wgDialer.preference as EditTextPreference
+        val dialerCategory = PreferenceCategory(requireContext()).apply { title = "WireGuard dialer settings" }
+        preferenceScreen.addPreference(dialerCategory)
+        fun readDialer() = org.json.JSONObject(dialerJson.text.orEmpty().ifBlank { "{}" })
+        fun updateDialer(key: String, value: Any?): Boolean = try {
+            val json = readDialer()
+            if (value == null) json.remove(key) else json.put(key, value)
+            dialerJson.text = json.toString()
+            true
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(requireContext(), "Invalid dialer JSON or value", android.widget.Toast.LENGTH_SHORT).show()
+            false
+        }
+        val textFields = linkedMapOf(
+            "bind_interface" to "Bind interface", "inet4_bind_address" to "IPv4 bind address",
+            "inet6_bind_address" to "IPv6 bind address", "protect_path" to "Protect path",
+            "routing_mark" to "Routing mark", "netns" to "Network namespace",
+            "connect_timeout" to "Connect timeout", "tcp_keep_alive" to "TCP keepalive",
+            "tcp_keep_alive_interval" to "TCP keepalive interval", "domain_resolver" to "Domain resolver (tag or JSON)",
+            "network_strategy" to "Network strategy", "network_type" to "Network types",
+            "fallback_network_type" to "Fallback network types", "fallback_delay" to "Fallback delay"
+        )
+        for ((field, label) in textFields) {
+            val pref = EditTextPreference(requireContext()).apply {
+                key = "wg_dialer_" + field
+                title = label
+                isPersistent = false
+                summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance()
+            }
+            fun refresh() { pref.text = runCatching { readDialer().opt(field)?.toString().orEmpty() }.getOrDefault("") }
+            refresh()
+            pref.setOnPreferenceClickListener { refresh(); false }
+            pref.setOnPreferenceChangeListener { _, value ->
+                try {
+                    val raw = value.toString().trim()
+                    updateDialer(field, if (raw.isBlank()) null else when (field) {
+                        "routing_mark" -> raw
+                        "domain_resolver" -> if (raw.startsWith("{")) org.json.JSONObject(raw) else raw
+                        "network_type", "fallback_network_type" -> if (raw.startsWith("[")) org.json.JSONArray(raw) else org.json.JSONArray(raw.split(',').map { it.trim() }.filter { it.isNotEmpty() })
+                        else -> raw
+                    })
+                } catch (e: Exception) { false }
+            }
+            dialerCategory.addPreference(pref)
+        }
+        for ((field, label) in linkedMapOf("bind_address_no_port" to "Bind address without port", "reuse_addr" to "Reuse address", "tcp_fast_open" to "TCP Fast Open", "tcp_multi_path" to "Multipath TCP", "disable_tcp_keep_alive" to "Disable TCP keepalive", "udp_fragment" to "UDP fragmentation")) {
+            dialerCategory.addPreference(androidx.preference.ListPreference(requireContext()).apply {
+                key = "wg_dialer_" + field
+                title = label
+                isPersistent = false
+                entries = arrayOf("Default", "Enabled", "Disabled")
+                entryValues = arrayOf("", "true", "false")
+                value = runCatching { readDialer().opt(field)?.toString().orEmpty() }.getOrDefault("")
+                summaryProvider = androidx.preference.ListPreference.SimpleSummaryProvider.getInstance()
+                setOnPreferenceChangeListener { _, newValue -> updateDialer(field, newValue.toString().takeIf { it.isNotBlank() }?.toBooleanStrict()) }
+            })
+        }
         val peersJson = wgExtraPeers.preference as EditTextPreference
         val peerManager = androidx.preference.Preference(requireContext()).apply {
             title = "Manage additional peers"
@@ -282,6 +345,7 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
         val awgSwitch = findPreference<SwitchPreference>("awgEnabled")!!
         fun applyAwg(on: Boolean) {
             wgAdvanced.isVisible = !on
+            dialerCategory.isVisible = !on
             for (i in 0 until awgCat.preferenceCount) {
                 val p = awgCat.getPreference(i)
                 if (p.key != "awgEnabled") p.isVisible = on
