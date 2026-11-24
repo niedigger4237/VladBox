@@ -24,11 +24,8 @@ import io.nekohasekai.sagernet.ui.ConfigurationFragment
 import io.nekohasekai.sagernet.ui.MainActivity
 
 fun installProfileHeader(fragment: ConfigurationFragment, root: View) {
-    val toolbar = fragment.toolbar
-    val tabs = fragment.tabLayout
     val pager = fragment.groupPager
     val adapter = fragment.adapter
-    toolbar.visibility = View.GONE
     val header = root.findViewById<ComposeView>(R.id.compose_header)
     header.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
     header.setContent {
@@ -88,10 +85,6 @@ fun installProfileHeader(fragment: ConfigurationFragment, root: View) {
             }
         }
     }
-    tabs.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-        if (tabs.visibility != View.GONE) tabs.visibility = View.GONE
-    }
-    tabs.visibility = View.GONE
 }
 
 private data class ProfileMenuEntry(val id: Int, val title: Int, val children: List<ProfileMenuEntry> = emptyList(), val literal: String? = null)
