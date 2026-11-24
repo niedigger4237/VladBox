@@ -113,6 +113,9 @@ public abstract class StandardV2RayBean extends AbstractBean {
     public Boolean tlsKernelTx;
     public Boolean tlsKernelRx;
     public String outboundDialer;
+    public String httpIdleTimeout;
+    public String httpPingTimeout;
+    public Boolean grpcPermitWithoutStream;
 
 
     // --------------------------------------- //
@@ -210,11 +213,14 @@ public abstract class StandardV2RayBean extends AbstractBean {
         if (tlsKernelTx == null) tlsKernelTx = false;
         if (tlsKernelRx == null) tlsKernelRx = false;
         if (outboundDialer == null) outboundDialer = "";
+        if (httpIdleTimeout == null) httpIdleTimeout = "";
+        if (httpPingTimeout == null) httpPingTimeout = "";
+        if (grpcPermitWithoutStream == null) grpcPermitWithoutStream = false;
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(11);
+        output.writeInt(12);
         super.serialize(output);
         output.writeString(uuid);
         output.writeString(encryption);
@@ -321,6 +327,9 @@ public abstract class StandardV2RayBean extends AbstractBean {
         output.writeBoolean(tlsKernelTx);
         output.writeBoolean(tlsKernelRx);
         output.writeString(outboundDialer);
+        output.writeString(httpIdleTimeout);
+        output.writeString(httpPingTimeout);
+        output.writeBoolean(grpcPermitWithoutStream);
     }
 
     @Override
@@ -478,6 +487,11 @@ public abstract class StandardV2RayBean extends AbstractBean {
             tlsKernelRx = input.readBoolean();
         }
         if (version >= 11) outboundDialer = input.readString();
+        if (version >= 12) {
+            httpIdleTimeout = input.readString();
+            httpPingTimeout = input.readString();
+            grpcPermitWithoutStream = input.readBoolean();
+        }
     }
 
     public boolean isVLESS() {
