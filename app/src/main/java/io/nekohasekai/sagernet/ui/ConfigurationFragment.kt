@@ -1492,6 +1492,8 @@ class ConfigurationFragment @JvmOverloads constructor(
             val shareButton: ImageView = view.findViewById(R.id.shareIcon)
             val removeButton: ImageView = view.findViewById(R.id.remove)
 
+            val overflowButton: ImageView = view.findViewById(R.id.profile_overflow)
+
             private fun renderSelection(selected: Boolean) {
                 selectedView.visibility = if (selected) View.VISIBLE else View.INVISIBLE
                 val card = view.findViewById<com.google.android.material.card.MaterialCardView>(R.id.content)
@@ -1642,15 +1644,35 @@ class ConfigurationFragment @JvmOverloads constructor(
                 proxyEntity.nekoBean?.apply {
                     shareLayout.isGone = true
                 }
+                val canShare = !selectOrChain && proxyEntity.nekoBean == null
+                shareLayout.isGone = true
+                removeButton.isGone = true
+                overflowButton.isGone = select
+                overflowButton.setOnClickListener { anchor ->
+                    val popup = PopupMenu(requireContext(), anchor)
+                    if (canShare) popup.menu.add(0, 1, 0, R.string.share)
+                    val started = DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id
+                    popup.menu.add(0, 2, 1, R.string.delete).isEnabled = !started
+                    popup.setOnMenuItemClickListener { item ->
+                        if (entity.id != proxyEntity.id) false else when (item.itemId) {
+                            1 -> shareLayout.performClick()
+                            2 -> if (!DataStore.serviceState.started || DataStore.currentProfile != proxyEntity.id) removeButton.performClick() else false
+                            else -> false
+                        }
+                    }
+                    popup.show()
+                }
 
                 runOnDefaultDispatcher {
                     val selected = (selectedItem?.id ?: DataStore.selectedProxy) == proxyEntity.id
                     val started =
                         selected && DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id
                     onMainDispatcher {
-                        editButton.isEnabled = !started
-                        removeButton.isEnabled = !started
-                        if (entity.id == proxyEntity.id) renderSelection(selected)
+                        if (entity.id == proxyEntity.id) {
+                            editButton.isEnabled = !started
+                            removeButton.isEnabled = !started
+                            renderSelection(selected)
+                        }
                     }
 
                     fun showShare(anchor: View) {
@@ -1686,8 +1708,8 @@ class ConfigurationFragment @JvmOverloads constructor(
                             shareButton.setColorFilter(requireContext().getColorAttr(android.R.attr.textColorSecondary))
                             shareButton.isVisible = true
 
-                            shareLayout.setOnClickListener {
-                                showShare(it)
+                            if (entity.id == proxyEntity.id) shareLayout.setOnClickListener {
+                                showShare(overflowButton)
                             }
                         }
                     }
