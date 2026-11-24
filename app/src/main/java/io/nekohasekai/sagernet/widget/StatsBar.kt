@@ -66,9 +66,21 @@ class StatsBar @JvmOverloads constructor(
                             fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(ui.mode, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text(ui.rx, fontSize = 12.sp, maxLines = 1, modifier = Modifier.weight(1f, false))
-                            Text(ui.tx, fontSize = 12.sp, maxLines = 1, modifier = Modifier.weight(1f, false))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.medium,
+                                color = MaterialTheme.colorScheme.secondaryContainer) {
+                                Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                    Text("Download", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    Text(ui.rx, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                }
+                            }
+                            Surface(modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.medium,
+                                color = MaterialTheme.colorScheme.tertiaryContainer) {
+                                Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                    Text("Upload", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                                    Text(ui.tx, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                                }
+                            }
                         }
                     }
                 }
