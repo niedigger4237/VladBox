@@ -11,7 +11,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import io.nekohasekai.sagernet.database.DataStore
 
 @Composable
-fun VlessProfileScreen(onSave: () -> Unit) {
+fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pair<String, () -> Unit>> = emptyList()) {
     val store = DataStore.profileCacheStore
     var revision by remember { mutableStateOf(0) }
     fun read(key: String) = store.getString(key, "") ?: ""
@@ -20,8 +20,33 @@ fun VlessProfileScreen(onSave: () -> Unit) {
     val mux = remember(revision) { store.getBoolean("enableMux", false) }
     fun write(key: String, value: String) { store.putString(key, value); revision++ }
     fun toggle(key: String, value: Boolean) { store.putBoolean(key, value); revision++ }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
+    var section by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var reality by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(read("realityPubKey").isNotBlank()) }
+    val valid = read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && read("uuid").isNotBlank() && (!reality || read("realityPubKey").isNotBlank())
+    androidx.activity.compose.BackHandler(enabled = section.isNotEmpty()) { section = "" }
+    Column(Modifier.fillMaxSize()) {
+    VladTopAppBar(title = section.ifEmpty { "VLESS" }, onBack = { if (section.isNotEmpty()) section = "" else onClose() }, extraActions = {
+        var expanded by remember { mutableStateOf(false) }
+        TextButton(onClick = onSave, enabled = valid) { Text("Save") }
+        Box {
+            IconButton(onClick = { expanded = true }) { Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_baseline_more_vert_24), "More options") }
+            DropdownMenu(expanded, { expanded = false }) { menuItems.forEach { (label, action) -> DropdownMenuItem(text = { Text(label) }, onClick = { expanded = false; action() }) } }
+        }
+    })
+    LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (section.isEmpty()) {
+            val sections = listOf("General" to "Server, UUID and flow", "Transport" to transport.uppercase(), "Security" to (if (reality) "Reality" else security.ifBlank { "None" }), "Multiplex" to (if (mux) "Enabled" else "Disabled"), "Connection" to "Network options")
+            items(sections.size) { index ->
+                val (name, description) = sections[index]
+                Card(onClick = { section = name }, modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(20.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) { Text(name, style = MaterialTheme.typography.titleLarge); Text(description, style = MaterialTheme.typography.bodyMedium) }
+                        Text("›", style = MaterialTheme.typography.headlineMedium)
+                    }
+                }
+            }
+        }
+        if (section == "General") item {
             ProfileSection("General") {
                 ProfileText("Profile name", "name", read("name"), ::write)
                 ProfileText("Server address", "serverAddress", read("serverAddress"), ::write)
@@ -29,10 +54,11 @@ fun VlessProfileScreen(onSave: () -> Unit) {
                 ProfileText("UUID", "uuid", read("uuid"), ::write)
                 ProfileChoices(listOf("" to "None", "xtls-rprx-vision" to "Vision"), read("encryption")) { write("encryption", it) }
                 ProfileText("Encryption", "vlessEncryption", read("vlessEncryption"), ::write)
-                ProfileText("Packet encoding (index)", "packetEncoding", read("packetEncoding"), ::write)
+                Text("Packet encoding")
+                ProfileChoices(listOf("0" to "None","1" to "Packet address","2" to "XUDP"), read("packetEncoding")) { write("packetEncoding",it) }
             }
         }
-        item {
+        if (section == "Transport") item {
             ProfileSection("Transport") {
                 ProfileChoices(listOf("tcp" to "TCP", "ws" to "WebSocket", "grpc" to "gRPC", "xhttp" to "XHTTP", "http" to "HTTP", "httpupgrade" to "HTTP Upgrade", "kcp" to "mKCP", "quic" to "QUIC"), transport) { write("type", it) }
                 if (transport in listOf("ws","http","httpupgrade","xhttp")) {
@@ -60,20 +86,24 @@ fun VlessProfileScreen(onSave: () -> Unit) {
                 }
             }
         }
-        item {
+        if (section == "Security") item {
             ProfileSection("Security") {
-                ProfileChoices(listOf("" to "None", "tls" to "TLS"), security) { write("security", it) }
+                ProfileChoices(listOf("" to "None", "tls" to "TLS", "reality" to "Reality"), if (reality) "reality" else security) {
+                    reality = it == "reality"
+                    write("security", if (reality) "tls" else it)
+                    if (!reality) { write("realityPubKey",""); write("realityShortId",""); toggle("realityHybrid",false) }
+                }
                 if ("tls" in security) {
                     ProfileText("SNI", "sni", read("sni"), ::write)
                     ProfileText("Fingerprint", "utlsFingerprint", read("utlsFingerprint"), ::write)
-                    ProfileText("Reality public key", "realityPubKey", read("realityPubKey"), ::write)
-                    ProfileText("Reality short ID", "realityShortId", read("realityShortId"), ::write)
+                    if (reality) ProfileText("Reality public key", "realityPubKey", read("realityPubKey"), ::write)
+                    if (reality) ProfileText("Reality short ID", "realityShortId", read("realityShortId"), ::write)
                     listOf("alpn","certificates","tlsPubKeySha256","tlsCipherSuites","tlsMinVersion","tlsMaxVersion","tlsCurves","tlsHandshakeTimeout","tlsClientCertificate","tlsClientKey","tlsEngine","tlsCertificatePath","tlsClientCertificatePath","tlsClientKeyPath","echConfig","echConfigPath","echQueryName","tlsFragmentFallbackDelay","tlsSpoof","tlsSpoofMethod").forEach { ProfileText(it,it,read(it),::write) }
                     listOf("allowInsecure","tlsDisableSni","enableECH","realityHybrid","tlsFragment","tlsRecordFragment","tlsKernelTx","tlsKernelRx").forEach { key -> ProfileSwitch(key,store.getBoolean(key,false)) { toggle(key,it) } }
                 }
             }
         }
-        item {
+        if (section == "Multiplex") item {
             ProfileSection("Multiplex") {
                 ProfileSwitch("Enable Multiplex", mux) { toggle("enableMux",it) }
                 if (mux) {
@@ -83,8 +113,9 @@ fun VlessProfileScreen(onSave: () -> Unit) {
                 }
             }
         }
-        item { ProfileSection("Connection") { ProfileChoices(listOf("" to "TCP + UDP","tcp" to "TCP","udp" to "UDP"), read("vlessNetwork")) { write("vlessNetwork",it) } } }
-        item { Button(onClick = onSave, modifier = Modifier.fillMaxWidth(), enabled = read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull() in 1..65535) { Text("Save profile") } }
+        if (section == "Connection") item { ProfileSection("Connection") { ProfileChoices(listOf("" to "TCP + UDP","tcp" to "TCP","udp" to "UDP"), read("vlessNetwork")) { write("vlessNetwork",it) } } }
+        if (section.isEmpty()) item { Button(onClick = onSave, modifier = Modifier.fillMaxWidth(), enabled = valid) { Text("Save profile") } }
+    }
     }
 }
 
