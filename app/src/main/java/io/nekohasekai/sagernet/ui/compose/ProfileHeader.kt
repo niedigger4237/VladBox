@@ -48,7 +48,7 @@ fun installProfileHeader(fragment: ConfigurationFragment, root: View) {
                     TextField(query, { query = it; fragment.onQueryTextChange(it) }, Modifier.weight(1f), singleLine = true)
                 } else {
                     Text(toolbar.title?.toString() ?: stringResource(R.string.app_name),
-                        Modifier.weight(1f).clickable { toolbar.performClick() }, fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Modifier.weight(1f).clickable { fragment.scrollToSelectedProfile() }, fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     HeaderMenu(toolbar.menu.findItem(R.id.action_add).subMenu, R.drawable.ic_preview_add, stringResource(R.string.add_profile), fragment)
                     IconButton(onClick = { searching = true }) {
                         Icon(painterResource(R.drawable.ic_hub_search), stringResource(android.R.string.search_go))
@@ -107,7 +107,7 @@ private fun HeaderMenu(menu: Menu?, icon: Int, description: String, fragment: Co
                 val item = items.getItem(i)
                 if (item.isVisible) DropdownMenuItem(text = { Text(item.title.toString()) }, enabled = item.isEnabled, onClick = {
                     if (item.hasSubMenu()) current = item.subMenu
-                    else { expanded = false; fragment.onMenuItemClick(item) }
+                    else { expanded = false; fragment.onProfileAction(item.itemId) }
                 })
             }
         }
