@@ -12,6 +12,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 fun buildSingBoxOutboundAnyTLSBean(bean: AnyTLSBean): SingBoxOptions.Outbound_AnyTLSOptions {
     return SingBoxOptions.Outbound_AnyTLSOptions().apply {
         type = "anytls"
+        io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(bean.outboundDialer, "", _hack_config_map)
         server = bean.serverAddress
         server_port = bean.serverPort
         password = bean.password
