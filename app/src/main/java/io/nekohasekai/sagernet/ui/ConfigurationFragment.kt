@@ -1494,7 +1494,38 @@ class ConfigurationFragment @JvmOverloads constructor(
 
             val overflowButton: ImageView = view.findViewById(R.id.profile_overflow)
 
+            private val composeSelected = androidx.compose.runtime.mutableStateOf(false)
+            private val composeEditEnabled = androidx.compose.runtime.mutableStateOf(true)
+            private val composeRevision = androidx.compose.runtime.mutableStateOf(0)
+            private val composeView = view.findViewById<androidx.compose.ui.platform.ComposeView>(R.id.profile_compose)
+
+            init {
+                composeView.setContent {
+                    val revision = composeRevision.value
+                    if (revision > 0) {
+                        io.nekohasekai.sagernet.ui.compose.HubTheme {
+                            io.nekohasekai.sagernet.ui.compose.ProfileCard(
+                                name = profileName.text.toString(),
+                                protocol = profileType.text.toString(),
+                                address = profileAddress.text.toString(),
+                                status = profileStatus.text.toString(),
+                                selected = composeSelected.value,
+                                onSelect = { view.performClick() },
+                                onEdit = { editButton.performClick() },
+                                onMore = { overflowButton.performClick() },
+                                traffic = trafficText.text.toString().takeIf { trafficText.isVisible } ?: "",
+                                actionsVisible = !select,
+                                editEnabled = composeEditEnabled.value,
+                                statusColor = androidx.compose.ui.graphics.Color(profileStatus.currentTextColor),
+                                onStatus = if (profileStatus.hasOnClickListeners()) ({ profileStatus.performClick(); Unit }) else null
+                            )
+                        }
+                    }
+                }
+            }
+
             private fun renderSelection(selected: Boolean) {
+                composeSelected.value = selected
                 selectedView.visibility = if (selected) View.VISIBLE else View.INVISIBLE
                 val card = view.findViewById<com.google.android.material.card.MaterialCardView>(R.id.content)
                 val surface = com.google.android.material.color.MaterialColors.getColor(card, com.google.android.material.R.attr.colorSurface)
@@ -1649,7 +1680,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                 removeButton.isGone = true
                 overflowButton.isGone = select
                 overflowButton.setOnClickListener { anchor ->
-                    val popup = PopupMenu(requireContext(), anchor)
+                    val popup = PopupMenu(requireContext(), composeView)
                     if (canShare) popup.menu.add(0, 1, 0, R.string.share)
                     val started = DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id
                     popup.menu.add(0, 2, 1, R.string.delete).isEnabled = !started
@@ -1663,12 +1694,16 @@ class ConfigurationFragment @JvmOverloads constructor(
                     popup.show()
                 }
 
+                composeSelected.value = (selectedItem?.id ?: DataStore.selectedProxy) == proxyEntity.id
+                composeEditEnabled.value = !(DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id)
+                composeRevision.value++
                 runOnDefaultDispatcher {
                     val selected = (selectedItem?.id ?: DataStore.selectedProxy) == proxyEntity.id
                     val started =
                         selected && DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id
                     onMainDispatcher {
                         if (entity.id == proxyEntity.id) {
+                            composeEditEnabled.value = !started
                             editButton.isEnabled = !started
                             removeButton.isEnabled = !started
                             renderSelection(selected)
@@ -1709,7 +1744,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                             shareButton.isVisible = true
 
                             if (entity.id == proxyEntity.id) shareLayout.setOnClickListener {
-                                showShare(overflowButton)
+                                showShare(composeView)
                             }
                         }
                     }
