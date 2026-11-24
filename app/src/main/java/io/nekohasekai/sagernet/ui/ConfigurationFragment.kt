@@ -224,34 +224,36 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
         }.attach()
 
-        toolbar.setOnClickListener {
-            val fragment = getCurrentGroupFragment()
-
-            if (fragment != null) {
-                val selectedProxy = selectedItem?.id ?: DataStore.selectedProxy
-                val selectedProfileIndex =
-                    fragment.adapter!!.configurationIdList.indexOf(selectedProxy)
-                if (selectedProfileIndex != -1) {
-                    val layoutManager = fragment.layoutManager
-                    val first = layoutManager.findFirstVisibleItemPosition()
-                    val last = layoutManager.findLastVisibleItemPosition()
-
-                    if (selectedProfileIndex !in first..last) {
-                        fragment.configurationListView.scrollTo(selectedProfileIndex, true)
-                        return@setOnClickListener
-                    }
-
-                }
-
-                fragment.configurationListView.scrollTo(0)
-            }
-
-        }
+        toolbar.setOnClickListener { scrollToSelectedProfile() }
 
         if (!select && !SagerNet.isTv) {
             io.nekohasekai.sagernet.ui.compose.installProfileHeader(this, view)
         }
         DataStore.profileCacheStore.registerChangeListener(this)
+    }
+
+    fun scrollToSelectedProfile() {
+        val fragment = getCurrentGroupFragment()
+
+        if (fragment != null) {
+            val selectedProxy = selectedItem?.id ?: DataStore.selectedProxy
+            val selectedProfileIndex =
+                fragment.adapter!!.configurationIdList.indexOf(selectedProxy)
+            if (selectedProfileIndex != -1) {
+                val layoutManager = fragment.layoutManager
+                val first = layoutManager.findFirstVisibleItemPosition()
+                val last = layoutManager.findLastVisibleItemPosition()
+
+                if (selectedProfileIndex !in first..last) {
+                    fragment.configurationListView.scrollTo(selectedProfileIndex, true)
+                    return
+                }
+
+            }
+
+            fragment.configurationListView.scrollTo(0)
+        }
+
     }
 
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
@@ -354,8 +356,10 @@ class ConfigurationFragment @JvmOverloads constructor(
 
     }
 
-    override fun onMenuItemClick(item: MenuItem): Boolean {
-        when (item.itemId) {
+    override fun onMenuItemClick(item: MenuItem): Boolean = onProfileAction(item.itemId)
+
+    fun onProfileAction(actionId: Int): Boolean {
+        when (actionId) {
             R.id.action_scan_qr_code -> {
                 startActivity(Intent(context, ScannerActivity::class.java))
             }
