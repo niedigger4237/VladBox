@@ -1,6 +1,16 @@
 package io.nekohasekai.sagernet.widget
 
 import android.annotation.SuppressLint
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.ComposeView
+import io.nekohasekai.sagernet.ui.compose.HubTheme
 import android.content.Context
 import android.text.format.Formatter
 import android.util.AttributeSet
@@ -26,6 +36,12 @@ class StatsBar @JvmOverloads constructor(
     private lateinit var statusText: TextView
     private lateinit var txText: TextView
     private lateinit var rxText: TextView
+    private val statusState = mutableStateOf("")
+    private val modeState = mutableStateOf("")
+    private val txState = mutableStateOf("")
+    private val rxState = mutableStateOf("")
+    private val connectedState = mutableStateOf(false)
+    private var composeInitialized = false
     var allowShow = true
 
     fun performShow() {
@@ -38,8 +54,7 @@ class StatsBar @JvmOverloads constructor(
     }
 
     private fun refreshMode() {
-        findViewById<TextView>(R.id.connection_mode)?.text =
-            DataStore.serviceMode.uppercase() + " Mode"
+        modeState.value = DataStore.serviceMode.uppercase() + " Mode"
     }
 
     override fun setOnClickListener(l: OnClickListener?) {
@@ -47,10 +62,31 @@ class StatsBar @JvmOverloads constructor(
         txText = findViewById(R.id.tx)
         rxText = findViewById(R.id.rx)
         super.setOnClickListener(l)
+        if (!composeInitialized) {
+            composeInitialized = true
+            val surface = com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface)
+            val foreground = com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface)
+            setCardBackgroundColor(androidx.core.graphics.ColorUtils.blendARGB(surface, foreground, 0.08f))
+            findViewById<ComposeView>(R.id.stats_compose).setContent {
+                HubTheme {
+                    Column(Modifier.padding(start = 4.dp, end = 8.dp)) {
+                        Text((if (connectedState.value) "●  " else "") + statusState.value,
+                            fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(modeState.value, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(rxState.value, fontSize = 12.sp, maxLines = 1, modifier = Modifier.weight(1f, false))
+                            Text(txState.value, fontSize = 12.sp, maxLines = 1, modifier = Modifier.weight(1f, false))
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun setStatus(text: CharSequence) {
         statusText.text = text
+        statusState.value = text.toString()
         TooltipCompat.setTooltipText(this, text)
     }
 
@@ -62,6 +98,7 @@ class StatsBar @JvmOverloads constructor(
         }
         refreshMode()
         val connected = state == BaseService.State.Connected
+        connectedState.value = connected
         statusText.setCompoundDrawablesRelativeWithIntrinsicBounds(
             if (connected) android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
@@ -105,6 +142,8 @@ class StatsBar @JvmOverloads constructor(
                 R.string.speed, Formatter.formatFileSize(context, rxRate)
             )
         }"
+        txState.value = txText.text.toString()
+        rxState.value = rxText.text.toString()
     }
 
     fun testConnection() {
