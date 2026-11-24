@@ -25,6 +25,10 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
             .filter { it.isVisible && it.itemId != R.id.action_apply }
             .map { item -> item.title.toString() to { this@WireGuardSettingsActivity.onOptionsItemSelected(item); Unit } }
         supportActionBar?.hide()
+        findViewById<android.view.View>(R.id.appbar)?.visibility = android.view.View.GONE
+        findViewById<android.view.View>(R.id.settings)?.let { container ->
+            container.layoutParams = container.layoutParams.apply { height = android.view.ViewGroup.LayoutParams.MATCH_PARENT }
+        }
         parent.removeView(legacyList)
         val host = androidx.compose.ui.platform.ComposeView(requireContext())
         host.setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
