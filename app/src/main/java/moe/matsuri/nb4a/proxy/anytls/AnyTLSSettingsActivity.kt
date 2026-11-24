@@ -16,6 +16,7 @@ class AnyTLSSettingsActivity : ProfileSettingsActivity<AnyTLSBean>() {
     override fun createEntity() = AnyTLSBean().applyDefaultValues()
 
     private val pbm = PreferenceBindingManager()
+    private val tlsExtras = pbm.add(PreferenceBinding(Type.Text, "tlsExtras"))
     private val outboundDialer = pbm.add(PreferenceBinding(Type.Text, "outboundDialer"))
     private val name = pbm.add(PreferenceBinding(Type.Text, "name"))
     private val serverAddress = pbm.add(PreferenceBinding(Type.Text, "serverAddress"))
