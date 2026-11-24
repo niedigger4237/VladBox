@@ -243,36 +243,55 @@ class BaseService {
         }
 
         fun stopRunner(restart: Boolean = false, msg: String? = null) {
-            DataStore.baseService = null
-            DataStore.vpnService = null
-
             if (data.state == State.Stopping) return
-            data.notification?.destroy()
-            data.notification = null
+            if (DataStore.baseService === this) DataStore.baseService = null
+            if (DataStore.vpnService === this) DataStore.vpnService = null
             this as Service
-
             data.changeState(State.Stopping)
+            removeServiceNotification()
 
             runOnMainDispatcher {
-                data.connectingJob?.cancelAndJoin() // ensure stop connecting first
-                // we use a coroutineScope here to allow clean-up in parallel
-                coroutineScope {
+                try {
+                    data.connectingJob?.cancelAndJoin()
                     killProcesses()
-                    val data = data
-                    if (data.closeReceiverRegistered) {
-                        unregisterReceiver(data.receiver)
-                        data.closeReceiverRegistered = false
-                    }
+                } catch (e: Exception) {
+                    Logs.w(e)
+                } finally {
+                    releaseServiceReceiver()
                     data.proxy = null
-                }
-
-                // change the state
-                data.changeState(State.Stopped, msg)
-                // stop the service if nothing has bound to it
-                if (restart) startRunner() else {
-                    stopSelf()
+                    removeServiceNotification()
+                    data.changeState(State.Stopped, msg)
+                    if (restart) startRunner() else stopSelf()
                 }
             }
+        }
+
+        fun removeServiceNotification() {
+            val notification = data.notification
+            data.notification = null
+            try { notification?.destroy() } catch (e: Exception) { Logs.w(e) }
+        }
+
+        fun releaseServiceReceiver() {
+            if (data.closeReceiverRegistered) {
+                data.closeReceiverRegistered = false
+                try { (this as Context).unregisterReceiver(data.receiver) }
+                catch (_: IllegalArgumentException) {}
+            }
+        }
+
+        fun cleanupOnDestroy() {
+            data.connectingJob?.cancel()
+            removeServiceNotification()
+            releaseServiceReceiver()
+            if (DataStore.baseService === this) DataStore.baseService = null
+            if (DataStore.vpnService === this) DataStore.vpnService = null
+            if (data.proxy != null) {
+                try { killProcesses() } catch (e: Exception) { Logs.w(e) }
+                data.proxy = null
+            }
+            data.changeState(State.Stopped)
+            data.binder.close()
         }
 
         fun persistStats() {
@@ -366,7 +385,7 @@ class BaseService {
             }
 
             data.changeState(State.Connecting)
-            runOnMainDispatcher {
+            data.connectingJob = kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
                 try {
                     data.notification = createNotification(ServiceNotification.genTitle(profile))
 
