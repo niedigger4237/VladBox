@@ -43,8 +43,8 @@ fun SshProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pa
             }.onFailure { importError = "Unable to read private key" }
         }
     }
-    val auth = remember(revision) { DataStore.serverAuthType }
-    val valid = remember(revision) {
+    val auth = remember(revision, DataStore.profileCacheStore.observableRevision) { DataStore.serverAuthType }
+    val valid = remember(revision, DataStore.profileCacheStore.observableRevision) {
         DataStore.serverAddress.isNotBlank() && DataStore.serverPort in 1..65535 &&
         DataStore.serverUsername.isNotBlank() && auth in 0..2 &&
         (auth != 1 || DataStore.serverPassword.isNotEmpty()) &&
