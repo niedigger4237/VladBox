@@ -21,6 +21,18 @@ class HysteriaSettingsActivity : ProfileSettingsActivity<HysteriaBean>() {
     private val hy2GeckoMin = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2GeckoMin"))
     private val hy2GeckoMax = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2GeckoMax"))
 
+    private val hy2Network = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2Network"))
+    private val hy2IdleTimeout = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2IdleTimeout"))
+    private val hy2KeepAlive = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2KeepAlive"))
+    private val hy2StreamWindow = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2StreamWindow"))
+    private val hy2ConnectionWindow = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2ConnectionWindow"))
+    private val hy2MaxStreams = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2MaxStreams"))
+    private val hy2InitialPacket = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2InitialPacket"))
+    private val hy2Realm = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Text, "hy2Realm"))
+    private val hy2BrutalDebug = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Bool, "hy2BrutalDebug"))
+    private val hy2DisableChrome = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Bool, "hy2DisableChrome"))
+    private val hy2DisablePathMtu = extra.add(moe.matsuri.nb4a.proxy.PreferenceBinding(moe.matsuri.nb4a.proxy.Type.Bool, "hy2DisablePathMtu"))
+
     override fun createEntity() = HysteriaBean().applyDefaultValues()
 
     override fun HysteriaBean.init() {
