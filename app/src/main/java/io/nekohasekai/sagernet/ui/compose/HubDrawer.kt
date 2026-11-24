@@ -26,36 +26,39 @@ fun installHubDrawer(activity: MainActivity, navigation: NavigationView) {
     val drawer = activity.binding.drawerLayout
     val params = navigation.layoutParams as DrawerLayout.LayoutParams
     val host = ComposeView(activity)
-    val revision = mutableStateOf(0)
     navigation.visibility = View.GONE
     drawer.removeView(navigation)
     drawer.addView(host, DrawerLayout.LayoutParams(
         (320 * activity.resources.displayMetrics.density).toInt(),
         params.height, params.gravity))
-    drawer.addDrawerListener(object : DrawerLayout.SimpleDrawerListener() {
-        override fun onDrawerSlide(drawerView: View, slideOffset: Float) {
-            if (drawerView === host) revision.value++
-        }
-        override fun onDrawerOpened(drawerView: View) { revision.value++ }
-    })
     host.setContent {
         HubTheme {
-            val version = revision.value
-            val items = remember(version) {
-                (0 until navigation.menu.size()).map { navigation.menu.getItem(it) }.filter { it.isVisible }
-            }
+            val selected by activity.drawerSelection.collectAsState()
+            val trafficVisible by activity.drawerTrafficVisible.collectAsState()
+            val items = listOf(
+                R.id.nav_configuration to R.string.menu_configuration,
+                R.id.nav_group to R.string.menu_group,
+                R.id.nav_route to R.string.menu_route,
+                R.id.nav_settings to R.string.settings,
+                R.id.nav_logcat to R.string.menu_log,
+                R.id.nav_traffic to R.string.menu_dashboard,
+                R.id.nav_warp to R.string.menu_warp,
+                R.id.nav_proton to R.string.menu_proton,
+                R.id.nav_tools to R.string.menu_backup,
+                R.id.nav_about to R.string.menu_about
+            ).filter { it.first != R.id.nav_traffic || trafficVisible }
             Surface(modifier = Modifier.fillMaxSize(), shape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp), color = androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.onSurface, 0.07f)) {
                 Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(12.dp)) {
                     Text(activity.getString(R.string.app_name), Modifier.padding(horizontal = 16.dp, vertical = 20.dp), fontSize = 22.sp)
-                    items.forEach { item ->
-                        key(item.itemId) {
+                    items.forEach { (id, title) ->
+                        key(id) {
                             NavigationDrawerItem(
-                                label = { Text(item.title.toString()) },
-                                selected = item.isChecked,
+                                label = { Text(activity.getString(title)) },
+                                selected = id == selected,
                                 colors = NavigationDrawerItemDefaults.colors(unselectedTextColor = MaterialTheme.colorScheme.onSurface, selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer),
-                                onClick = { activity.onNavigationItemSelected(item); revision.value++ },
+                                onClick = { if (id == selected) drawer.closeDrawers() else activity.displayFragmentWithId(id) },
                                 icon = {
-                                    HubDrawerIcon(item.itemId, if (item.isChecked) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface)
+                                    HubDrawerIcon(id, if (id == selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface)
                                 }
                             )
                         }
