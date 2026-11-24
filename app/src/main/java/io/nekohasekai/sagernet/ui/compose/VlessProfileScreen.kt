@@ -11,7 +11,10 @@ import androidx.compose.ui.text.input.VisualTransformation
 import io.nekohasekai.sagernet.database.DataStore
 
 @Composable
-fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pair<String, () -> Unit>> = emptyList()) {
+fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pair<String, () -> Unit>> = emptyList(), protocol: String = "VLESS") {
+    val isVless = protocol == "VLESS"
+    val isVmess = protocol == "VMess"
+    val isTrojan = protocol == "Trojan"
     val store = DataStore.profileCacheStore
     var revision by remember { mutableStateOf(0) }
     fun read(key: String) = store.getString(key, "") ?: ""
@@ -23,7 +26,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     var section by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var reality by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(read("realityPubKey").isNotBlank()) }
     val muxValid = !mux || (listOf("muxConcurrency","muxMaxConnections","muxMinStreams").all { read(it).toIntOrNull()?.let { n -> n >= 0 } == true } && (!store.getBoolean("muxBrutal",false) || listOf("muxBrutalUp","muxBrutalDown").all { read(it).toIntOrNull()?.let { n -> n > 0 } == true }))
-    val dialerValid = runCatching { org.json.JSONObject(read("outboundDialer").ifBlank { "{}" }) }.isSuccess
+    val dialerValid = !isVless || runCatching { org.json.JSONObject(read("outboundDialer").ifBlank { "{}" }) }.isSuccess
     val transportValid = when (transport) {
         "ws" -> read("wsMaxEarlyData").toIntOrNull()?.let { it >= 0 } == true
         "grpc" -> listOf("grpcIdleTimeout","grpcPingTimeout").all { read(it).toIntOrNull()?.let { n -> n >= 0 } == true }
@@ -31,10 +34,10 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
         "xhttp" -> runCatching { org.json.JSONObject(read("xhttpExtra").ifBlank { "{}" }) }.isSuccess
         else -> true
     }
-    val valid = transportValid && dialerValid && muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && read("uuid").isNotBlank() && (!reality || read("realityPubKey").isNotBlank())
+    val valid = transportValid && dialerValid && muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && read("uuid").isNotBlank() && (!isVmess || read("alterId").toIntOrNull()?.let { it >= 0 } == true) && (!reality || read("realityPubKey").isNotBlank())
     androidx.activity.compose.BackHandler(enabled = section.isNotEmpty()) { section = "" }
     Column(Modifier.fillMaxSize()) {
-    VladTopAppBar(title = section.ifEmpty { "VLESS" }, onNavigation = onClose, onBack = { if (section.isNotEmpty()) section = "" else onClose() }, extraActions = {
+    VladTopAppBar(title = section.ifEmpty { protocol }, onNavigation = onClose, onBack = { if (section.isNotEmpty()) section = "" else onClose() }, extraActions = {
         var expanded by remember { mutableStateOf(false) }
         TextButton(onClick = onSave, enabled = valid) { Text("Save") }
         Box {
@@ -44,7 +47,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     })
     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (section.isEmpty()) {
-            val sections = listOf("General" to "Server, UUID and flow", "Transport" to transport.uppercase(), "Security" to (if (reality) "Reality" else security.ifBlank { "None" }), "Multiplex" to (if (mux) "Enabled" else "Disabled"), "Connection" to "Network options")
+            val sections = listOf("General" to (if (isTrojan) "Server and password" else if (isVmess) "Server, UUID and encryption" else "Server, UUID and flow"), "Transport" to transport.uppercase(), "Security" to (if (reality) "Reality" else security.ifBlank { "None" }), "Multiplex" to (if (mux) "Enabled" else "Disabled"), "Connection" to "Network options").filter { isVless || it.first != "Connection" }
             items(sections.size) { index ->
                 val (name, description) = sections[index]
                 Card(onClick = { section = name }, modifier = Modifier.fillMaxWidth()) {
@@ -60,11 +63,23 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 ProfileText("Profile name", "name", read("name"), ::write)
                 ProfileText("Server address", "serverAddress", read("serverAddress"), ::write)
                 ProfileText("Server port", "serverPort", read("serverPort"), ::write)
-                ProfileText("UUID", "uuid", read("uuid"), ::write)
-                ProfileChoices(listOf("" to "None", "xtls-rprx-vision" to "Vision"), read("encryption")) { write("encryption", it) }
-                ProfileText("Encryption", "vlessEncryption", read("vlessEncryption"), ::write)
-                Text("Packet encoding")
-                ProfileChoices(listOf("0" to "None","1" to "Packet address","2" to "XUDP"), read("packetEncoding")) { write("packetEncoding",it) }
+                ProfileText(if (isTrojan) "Password" else "UUID", "uuid", read("uuid"), ::write, secret = isTrojan)
+                if (isVless) {
+                    Text("Flow")
+                    ProfileChoices(listOf("" to "None", "xtls-rprx-vision" to "Vision"), read("encryption")) { write("encryption", it) }
+                    ProfileText("Encryption", "vlessEncryption", read("vlessEncryption"), ::write)
+                }
+                if (isVmess) {
+                    ProfileText("Alter ID", "alterId", read("alterId"), ::write)
+                    Text("Encryption")
+                    ProfileChoices(listOf("auto","none","zero","aes-128-cfb","aes-128-gcm","chacha20-poly1305").map { it to it }, read("encryption")) { write("encryption",it) }
+                    ProfileSwitch("Global padding",store.getBoolean("globalPadding",false)) { toggle("globalPadding",it) }
+                    ProfileSwitch("Authenticated length",store.getBoolean("authenticatedLength",false)) { toggle("authenticatedLength",it) }
+                }
+                if (!isTrojan) {
+                    Text("Packet encoding")
+                    ProfileChoices(listOf("0" to "None","1" to "Packet address","2" to "XUDP"), read("packetEncoding")) { write("packetEncoding",it) }
+                }
             }
         }
         if (section == "Transport") item {
@@ -212,7 +227,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 }
             }
         }
-        if (section == "Connection") {
+        if (section == "Connection" && isVless) {
             item { ProfileSection("Network") { ProfileChoices(listOf("" to "TCP + UDP","tcp" to "TCP","udp" to "UDP"), read("vlessNetwork")) { write("vlessNetwork",it) } } }
             item { ProfileSection("Dialer settings") { VlessDialer(read("outboundDialer")) { write("outboundDialer",it) } } }
         }
@@ -229,8 +244,9 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
         }
     }
 }
-@Composable private fun ProfileText(label: String, key: String, value: String, write: (String,String)->Unit) {
-    OutlinedTextField(value, { write(key,it) }, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), visualTransformation = if (key == "tlsClientKey") PasswordVisualTransformation() else VisualTransformation.None)
+@Composable private fun ProfileText(label: String, key: String, value: String, write: (String,String)->Unit) = ProfileText(label,key,value,write,false)
+@Composable private fun ProfileText(label: String, key: String, value: String, write: (String,String)->Unit, secret: Boolean) {
+    OutlinedTextField(value, { write(key,it) }, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), visualTransformation = if (secret || key == "tlsClientKey") PasswordVisualTransformation() else VisualTransformation.None)
 }
 @Composable private fun ProfileSwitch(label: String, value: Boolean, change: (Boolean)->Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
