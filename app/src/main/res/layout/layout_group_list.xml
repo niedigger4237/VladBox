@@ -23,6 +23,10 @@
             app:navigationIconTint="?attr/colorOnSurface"
             app:popupTheme="@style/ThemeOverlay.Material3"
             app:title="@string/app_name" />
+        <androidx.compose.ui.platform.ComposeView
+            android:id="@+id/compose_header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <com.google.android.material.tabs.TabLayout
@@ -44,6 +48,11 @@
         app:tabSelectedTextColor="?attr/colorPrimary"
         app:tabTextColor="?android:attr/textColorSecondary"
         app:tabUnboundedRipple="false" />
+
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/compose_groups"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
 
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/group_pager"
