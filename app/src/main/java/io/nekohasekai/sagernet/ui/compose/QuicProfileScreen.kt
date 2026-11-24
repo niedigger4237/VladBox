@@ -14,11 +14,11 @@ fun QuicProfileScreen(tuic: Boolean, onSave: () -> Unit, onClose: () -> Unit, me
     val store = DataStore.profileCacheStore
     var revision by remember { mutableStateOf(0) }
     var section by rememberSaveable { mutableStateOf("") }
-    val version = remember(revision) { DataStore.protocolVersion }
+    val version = remember(revision, DataStore.profileCacheStore.observableRevision) { DataStore.protocolVersion }
     val hy2 = !tuic && version == 2
     val prefix = if (tuic) "tuic" else "hy2"
     val title = if (tuic) "TUIC" else "Hysteria $version"
-    val valid = remember(revision) {
+    val valid = remember(revision, DataStore.profileCacheStore.observableRevision) {
         val optionsValid = runCatching {
             io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(store.getString("outboundDialer","").orEmpty(), "", mutableMapOf())
             io.nekohasekai.sagernet.fmt.applyQuicTlsOptions(store.getString("quicTlsOptions","").orEmpty(), mutableMapOf())
