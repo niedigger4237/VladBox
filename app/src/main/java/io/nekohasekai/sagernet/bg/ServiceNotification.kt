@@ -53,7 +53,9 @@ class ServiceNotification(
         }
     }
 
-    var listenPostSpeed = true
+    @Volatile private var destroyed = false
+    private val lifecycleLock = Any()
+    @Volatile var listenPostSpeed = true
 
     suspend fun postNotificationSpeedUpdate(stats: SpeedDisplayData) {
         useBuilder {
@@ -117,6 +119,7 @@ class ServiceNotification(
         .setTicker(service.getString(R.string.forward_success))
         .setContentTitle(title)
         .setOnlyAlertOnce(true)
+        .setOngoing(true)
         .setContentIntent(SagerNet.configureIntent(service))
         .setSmallIcon(R.drawable.ic_service_active)
         .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -126,7 +129,9 @@ class ServiceNotification(
 
     private suspend fun useBuilder(f: (NotificationCompat.Builder) -> Unit) {
         buildLock.withLock {
-            f(builder)
+            synchronized(lifecycleLock) {
+                if (!destroyed) f(builder)
+            }
         }
     }
 
@@ -210,12 +215,23 @@ class ServiceNotification(
     }
 
     fun destroy() {
-        listenPostSpeed = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            (service as Service).stopForeground(Service.STOP_FOREGROUND_REMOVE)
-        } else {
-            (service as Service).stopForeground(true)
+        synchronized(lifecycleLock) {
+            if (destroyed) return
+            destroyed = true
+            listenPostSpeed = false
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    (service as Service).stopForeground(Service.STOP_FOREGROUND_REMOVE)
+                } else {
+                    (service as Service).stopForeground(true)
+                }
+            } finally {
+                try {
+                    NotificationManagerCompat.from(service as Service).cancel(notificationId)
+                } finally {
+                    try { service.unregisterReceiver(this) } catch (_: IllegalArgumentException) {}
+                }
+            }
         }
-        service.unregisterReceiver(this)
     }
 }
