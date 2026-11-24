@@ -85,7 +85,7 @@ fun TlsProxyScreen(shadow: Boolean, onSave: () -> Unit, onClose: () -> Unit, men
                             SimpleField("ALPN",read("alpn")) { write("alpn",it) }
                             SimpleField("CA certificate (PEM)",read("certificates")) { write("certificates",it) }
                             SimpleToggle("Allow insecure",store.getBoolean("allowInsecure",false)) { store.putBoolean("allowInsecure",it); revision++ }
-                            SimpleField("uTLS fingerprint",read("utlsFingerprint")) { write("utlsFingerprint",it) }
+                            UtlsFingerprintPicker("uTLS fingerprint",read("utlsFingerprint")) { write("utlsFingerprint",it) }
                             if (!shadow) SimpleField("ECH configuration",read("echConfig")) { write("echConfig",it) }
                             if (shadow) {
                                 SimpleToggle("Enable ECH",store.getBoolean("enableECH",false)) { store.putBoolean("enableECH",it); revision++ }
