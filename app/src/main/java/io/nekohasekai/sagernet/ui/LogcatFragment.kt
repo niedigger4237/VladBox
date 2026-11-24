@@ -1,6 +1,7 @@
 package io.nekohasekai.sagernet.ui
 
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.layout.*
@@ -34,6 +35,28 @@ class LogcatFragment : ToolbarFragment(R.layout.layout_logcat) {
     private val logs = mutableStateOf("")
     private val busy = mutableStateOf(false)
 
+    private val saveLog = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null) {
+            val resolver = requireContext().contentResolver
+            lifecycleScope.launch {
+                busy.value = true
+                try {
+                    withContext(Dispatchers.IO) {
+                        val file = SendLog.createLogFile("NieFigger-Hub")
+                        try {
+                            val output = resolver.openOutputStream(uri) ?: error("Cannot open destination")
+                            output.use { stream -> file.inputStream().use { it.copyTo(stream) } }
+                        } finally { file.delete() }
+                    }
+                    if (isAdded) snackbar("Logs saved").show()
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (isAdded) snackbar(e.readableMessage).show()
+                } finally { busy.value = false }
+            }
+        }
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         val root = view as ViewGroup
@@ -46,6 +69,7 @@ class LogcatFragment : ToolbarFragment(R.layout.layout_logcat) {
                 var query by remember { mutableStateOf("") }
                 var errorsOnly by remember { mutableStateOf(false) }
                 var confirmClear by remember { mutableStateOf(false) }
+                var exportMenu by remember { mutableStateOf(false) }
                 val scroll = rememberScrollState()
                 val lines = remember(logs.value, query, errorsOnly) {
                     logs.value.lineSequence().filter { it.contains(query, ignoreCase = true) &&
@@ -72,7 +96,18 @@ class LogcatFragment : ToolbarFragment(R.layout.layout_logcat) {
                         onNavigation = { (requireActivity() as MainActivity).binding.drawerLayout.openDrawer(androidx.core.view.GravityCompat.START) },
                         extraActions = {
                             IconButton(onClick = { reloadSession() }, enabled = !busy.value) { Icon(painterResource(R.drawable.ic_baseline_refresh_24), getString(R.string.group_update)) }
-                            IconButton(onClick = { shareLogs() }) { Icon(painterResource(R.drawable.baseline_send_24), getString(R.string.logcat)) }
+                            Box {
+                                IconButton(onClick = { exportMenu = true }, enabled = !busy.value) {
+                                    Icon(painterResource(R.drawable.baseline_send_24), "Export logs")
+                                }
+                                DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
+                                    DropdownMenuItem(text = { Text("Share logs") }, onClick = { exportMenu = false; shareLogs() })
+                                    DropdownMenuItem(text = { Text("Save to device") }, onClick = {
+                                        exportMenu = false
+                                        saveLog.launch("niefigger_hub_${java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())}.log")
+                                    })
+                                }
+                            }
                             IconButton(onClick = { confirmClear = true }, enabled = !busy.value) { Icon(painterResource(R.drawable.baseline_delete_sweep_24), getString(R.string.clear_logcat)) }
                         })
                     OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Search logs") }, singleLine = true,
