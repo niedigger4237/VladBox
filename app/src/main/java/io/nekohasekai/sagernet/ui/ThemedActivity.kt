@@ -11,6 +11,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import com.google.android.material.appbar.AppBarLayout
+import com.google.android.material.color.DynamicColors
 import com.google.android.material.snackbar.Snackbar
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.utils.Theme
@@ -30,6 +31,9 @@ abstract class ThemedActivity : AppCompatActivity {
             Theme.applyDialog(this)
         }
         Theme.applyNightTheme()
+        // Material You colors follow the system wallpaper on Android 12+.
+        // Older devices retain the app's selected color palette.
+        DynamicColors.applyToActivityIfAvailable(this)
 
         super.onCreate(savedInstanceState)
 

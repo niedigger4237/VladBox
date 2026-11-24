@@ -1,6 +1,8 @@
 package io.nekohasekai.sagernet.ui
 
 import android.content.Intent
+import android.os.Build
+import com.google.android.material.color.MaterialColors
 import androidx.activity.OnBackPressedCallback
 import android.os.Bundle
 import android.view.MenuItem
@@ -193,25 +195,37 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         profileHome.removeAllViews()
         profileHome.addView(MaterialButton(requireContext()).apply {
             text = "+ New profile"
+            isAllCaps = false
+            cornerRadius = dp(18)
             setOnClickListener { profileNameDialog() }
         }, LinearLayout.LayoutParams(-1, dp(52)).apply { bottomMargin = dp(16) })
         val selected = RouteProfiles.selectedId()
         RouteProfiles.all().forEach { profile ->
             val active = profile.id == selected
             val card = MaterialCardView(requireContext()).apply {
-                radius = dp(18).toFloat()
-                setContentPadding(dp(18), dp(16), dp(18), dp(16))
-                isCheckable = true
-                isChecked = active
+                radius = dp(24).toFloat()
+                cardElevation = 0f
+                strokeWidth = if (active) dp(2) else 0
+                if (Build.VERSION.SDK_INT >= 31) {
+                    setCardBackgroundColor(requireContext().getColor(
+                        if (active) android.R.color.system_accent1_50 else android.R.color.system_neutral2_50))
+                    if (active) strokeColor = requireContext().getColor(android.R.color.system_accent1_300)
+                } else {
+                    setCardBackgroundColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface))
+                    if (active) strokeColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary)
+                }
+                setContentPadding(dp(20), dp(20), dp(20), dp(18))
             }
             val column = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
             column.addView(TextView(requireContext()).apply {
                 text = profile.name + if (active) "  ✓" else ""
-                textSize = 20f
+                textSize = 22f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
             })
             column.addView(TextView(requireContext()).apply {
                 text = "${if (active) DataStore.routeFinal else profile.routeFinal} · ${if (active) ruleAdapter.ruleList.size else profile.rules.size} rules"
-                textSize = 13f
+                textSize = 14f
+                setPadding(0, dp(8), 0, 0)
             })
             val actions = LinearLayout(requireContext()).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -221,11 +235,15 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                 actions.addView(MaterialButton(requireContext()).apply {
                     text = label
                     textSize = 12f
+                    isAllCaps = false
+                    cornerRadius = dp(14)
+                    insetTop = 0
+                    insetBottom = 0
                     minWidth = 0
                     minimumWidth = 0
                     setPadding(dp(8), 0, dp(8), 0)
                     setOnClickListener { action() }
-                }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(6) })
+                }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(8) })
             }
             addAction(if (active) "Edit rules" else "Select") {
                 if (active) openRules() else profileAction { RouteProfiles.select(profile.id) }
