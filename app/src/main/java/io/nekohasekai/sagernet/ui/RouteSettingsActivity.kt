@@ -147,7 +147,7 @@ class RouteSettingsActivity(
             ) ?: return@runOnDefaultDispatcher
             DataStore.routeOutboundRule = profile.id
             onMainDispatcher {
-                outbound.value = "3"
+                if (nativeEditor) { DataStore.routeOutbound = 3; refreshEditor() } else outbound.value = "3"
             }
         }
     }
@@ -155,7 +155,7 @@ class RouteSettingsActivity(
     val selectAppList = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { (_, _) ->
-        apps.postUpdate()
+        if (nativeEditor) refreshEditor() else apps.postUpdate()
     }
 
     lateinit var outbound: OutboundPreference
@@ -249,6 +249,7 @@ class RouteSettingsActivity(
                     DataStore.routeDomain = values.joinToString("\n")
                 }
                 DataStore.dirty = true
+                refreshEditor()
                 Toast.makeText(this@RouteSettingsActivity, "Installed and selected: $selector", Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
                 MaterialAlertDialogBuilder(this@RouteSettingsActivity)
@@ -324,7 +325,49 @@ class RouteSettingsActivity(
     fun PreferenceFragmentCompat.viewCreated(view: View, savedInstanceState: Bundle?) {
         outbound = findPreference(Key.ROUTE_OUTBOUND)!!
         apps = findPreference(Key.ROUTE_PACKAGES)!!
-        findPreference<Preference>("routeSrsPicker")?.setOnPreferenceClickListener {
+        findPreference<Preference>("routeSrsPicker")?.setOnPreferenceClickListener { showInstalledSrs(); true }
+
+
+        outbound.setOnPreferenceChangeListener { _, newValue ->
+            if (newValue.toString() == "3") {
+                selectProfileForAdd.launch(
+                    Intent(
+                        this@RouteSettingsActivity, ProfileSelectActivity::class.java
+                    )
+                )
+                false
+            } else {
+                true
+            }
+        }
+
+        apps.setOnPreferenceClickListener {
+            selectAppList.launch(
+                Intent(
+                    this@RouteSettingsActivity, AppListActivity::class.java
+                )
+            )
+            true
+        }
+    }
+
+    val editorRevision = kotlinx.coroutines.flow.MutableStateFlow(0)
+    private val nativeEditor get() = !SagerNet.isTv
+    fun refreshEditor() { editorRevision.value++ }
+    fun editorSave() { runOnDefaultDispatcher { saveAndExit() } }
+    fun editorDelete() {
+        if (DataStore.editingId == 0L) finish()
+        else DeleteConfirmationDialogFragment().apply {
+            arg(ProfileIdArg(DataStore.editingId))
+            key()
+        }.show(supportFragmentManager, null)
+    }
+    private fun showNativeEditor() {
+        val host = androidx.compose.ui.platform.ComposeView(this)
+        setContentView(host)
+        io.nekohasekai.sagernet.ui.compose.installRouteEditor(this, host)
+    }
+    fun showInstalledSrs() {
             val files = SagerNet.application.externalAssets.listFiles()
                 ?.filter { it.isFile && it.name.endsWith(".srs") &&
                     (it.name.startsWith("geosite-") || it.name.startsWith("geoip-")) }
@@ -396,33 +439,8 @@ class RouteSettingsActivity(
                     .setNeutralButton("Online") { _, _ -> showOnlineSrsPicker() }
                     .setNegativeButton(android.R.string.cancel, null).show()
             }
-            true
-        }
 
-
-        outbound.setOnPreferenceChangeListener { _, newValue ->
-            if (newValue.toString() == "3") {
-                selectProfileForAdd.launch(
-                    Intent(
-                        this@RouteSettingsActivity, ProfileSelectActivity::class.java
-                    )
-                )
-                false
-            } else {
-                true
-            }
-        }
-
-        apps.setOnPreferenceClickListener {
-            selectAppList.launch(
-                Intent(
-                    this@RouteSettingsActivity, AppListActivity::class.java
-                )
-            )
-            true
-        }
     }
-
     fun displayPreferenceDialog(preference: Preference): Boolean {
         return false
     }
@@ -464,7 +482,7 @@ class RouteSettingsActivity(
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setSupportActionBar(findViewById(R.id.toolbar))
+        if (!nativeEditor) setSupportActionBar(findViewById(R.id.toolbar))
         supportActionBar?.apply {
             setTitle(R.string.cag_route)
             setDisplayHomeAsUpEnabled(true)
@@ -489,7 +507,7 @@ class RouteSettingsActivity(
                 }
 
                 onMainDispatcher {
-                    supportFragmentManager.beginTransaction()
+                    if (nativeEditor) showNativeEditor() else supportFragmentManager.beginTransaction()
                         .replace(R.id.settings, MyPreferenceFragmentCompat())
                         .commit()
 
@@ -497,10 +515,10 @@ class RouteSettingsActivity(
                     DataStore.profileCacheStore.registerChangeListener(this@RouteSettingsActivity)
                 }
             }
-
-
+        } else if (nativeEditor) {
+            showNativeEditor()
+            DataStore.profileCacheStore.registerChangeListener(this)
         }
-
     }
 
     private fun missingRouteSrs(): List<String> {
@@ -580,6 +598,7 @@ class RouteSettingsActivity(
     val child by lazy { supportFragmentManager.findFragmentById(R.id.settings) as MyPreferenceFragmentCompat }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        if (nativeEditor) return false
         menuInflater.inflate(R.menu.profile_config_menu, menu)
         return true
     }
