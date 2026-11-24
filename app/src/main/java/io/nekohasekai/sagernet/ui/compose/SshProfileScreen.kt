@@ -101,7 +101,11 @@ fun SshProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pa
                                 SimpleField("Server host key",DataStore.serverCertificates) { DataStore.serverCertificates = it; revision++ }
                                 Text("Set a trusted server host key to verify the SSH server identity.",style = MaterialTheme.typography.bodySmall)
                                 Text("Leave algorithm lists empty to use core defaults. Separate custom algorithms with commas.",style = MaterialTheme.typography.bodySmall)
-                                listOf("hostKeyAlgorithms" to "Host key algorithms","clientVersion" to "Client version","cipherAlgorithms" to "Cipher algorithms","macAlgorithms" to "MAC algorithms","kexAlgorithms" to "Key exchange algorithms").forEach { (k,label) -> SimpleField(label,read(k)) { write(k,it) } }
+                                SimpleField("Client version",read("clientVersion")) { write("clientVersion",it) }
+                                SshAlgorithms("Host key algorithms",read("hostKeyAlgorithms"),listOf("ssh-ed25519","ecdsa-sha2-nistp256","ecdsa-sha2-nistp384","ecdsa-sha2-nistp521","rsa-sha2-256","rsa-sha2-512")) { write("hostKeyAlgorithms",it) }
+                                SshAlgorithms("Cipher algorithms",read("cipherAlgorithms"),listOf("aes128-ctr","aes192-ctr","aes256-ctr","aes128-gcm@openssh.com","aes256-gcm@openssh.com","chacha20-poly1305@openssh.com")) { write("cipherAlgorithms",it) }
+                                SshAlgorithms("MAC algorithms",read("macAlgorithms"),listOf("hmac-sha2-256","hmac-sha2-512","hmac-sha2-256-etm@openssh.com","hmac-sha2-512-etm@openssh.com")) { write("macAlgorithms",it) }
+                                SshAlgorithms("Key exchange algorithms",read("kexAlgorithms"),listOf("curve25519-sha256","curve25519-sha256@libssh.org","ecdh-sha2-nistp256","ecdh-sha2-nistp384","ecdh-sha2-nistp521","diffie-hellman-group14-sha256")) { write("kexAlgorithms",it) }
                             }
                             "Advanced" -> VlessDialer(read("outboundDialer")) { write("outboundDialer",it) }
                         }
@@ -110,5 +114,27 @@ fun SshProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pa
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SshAlgorithms(label: String, value: String, choices: List<String>, change: (String) -> Unit) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val selected = value.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+    Text(label, style = MaterialTheme.typography.titleMedium)
+    OutlinedButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) {
+        Text(if (selected.isEmpty()) "Core default" else "${selected.size} selected")
+    }
+    if (expanded) {
+        choices.forEach { algorithm ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Checkbox(checked = algorithm in selected, onCheckedChange = { checked ->
+                    change((if (checked) selected + algorithm else selected.filterNot { it == algorithm }).distinct().joinToString(","))
+                })
+                Text(algorithm, Modifier.weight(1f))
+            }
+        }
+        SimpleField("Custom ordered list",value,change = change)
+        TextButton(onClick = { change("") }) { Text("Reset to core default") }
     }
 }
