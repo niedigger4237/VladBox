@@ -55,76 +55,37 @@ class TrojanGoSettingsActivity : ProfileSettingsActivity<TrojanGoBean>() {
         }
     }
 
-    lateinit var network: SimpleMenuPreference
-    lateinit var encryprtion: SimpleMenuPreference
-    lateinit var wsCategory: PreferenceCategory
-    lateinit var ssCategory: PreferenceCategory
-    lateinit var method: SimpleMenuPreference
-
-    val trojanGoMethods = app.resources.getStringArray(R.array.trojan_go_methods)
-    val trojanGoNetworks = app.resources.getStringArray(R.array.trojan_go_networks_value)
-
-    override fun PreferenceFragmentCompat.createPreferences(
-        savedInstanceState: Bundle?,
-        rootKey: String?,
-    ) {
-        addPreferencesFromResource(R.xml.trojan_go_preferences)
-        findPreference<EditTextPreference>(Key.SERVER_PORT)!!.apply {
-            setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
-        }
-        findPreference<EditTextPreference>(Key.SERVER_PASSWORD)!!.apply {
-            summaryProvider = PasswordSummaryProvider
-        }
-        findPreference<EditTextPreference>(Key.SERVER_PASSWORD1)!!.apply {
-            summaryProvider = PasswordSummaryProvider
-        }
-        wsCategory = findPreference(Key.SERVER_WS_CATEGORY)!!
-        ssCategory = findPreference(Key.SERVER_SS_CATEGORY)!!
-        method = findPreference(Key.SERVER_METHOD)!!
-
-        network = findPreference(Key.SERVER_NETWORK)!!
-
-        if (network.value !in trojanGoNetworks) {
-            network.value = trojanGoNetworks[0]
-        }
-
-        updateNetwork(network.value)
-        network.setOnPreferenceChangeListener { _, newValue ->
-            updateNetwork(newValue as String)
-            true
-        }
-        encryprtion = findPreference(Key.SERVER_ENCRYPTION)!!
-        updateEncryption(encryprtion.value)
-        encryprtion.setOnPreferenceChangeListener { _, newValue ->
-            updateEncryption(newValue as String)
-            true
-        }
+    override fun PreferenceFragmentCompat.createPreferences(savedInstanceState: Bundle?, rootKey: String?) {
+        preferenceScreen = preferenceManager.createPreferenceScreen(requireContext())
     }
 
-    fun updateNetwork(newNet: String) {
-        when (newNet) {
-            "ws" -> {
-                wsCategory.isVisible = true
-            }
-            else -> {
-                wsCategory.isVisible = false
+    override fun PreferenceFragmentCompat.viewCreated(view: android.view.View, savedInstanceState: Bundle?) {
+        val legacyList = listView
+        val parent = legacyList.parent as? android.view.ViewGroup ?: return
+        val index = parent.indexOfChild(legacyList)
+        val params = legacyList.layoutParams
+        val menu = androidx.appcompat.widget.PopupMenu(requireContext(), legacyList).menu
+        this@TrojanGoSettingsActivity.onCreateOptionsMenu(menu)
+        val actions = (0 until menu.size()).map { menu.getItem(it) }
+            .filter { it.isVisible && it.itemId != R.id.action_apply }
+            .map { item -> item.title.toString() to { this@TrojanGoSettingsActivity.onOptionsItemSelected(item); Unit } }
+        supportActionBar?.hide()
+        findViewById<android.view.View>(R.id.appbar)?.visibility = android.view.View.GONE
+        findViewById<android.view.View>(R.id.settings)?.let { container ->
+            container.layoutParams = container.layoutParams.apply { height = android.view.ViewGroup.LayoutParams.MATCH_PARENT }
+        }
+        parent.removeView(legacyList)
+        val host = androidx.compose.ui.platform.ComposeView(requireContext())
+        host.setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        parent.addView(host, index, params)
+        host.setContent {
+            io.nekohasekai.sagernet.ui.compose.HubTheme {
+                io.nekohasekai.sagernet.ui.compose.TrojanGoProfileScreen(
+                    onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
+                    onClose = { this@TrojanGoSettingsActivity.onBackPressed() },
+                    menuItems = actions
+                )
             }
         }
     }
-
-    fun updateEncryption(encryption: String) {
-        when (encryption) {
-            "ss" -> {
-                ssCategory.isVisible = true
-
-                if (method.value !in trojanGoMethods) {
-                    method.value = trojanGoMethods[0]
-                }
-            }
-            else -> {
-                ssCategory.isVisible = false
-            }
-        }
-    }
-
 }
