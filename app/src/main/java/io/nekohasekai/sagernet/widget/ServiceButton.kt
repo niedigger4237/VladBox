@@ -40,9 +40,22 @@ class ServiceButton @JvmOverloads constructor(
         setImageResource(icon)
         val surface = com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface)
         val primary = com.google.android.material.color.MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary)
-        val tint = if (state == BaseService.State.Connected) color else if (state == BaseService.State.Connecting || state == BaseService.State.Stopping) color else androidx.core.graphics.ColorUtils.blendARGB(surface, primary, 0.8f)
+        val foreground = com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface)
+        val dark = androidx.core.graphics.ColorUtils.calculateLuminance(surface) < 0.5
+        val tint = when (state) {
+            BaseService.State.Connected -> if (dark) Color.parseColor("#A5D5B1") else Color.parseColor("#386A49")
+            BaseService.State.Connecting, BaseService.State.Stopping -> color
+            else -> androidx.core.graphics.ColorUtils.blendARGB(primary, if (dark) foreground else surface, if (dark) 0.55f else 0.12f)
+        }
         backgroundTintList = ColorStateList.valueOf(tint)
         imageTintList = ColorStateList.valueOf(if (androidx.core.graphics.ColorUtils.calculateLuminance(tint) > 0.45) Color.BLACK else Color.WHITE)
+
+        if (animate && state != previousState) {
+            animate().cancel()
+            scaleX = 0.94f
+            scaleY = 0.94f
+            animate().scaleX(1f).scaleY(1f).setDuration(160L).start()
+        }
 
         val busy = state == BaseService.State.Connecting || state == BaseService.State.Stopping
         progress?.let { if (busy) it.show() else it.hide() }
