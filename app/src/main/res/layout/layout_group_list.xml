@@ -5,6 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
+    android:background="?attr/colorSurface"
     tools:context=".ui.ConfigurationFragment">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -16,11 +17,11 @@
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
+            android:layout_height="56dp"
             android:background="?attr/colorSurface"
             app:titleTextColor="?attr/colorOnSurface"
             app:navigationIconTint="?attr/colorOnSurface"
-            app:popupTheme="@style/ThemeOverlay.AppCompat.DayNight"
+            app:popupTheme="@style/ThemeOverlay.Material3"
             app:title="@string/app_name" />
     </com.google.android.material.appbar.AppBarLayout>
 
