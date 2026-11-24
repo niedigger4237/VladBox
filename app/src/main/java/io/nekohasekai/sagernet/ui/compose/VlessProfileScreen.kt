@@ -86,20 +86,75 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 }
             }
         }
-        if (section == "Security") item {
-            ProfileSection("Security") {
-                ProfileChoices(listOf("" to "None", "tls" to "TLS", "reality" to "Reality"), if (reality) "reality" else security) {
-                    reality = it == "reality"
-                    write("security", if (reality) "tls" else it)
-                    if (!reality) { write("realityPubKey",""); write("realityShortId",""); toggle("realityHybrid",false) }
+        if (section == "Security") {
+            item {
+                ProfileSection("Security") {
+                    ProfileChoices(listOf("" to "None", "tls" to "TLS", "reality" to "Reality"), if (reality) "reality" else security) {
+                        reality = it == "reality"
+                        write("security", if (reality) "tls" else it)
+                        if (!reality) { write("realityPubKey",""); write("realityShortId",""); toggle("realityHybrid",false) }
+                        else { toggle("tlsDisableSni",false); write("tlsSpoof",""); write("tlsSpoofMethod","") }
+                    }
+                    if ("tls" in security) {
+                        ProfileText("Server name (SNI)", "sni", read("sni"), ::write)
+                        ProfileText("ALPN", "alpn", read("alpn"), ::write)
+                        ProfileText("uTLS fingerprint", "utlsFingerprint", read("utlsFingerprint"), ::write)
+                        if (!reality) {
+                            ProfileSwitch("Allow insecure",store.getBoolean("allowInsecure",false)) { toggle("allowInsecure",it) }
+                            ProfileSwitch("Disable SNI",store.getBoolean("tlsDisableSni",false)) { toggle("tlsDisableSni",it) }
+                        }
+                    }
                 }
-                if ("tls" in security) {
-                    ProfileText("SNI", "sni", read("sni"), ::write)
-                    ProfileText("Fingerprint", "utlsFingerprint", read("utlsFingerprint"), ::write)
-                    if (reality) ProfileText("Reality public key", "realityPubKey", read("realityPubKey"), ::write)
-                    if (reality) ProfileText("Reality short ID", "realityShortId", read("realityShortId"), ::write)
-                    listOf("alpn","certificates","tlsPubKeySha256","tlsCipherSuites","tlsMinVersion","tlsMaxVersion","tlsCurves","tlsHandshakeTimeout","tlsClientCertificate","tlsClientKey","tlsEngine","tlsCertificatePath","tlsClientCertificatePath","tlsClientKeyPath","echConfig","echConfigPath","echQueryName","tlsFragmentFallbackDelay","tlsSpoof","tlsSpoofMethod").forEach { ProfileText(it,it,read(it),::write) }
-                    listOf("allowInsecure","tlsDisableSni","enableECH","realityHybrid","tlsFragment","tlsRecordFragment","tlsKernelTx","tlsKernelRx").forEach { key -> ProfileSwitch(key,store.getBoolean(key,false)) { toggle(key,it) } }
+            }
+            if ("tls" in security) {
+                if (reality) item {
+                    ProfileSection("Reality") {
+                        ProfileText("Public key","realityPubKey",read("realityPubKey"),::write)
+                        ProfileText("Short ID","realityShortId",read("realityShortId"),::write)
+                        ProfileSwitch("X25519MLKEM768",store.getBoolean("realityHybrid",false)) { toggle("realityHybrid",it) }
+                    }
+                }
+                item {
+                    ProfileSection("TLS parameters") {
+                        for ((key,label) in listOf("tlsMinVersion" to "Minimum TLS version","tlsMaxVersion" to "Maximum TLS version")) {
+                            Text(label)
+                            ProfileChoices(listOf("" to "Default","1.0" to "1.0","1.1" to "1.1","1.2" to "1.2","1.3" to "1.3"),read(key)) { write(key,it) }
+                        }
+                        ProfileText("Cipher suites","tlsCipherSuites",read("tlsCipherSuites"),::write)
+                        ProfileText("Curve preferences","tlsCurves",read("tlsCurves"),::write)
+                        ProfileText("Handshake timeout","tlsHandshakeTimeout",read("tlsHandshakeTimeout"),::write)
+                        Text("TLS engine")
+                        ProfileChoices(listOf("" to "Default","go" to "Go"),read("tlsEngine")) { write("tlsEngine",it) }
+                    }
+                }
+                item {
+                    ProfileSection("Certificates and mTLS") {
+                        for ((key,label) in listOf("certificates" to "CA certificate (PEM)","tlsCertificatePath" to "CA certificate path","tlsPubKeySha256" to "Public key SHA-256 pin","tlsClientCertificate" to "Client certificate (PEM)","tlsClientCertificatePath" to "Client certificate path","tlsClientKey" to "Client private key (PEM)","tlsClientKeyPath" to "Client private key path")) ProfileText(label,key,read(key),::write)
+                    }
+                }
+                item {
+                    ProfileSection("Encrypted Client Hello (ECH)") {
+                        ProfileSwitch("Enable ECH",store.getBoolean("enableECH",false)) { toggle("enableECH",it) }
+                        if (store.getBoolean("enableECH",false)) {
+                            for ((key,label) in listOf("echConfig" to "ECH configuration","echConfigPath" to "ECH configuration path","echQueryName" to "ECH query server name")) ProfileText(label,key,read(key),::write)
+                        }
+                    }
+                }
+                item {
+                    ProfileSection("Fragmentation and advanced TLS") {
+                        ProfileSwitch("TLS fragmentation",store.getBoolean("tlsFragment",false)) { toggle("tlsFragment",it) }
+                        if (store.getBoolean("tlsFragment",false)) ProfileText("Fragment fallback delay","tlsFragmentFallbackDelay",read("tlsFragmentFallbackDelay"),::write)
+                        ProfileSwitch("TLS record fragmentation",store.getBoolean("tlsRecordFragment",false)) { toggle("tlsRecordFragment",it) }
+                        if (!reality) {
+                            ProfileText("Spoof server name","tlsSpoof",read("tlsSpoof"),::write)
+                            if (read("tlsSpoof").isNotBlank()) {
+                                Text("Spoof method")
+                                ProfileChoices(listOf("" to "Default","wrong-sequence" to "Wrong sequence","wrong-checksum" to "Wrong checksum","wrong-ack" to "Wrong ACK","wrong-md5" to "Wrong MD5","wrong-timestamp" to "Wrong timestamp"),read("tlsSpoofMethod")) { write("tlsSpoofMethod",it) }
+                            }
+                        }
+                        ProfileSwitch("Kernel TLS TX",store.getBoolean("tlsKernelTx",false)) { toggle("tlsKernelTx",it) }
+                        ProfileSwitch("Kernel TLS RX",store.getBoolean("tlsKernelRx",false)) { toggle("tlsKernelRx",it) }
+                    }
                 }
             }
         }
