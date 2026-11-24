@@ -19,7 +19,11 @@ fun QuicProfileScreen(tuic: Boolean, onSave: () -> Unit, onClose: () -> Unit, me
     val prefix = if (tuic) "tuic" else "hy2"
     val title = if (tuic) "TUIC" else "Hysteria $version"
     val valid = remember(revision) {
-        DataStore.serverAddress.isNotBlank() && if (tuic) {
+        val optionsValid = runCatching {
+            io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(store.getString("outboundDialer","").orEmpty(), "", mutableMapOf())
+            io.nekohasekai.sagernet.fmt.applyQuicTlsOptions(store.getString("quicTlsOptions","").orEmpty(), mutableMapOf())
+        }.isSuccess
+        optionsValid && DataStore.serverAddress.isNotBlank() && if (tuic) {
             DataStore.serverPort in 1..65535 && !(DataStore.serverUDPRelayMode == "quic" && store.getBoolean("tuicUdpOverStream",false)) && runCatching { java.util.UUID.fromString(DataStore.serverUsername) }.isSuccess
         } else {
             DataStore.serverPorts.split(",").all { part ->
@@ -94,6 +98,8 @@ fun QuicProfileScreen(tuic: Boolean, onSave: () -> Unit, onClose: () -> Unit, me
                             if (!hy2) field("ALPN",DataStore.serverALPN) { DataStore.serverALPN = it }
                             field("CA certificate (PEM)",DataStore.serverCertificates) { DataStore.serverCertificates = it }
                             toggle("Allow insecure",DataStore.serverAllowInsecure) { DataStore.serverAllowInsecure = it }
+                            extra("quicTlsOptions","Advanced TLS options (JSON)")
+                            Text("QUIC uses TLS 1.3. Advanced options: certificate pin, client certificate and key, certificate paths, curves and handshake timeout.")
                         }
                         "Transport" -> {
                             if (tuic) {
@@ -120,6 +126,7 @@ fun QuicProfileScreen(tuic: Boolean, onSave: () -> Unit, onClose: () -> Unit, me
                             }
                         }
                         "Advanced" -> {
+                            if (tuic || hy2 || DataStore.serverProtocolInt == 0) VlessDialer(store.getString("outboundDialer","").orEmpty()) { store.putString("outboundDialer",it); revision++ }
                             if (tuic || hy2) {
                                 choices(listOf("" to "TCP + UDP","tcp" to "TCP","udp" to "UDP"),store.getString(prefix+"Network","").orEmpty()) { store.putString(prefix+"Network",it) }
                                 listOf("IdleTimeout" to "Idle timeout","KeepAlive" to "Keep alive period","StreamWindow" to "Stream receive window","ConnectionWindow" to "Connection receive window","MaxStreams" to "Maximum concurrent streams","InitialPacket" to "Initial packet size").forEach { (key,label) -> extra(prefix+key,label) }
