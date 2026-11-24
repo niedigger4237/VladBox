@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,40 +39,40 @@ fun ProfileCard(
     Card(
         modifier = modifier.fillMaxWidth().clickable(onClick = onSelect),
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = if (selected) colors.primaryContainer else colors.surfaceVariant)
+        colors = CardDefaults.cardColors(containerColor = if (selected) lerp(colors.surface, colors.primary, 0.20f) else lerp(colors.surface, colors.onSurface, 0.07f))
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(name, Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.Medium,
-                    color = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant,
+                Text(name, Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (selected) Icon(painterResource(R.drawable.ic_profile_selected), null,
-                    Modifier.size(24.dp), tint = colors.onPrimaryContainer)
+                    Modifier.size(24.dp), tint = colors.primary)
             }
             if (address.isNotEmpty() || traffic.isNotEmpty()) {
-                Spacer(Modifier.height(7.dp))
+                Spacer(Modifier.height(3.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(address, Modifier.weight(1f), fontSize = 14.sp, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, color = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant)
+                    Text(address, Modifier.weight(1f), fontSize = 13.sp, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, color = colors.onSurface)
                     if (traffic.isNotEmpty()) Text(traffic, fontSize = 11.sp,
-                        color = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant)
+                        color = colors.onSurface)
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(protocol, Modifier.background(colors.secondaryContainer, RoundedCornerShape(10.dp))
-                    .padding(horizontal = 9.dp, vertical = 6.dp), fontSize = 12.sp, color = colors.onSecondaryContainer)
+                    .padding(horizontal = 9.dp, vertical = 4.dp), fontSize = 12.sp, color = colors.onSecondaryContainer)
                 if (status.isNotEmpty()) {
                     Spacer(Modifier.width(8.dp))
-                    Text(status, Modifier.weight(1f, fill = false).then(if (onStatus != null) Modifier.clickable(onClick = onStatus) else Modifier),
+                    Text(status, Modifier.weight(1f).then(if (onStatus != null) Modifier.clickable(onClick = onStatus) else Modifier),
                         fontSize = 12.sp, color = statusColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Spacer(Modifier.weight(1f))
+                if (status.isEmpty()) Spacer(Modifier.weight(1f))
                 if (actionsVisible) {
-                    IconButton(onClick = onEdit, enabled = editEnabled) {
-                        Icon(painterResource(R.drawable.ic_image_edit), androidx.compose.ui.res.stringResource(R.string.edit))
+                    IconButton(onClick = onEdit, enabled = editEnabled, modifier = Modifier.size(44.dp)) {
+                        Icon(painterResource(R.drawable.ic_image_edit), androidx.compose.ui.res.stringResource(R.string.edit), Modifier.size(22.dp), tint = if (editEnabled) colors.onSurfaceVariant else colors.onSurfaceVariant.copy(alpha = 0.38f))
                     }
-                    IconButton(onClick = onMore) {
-                        Icon(painterResource(R.drawable.ic_profile_overflow), androidx.compose.ui.res.stringResource(R.string.share))
+                    IconButton(onClick = onMore, modifier = Modifier.size(44.dp)) {
+                        Icon(painterResource(R.drawable.ic_profile_overflow), androidx.compose.ui.res.stringResource(R.string.share), Modifier.size(22.dp), tint = colors.onSurfaceVariant)
                     }
                 }
             }
