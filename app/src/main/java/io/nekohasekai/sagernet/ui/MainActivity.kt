@@ -59,13 +59,20 @@ class MainActivity : ThemedActivity(),
 
     lateinit var binding: LayoutMainBinding
     lateinit var navigation: NavigationView
-    val drawerSelection = kotlinx.coroutines.flow.MutableStateFlow(R.id.nav_configuration)
-    val drawerTrafficVisible = kotlinx.coroutines.flow.MutableStateFlow(true)
+    private val drawerModel by lazy { androidx.lifecycle.ViewModelProvider(this)[io.nekohasekai.sagernet.ui.compose.DrawerViewModel::class.java] }
+    val drawerSelection get() = drawerModel.selection
+    val drawerTrafficVisible get() = drawerModel.trafficVisible
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         binding = LayoutMainBinding.inflate(layoutInflater)
+        if (!SagerNet.isTv) {
+            val params = binding.navView.layoutParams as androidx.drawerlayout.widget.DrawerLayout.LayoutParams
+            binding.drawerLayout.removeView(binding.navView)
+            binding.drawerLayout.removeView(binding.navViewBlack)
+            io.nekohasekai.sagernet.ui.compose.installHubDrawer(this, params)
+        } else {
         if (themeResId !in intArrayOf(
                 R.style.Theme_SagerNet_Black
             )
@@ -77,7 +84,8 @@ class MainActivity : ThemedActivity(),
             binding.drawerLayout.removeView(binding.navView)
         }
         navigation.setNavigationItemSelectedListener(this)
-        if (!SagerNet.isTv) io.nekohasekai.sagernet.ui.compose.installHubDrawer(this, navigation)
+        }
+        drawerSelection.value = savedInstanceState?.getInt("hub_drawer_selection", R.id.nav_configuration) ?: R.id.nav_configuration
 
         if (savedInstanceState == null) {
             displayFragmentWithId(R.id.nav_configuration)
@@ -132,6 +140,11 @@ class MainActivity : ThemedActivity(),
                 .setPositiveButton(android.R.string.ok, null)
                 .show()
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt("hub_drawer_selection", drawerSelection.value)
+        super.onSaveInstanceState(outState)
     }
 
     fun refreshNavMenu(clashApi: Boolean) {
@@ -353,7 +366,7 @@ class MainActivity : ThemedActivity(),
             else -> return false
         }
         drawerSelection.value = id
-        navigation.menu.findItem(id)?.isChecked = true
+        if (::navigation.isInitialized) navigation.menu.findItem(id)?.isChecked = true
         return true
     }
 
@@ -458,7 +471,7 @@ class MainActivity : ThemedActivity(),
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 if (super.onKeyDown(keyCode, event)) return true
                 binding.drawerLayout.open()
-                navigation.requestFocus()
+                if (::navigation.isInitialized) navigation.requestFocus()
             }
 
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
