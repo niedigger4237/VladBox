@@ -57,7 +57,7 @@ fun TlsProxyScreen(shadow: Boolean, onSave: () -> Unit, onClose: () -> Unit, men
         })
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (section.isEmpty()) {
-                val sections = listOf("General" to "Server and authentication", "Security" to "TLS and certificates", "Connection" to "Dialer options") + if (shadow) emptyList() else listOf("Sessions" to "Idle session management")
+                val sections = listOf("General" to "Server and authentication", "Security" to "TLS and certificates", "Advanced" to "Dialer options") + if (shadow) emptyList() else listOf("Sessions" to "Idle session management")
                 items(sections.size) { i ->
                     val (label, detail) = sections[i]
                     Card(onClick = { section = label }, modifier = Modifier.fillMaxWidth()) {
@@ -175,7 +175,7 @@ fun TlsProxyScreen(shadow: Boolean, onSave: () -> Unit, onClose: () -> Unit, men
                                 }
                             }
                         }
-                        "Connection" -> {
+                        "Advanced" -> {
                             VlessDialer(read("outboundDialer")) { value ->
                                 val json = org.json.JSONObject(value.ifBlank { "{}" })
                                 if (!shadow) json.remove("tcp_fast_open")
