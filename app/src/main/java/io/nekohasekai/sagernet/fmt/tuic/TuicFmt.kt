@@ -47,6 +47,9 @@ fun parseTuic(url: String): TuicBean {
         link.queryParameter("allow_insecure")?.let {
             if (it == "1" || it.equals("true", ignoreCase = true)) allowInsecure = true
         }
+        link.queryParameter("pinSHA256")?.takeIf { it.isNotBlank() }?.let {
+            quicTlsOptions = org.json.JSONObject().put("certificate_public_key_sha256", org.json.JSONArray(listOf(it))).toString()
+        }
         link.queryParameter("zero_rtt_handshake")?.let { reduceRTT = it == "1" || it.equals("true", true) }
         link.queryParameter("udp_over_stream")?.let { tuicUdpOverStream = it == "1" || it.equals("true", true) }
         link.queryParameter("heartbeat")?.let { tuicHeartbeat = it }
@@ -65,6 +68,9 @@ fun TuicBean.toUri(): String {
     if (sni.isNotBlank()) builder.addQueryParameter("sni", sni)
     if (alpn.isNotBlank()) builder.addQueryParameter("alpn", alpn)
     if (allowInsecure) builder.addQueryParameter("allow_insecure", "1")
+    org.json.JSONObject(quicTlsOptions.ifBlank { "{}" }).optJSONArray("certificate_public_key_sha256")?.let { pins ->
+        if (pins.length() == 1) builder.addQueryParameter("pinSHA256", pins.getString(0))
+    }
     if (reduceRTT) builder.addQueryParameter("zero_rtt_handshake", "1")
     if (tuicUdpOverStream) builder.addQueryParameter("udp_over_stream", "1")
     if (tuicHeartbeat.isNotBlank()) builder.addQueryParameter("heartbeat", tuicHeartbeat)
