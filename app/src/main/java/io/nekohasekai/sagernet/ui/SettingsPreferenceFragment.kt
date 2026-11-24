@@ -124,7 +124,8 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         preferenceManager.preferenceDataStore = DataStore.configurationStore
         DataStore.initGlobal()
-        addPreferencesFromResource(R.xml.global_preferences)
+        if (SagerNet.isTv) addPreferencesFromResource(R.xml.global_preferences)
+        else preferenceScreen = io.nekohasekai.sagernet.ui.compose.buildSettingsTree(preferenceManager)
 
         val nightTheme = findPreference<SimpleMenuPreference>(Key.NIGHT_THEME)!!
         nightTheme.setOnPreferenceChangeListener { _, newTheme ->
