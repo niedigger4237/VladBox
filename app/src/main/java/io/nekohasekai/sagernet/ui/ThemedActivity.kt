@@ -39,11 +39,27 @@ abstract class ThemedActivity : AppCompatActivity {
 
         uiMode = resources.configuration.uiMode
 
+        if (this is MainActivity) {
+            val surface = com.google.android.material.color.MaterialColors.getColor(
+                window.decorView, com.google.android.material.R.attr.colorSurface
+            )
+            window.statusBarColor = if (Build.VERSION.SDK_INT >= 35) android.graphics.Color.TRANSPARENT else surface
+            androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+                .isAppearanceLightStatusBars = androidx.core.graphics.ColorUtils.calculateLuminance(surface) > 0.5
+            if (Build.VERSION.SDK_INT >= 29) window.isStatusBarContrastEnforced = false
+        }
+
         if (Build.VERSION.SDK_INT >= 35) {
             ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { _, insets ->
                 val top = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top
                 findViewById<AppBarLayout>(R.id.appbar)?.apply {
                     updatePadding(top = top)
+                    if (this@ThemedActivity is MainActivity) {
+                        val surface = com.google.android.material.color.MaterialColors.getColor(
+                            this, com.google.android.material.R.attr.colorSurface
+                        )
+                        setBackgroundColor(surface)
+                    }
 //                Logs.w("appbar $top")
                 }
 //            findViewById<NavigationView>(R.id.nav_view)?.apply {
