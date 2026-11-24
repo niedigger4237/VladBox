@@ -3,7 +3,6 @@ package io.nekohasekai.sagernet.ui.compose
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.res.painterResource
@@ -36,7 +35,7 @@ fun VladTopAppBar(
                 Icon(painterResource(if (onBack != null) R.drawable.baseline_arrow_back_24 else R.drawable.ic_navigation_menu), if (onBack != null) "Back" else "Open navigation menu")
             }
         },
-        windowInsets = WindowInsets(0, 0, 0, 0),
+        windowInsets = TopAppBarDefaults.windowInsets,
         actions = {
             extraActions()
             if (onAdd != null) FilledTonalIconButton(onClick = onAdd) {
