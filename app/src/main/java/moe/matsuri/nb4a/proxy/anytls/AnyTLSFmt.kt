@@ -1,5 +1,6 @@
 package moe.matsuri.nb4a.proxy.anytls
 
+import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.blankAsNull
 import io.nekohasekai.sagernet.ktx.linkBuilder
 import io.nekohasekai.sagernet.ktx.toLink
@@ -18,7 +19,7 @@ fun buildSingBoxOutboundAnyTLSBean(bean: AnyTLSBean): SingBoxOptions.Outbound_An
         tls = SingBoxOptions.OutboundTLSOptions().apply {
             enabled = true
             server_name = bean.sni.blankAsNull()
-            if (bean.allowInsecure) insecure = true
+            insecure = bean.allowInsecure || DataStore.globalAllowInsecure
             alpn = bean.alpn.blankAsNull()?.listByLineOrComma()
             bean.certificates.blankAsNull()?.let {
                 certificate = it
@@ -33,7 +34,7 @@ fun buildSingBoxOutboundAnyTLSBean(bean: AnyTLSBean): SingBoxOptions.Outbound_An
                 // In new version, some complex options will be deprecated, so we just do this.
                 ech = SingBoxOptions.OutboundECHOptions().apply {
                     enabled = true
-                    config = listOf(it)
+                    config = it.lines()
                 }
             }
         }
