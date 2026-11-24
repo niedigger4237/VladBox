@@ -71,17 +71,25 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
     }
 
     private val importConf = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null && !DataStore.profileCacheStore.getBoolean("awgEnabled", false)) {
+        if (uri != null) {
             try {
                 val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: error("Cannot read file")
-                val bean = io.nekohasekai.sagernet.fmt.wireguard.WireGuardConf.parse(text)
+                val result = io.nekohasekai.sagernet.fmt.wireguard.WireGuardConf.parseWithWarnings(text)
+                val bean = result.bean
                 val current = createEntity().apply { initializeDefaultValues(); pbm.fromCacheAll(this) }
                 bean.name = current.name
-                pbm.writeToCacheAll(bean)
-                DataStore.dirty = true
-                // Rebuild the preference screen to reflect imported values.
-                supportFragmentManager.beginTransaction().replace(R.id.settings, ProfileSettingsActivity.MyPreferenceFragmentCompat()).commitNow()
-                DataStore.dirty = true
+                val protocol = if (bean.isAmnezia) "AmneziaWG" else "WireGuard"
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle("Detected protocol: " + protocol)
+                    .setMessage((listOf("Replace current connection settings?") + result.warnings).joinToString("\n\n"))
+                    .setPositiveButton("Import") { _, _ ->
+                        pbm.writeToCacheAll(bean)
+                        DataStore.profileCacheStore.putBoolean("awgEnabled", bean.isAmnezia)
+                        legacyRequested = false
+                        supportFragmentManager.beginTransaction().replace(R.id.settings, ProfileSettingsActivity.MyPreferenceFragmentCompat()).commitNow()
+                        DataStore.dirty = true
+                    }
+                    .setNegativeButton(android.R.string.cancel,null).show()
             } catch (e: Exception) {
                 android.widget.Toast.makeText(this, "WireGuard import failed: " + e.message, android.widget.Toast.LENGTH_LONG).show()
             }
@@ -368,8 +376,8 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
             }
         }
         wgAdvanced.addPreference(peerManager)
-        wgAdvanced.addPreference(androidx.preference.Preference(requireContext()).apply {
-            title = "Import WireGuard configuration"
+        preferenceScreen.addPreference(androidx.preference.Preference(requireContext()).apply {
+            title = "Import WireGuard / AmneziaWG configuration"
             summary = "Replace current WireGuard connection settings from a .conf file"
             setOnPreferenceClickListener {
                 com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
