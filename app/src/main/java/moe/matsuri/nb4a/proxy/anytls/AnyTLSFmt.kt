@@ -12,6 +12,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 fun buildSingBoxOutboundAnyTLSBean(bean: AnyTLSBean): SingBoxOptions.Outbound_AnyTLSOptions {
     return SingBoxOptions.Outbound_AnyTLSOptions().apply {
         type = "anytls"
+        require(!org.json.JSONObject(bean.outboundDialer.ifBlank { "{}" }).optBoolean("tcp_fast_open")) { "AnyTLS does not support TCP Fast Open" }
         io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(bean.outboundDialer, "", _hack_config_map)
         server = bean.serverAddress
         server_port = bean.serverPort
@@ -59,11 +60,35 @@ fun buildSingBoxOutboundAnyTLSBean(bean: AnyTLSBean): SingBoxOptions.Outbound_An
                     fingerprint = it
                 }
             }
+            val realityKey = extra.optString("reality_public_key")
+            if (realityKey.isNotBlank()) {
+                require(bean.sni.isNotBlank()) { "Reality requires SNI" }
+                require(bean.echConfig.isBlank() && extra.optString("ech_config_path").isBlank()) { "Choose Reality or ECH" }
+                reality = SingBoxOptions.OutboundRealityOptions().apply {
+                    enabled = true
+                    public_key = realityKey
+                    short_id = extra.optString("reality_short_id")
+                }
+                if (bean.utlsFingerprint.isBlank()) utls = SingBoxOptions.OutboundUTLSOptions().apply { enabled = true; fingerprint = "chrome" }
+            }
+            if (extra.optBoolean("fragment")) { fragment = true; extra.optString("fragment_fallback_delay").takeIf { it.isNotBlank() }?.let { fragment_fallback_delay = it } }
+            if (extra.optBoolean("record_fragment")) record_fragment = true
             bean.echConfig.blankAsNull()?.let {
                 // In new version, some complex options will be deprecated, so we just do this.
                 ech = SingBoxOptions.OutboundECHOptions().apply {
                     enabled = true
                     config = it.lines()
+                }
+            }
+            val echPath = extra.optString("ech_config_path")
+            val echQuery = extra.optString("ech_query_server_name")
+            require(bean.echConfig.isBlank() || echPath.isBlank())
+            if (echPath.isNotBlank() || echQuery.isNotBlank()) {
+                require(realityKey.isBlank())
+                ech = (ech ?: SingBoxOptions.OutboundECHOptions()).apply {
+                    enabled = true
+                    if (echPath.isNotBlank()) _hack_config_map["config_path"] = echPath
+                    if (echQuery.isNotBlank()) _hack_config_map["query_server_name"] = echQuery
                 }
             }
         }
