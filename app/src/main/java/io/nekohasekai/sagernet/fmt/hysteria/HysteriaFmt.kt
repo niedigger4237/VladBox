@@ -92,6 +92,9 @@ fun parseHysteria2(url: String): HysteriaBean {
 //        link.queryParameter("downmbps")?.also {
 //            downloadMbps = it.toIntOrNull() ?: downloadMbps
 //        }
+        link.queryParameter("pinSHA256")?.takeIf { it.isNotBlank() }?.let {
+            quicTlsOptions = org.json.JSONObject().put("certificate_public_key_sha256", org.json.JSONArray(listOf(it))).toString()
+        }
         link.queryParameter("obfs")?.also { hy2ObfsType = it }
         link.queryParameter("obfs-password")?.also {
             obfuscation = it
@@ -157,6 +160,9 @@ fun HysteriaBean.toUri(): String {
         if (sni.isNotBlank()) {
             builder.addQueryParameter("sni", sni)
         }
+    org.json.JSONObject(quicTlsOptions.ifBlank { "{}" }).optJSONArray("certificate_public_key_sha256")?.let { pins ->
+        if (pins.length() == 1) builder.addQueryParameter("pinSHA256", pins.getString(0))
+    }
         if (obfuscation.isNotBlank()) {
             builder.addQueryParameter("obfs", hy2ObfsType)
             builder.addQueryParameter("obfs-password", obfuscation)
