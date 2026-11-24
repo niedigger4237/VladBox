@@ -49,6 +49,14 @@ class AssetsActivity : ThemedActivity() {
             setDisplayHomeAsUpEnabled(true)
             setHomeAsUpIndicator(R.drawable.ic_navigation_close)
         }
+        val panel = androidx.compose.ui.platform.ComposeView(this)
+        val parent = layout.refreshLayout.parent as LinearLayout
+        parent.addView(panel, parent.indexOfChild(layout.refreshLayout), LinearLayout.LayoutParams(-1, -2))
+        io.nekohasekai.sagernet.ui.compose.installAssetsPanel(panel, assetCount, assetBytes, assetLoading, assetQuery,
+            update = { updateAllInstalledSrs() }, download = { downloadSelectedRuleSets() },
+            sources = { editSources() }, provider = { showProvider() },
+            importFile = { startFilesForResult(importFile, "*/*") },
+            search = { assetQuery.value = it; adapter.applyFilter() })
         layout.recyclerView.layoutManager = FixedLinearLayoutManager(layout.recyclerView)
         adapter = AssetAdapter()
         layout.recyclerView.adapter = adapter
@@ -139,7 +147,13 @@ class AssetsActivity : ThemedActivity() {
             R.id.action_geo_custom -> editSources()
             R.id.action_download_rule_sets -> downloadSelectedRuleSets()
             R.id.action_update_all_srs -> updateAllInstalledSrs()
-            R.id.action_geo_provider -> {
+            R.id.action_geo_provider -> showProvider()
+            else -> return super.onOptionsItemSelected(item)
+        }
+        return true
+    }
+
+    private fun showProvider() {
                 val ids = resources.getStringArray(R.array.srs_provider_values).map(String::toInt)
                 MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.route_rules_provider)
@@ -150,12 +164,12 @@ class AssetsActivity : ThemedActivity() {
                             downloadSelectedRuleSets()
                         }
                     }.show()
-            }
-            else -> return super.onOptionsItemSelected(item)
-        }
-        return true
-    }
 
+    }
+    private val assetCount = kotlinx.coroutines.flow.MutableStateFlow(0)
+    private val assetBytes = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    private val assetLoading = kotlinx.coroutines.flow.MutableStateFlow(false)
+    private val assetQuery = kotlinx.coroutines.flow.MutableStateFlow("")
     private fun editSources() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -184,6 +198,7 @@ class AssetsActivity : ThemedActivity() {
         if (loading) return
         if (DataStore.rulesProvider != 4) {
             loading = true
+        assetLoading.value = true
             layout.refreshLayout.isRefreshing = true
             lifecycleScope.launch {
                 try {
@@ -213,6 +228,7 @@ class AssetsActivity : ThemedActivity() {
                 } finally {
                     runCatching { adapter.reloadAssets() }
                     loading = false
+        assetLoading.value = false
                     layout.refreshLayout.isRefreshing = false
                 }
             }
@@ -227,6 +243,7 @@ class AssetsActivity : ThemedActivity() {
             return
         }
         loading = true
+        assetLoading.value = true
         layout.refreshLayout.isRefreshing = true
         lifecycleScope.launch {
             try {
@@ -242,6 +259,7 @@ class AssetsActivity : ThemedActivity() {
                 if (!isFinishing && !isDestroyed) alert(e.readableMessage).tryToShow()
             } finally {
                 loading = false
+        assetLoading.value = false
                 layout.refreshLayout.isRefreshing = false
             }
         }
@@ -251,6 +269,7 @@ class AssetsActivity : ThemedActivity() {
     private fun updateAllInstalledSrs() {
         if (loading) return
         loading = true
+        assetLoading.value = true
         layout.refreshLayout.isRefreshing = true
         lifecycleScope.launch {
             var updated = 0
@@ -292,6 +311,7 @@ class AssetsActivity : ThemedActivity() {
             } finally {
                 runCatching { adapter.reloadAssets() }
                 loading = false
+        assetLoading.value = false
                 layout.refreshLayout.isRefreshing = false
             }
         }
@@ -301,6 +321,7 @@ class AssetsActivity : ThemedActivity() {
     private fun loadInstalledSets() {
         if (loading) return
         loading = true
+        assetLoading.value = true
         layout.refreshLayout.isRefreshing = true
         lifecycleScope.launch {
             try {
@@ -311,6 +332,7 @@ class AssetsActivity : ThemedActivity() {
             } finally {
                 runCatching { adapter.reloadAssets() }.onFailure { Log.e("VladBoxSRS", "SRS refresh listing failed", it); if (!isFinishing && !isDestroyed) alert(it.readableMessage).tryToShow() }
                 loading = false
+        assetLoading.value = false
                 layout.refreshLayout.isRefreshing = false
             }
         }
@@ -318,6 +340,12 @@ class AssetsActivity : ThemedActivity() {
 
     inner class AssetAdapter : RecyclerView.Adapter<AssetHolder>(), UndoSnackbarManager.Interface<File> {
         val assets = ArrayList<File>()
+        private var allAssets = emptyList<File>()
+        fun applyFilter() {
+            assets.clear()
+            assets.addAll(allAssets.filter { it.name.contains(assetQuery.value, ignoreCase = true) })
+            notifyDataSetChanged()
+        }
 
         suspend fun reloadAssets() {
             val dir = SagerNet.application.externalAssets
@@ -330,9 +358,10 @@ class AssetsActivity : ThemedActivity() {
                 Log.i("VladBoxSRS", "Found ${result.size} installed SRS files")
                 result
             }
-            assets.clear()
-            assets.addAll(files)
-            notifyDataSetChanged()
+            allAssets = files
+            assetCount.value = files.size
+            assetBytes.value = files.sumOf { it.length() }
+            applyFilter()
         }
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
             AssetHolder(LayoutAssetItemBinding.inflate(layoutInflater, parent, false))
@@ -351,17 +380,14 @@ class AssetsActivity : ThemedActivity() {
 
     inner class AssetHolder(private val binding: LayoutAssetItemBinding) : RecyclerView.ViewHolder(binding.root) {
         fun bind(file: File) {
-            binding.assetName.text = file.name
             val versionFile = File(file.parentFile, "${file.nameWithoutExtension}.version.txt")
             val version = if (versionFile.isFile) runCatching { versionFile.readText().trim() }.getOrDefault("<unknown>")
                 else "Local-${DateFormat.getDateFormat(app).format(Date(file.lastModified()))}"
-            binding.assetStatus.text = getString(R.string.route_asset_status, version)
-            val canUpdate = file.name.startsWith("geoip-") || file.name.startsWith("geosite-")
-            binding.rulesUpdate.isInvisible = !canUpdate || file in updating
-            binding.subscriptionUpdateProgress.isInvisible = file !in updating
-            binding.rulesUpdate.setOnClickListener {
+            io.nekohasekai.sagernet.ui.compose.installAssetTile(binding.root as androidx.compose.ui.platform.ComposeView,
+                file.name, getString(R.string.route_asset_status, version), android.text.format.Formatter.formatFileSize(this@AssetsActivity, file.length()),
+                file in updating, file.name.startsWith("geoip-") || file.name.startsWith("geosite-")) {
                 val position = bindingAdapterPosition
-                if (position < 0 || !updating.add(file)) return@setOnClickListener
+                if (position < 0 || !updating.add(file)) return@installAssetTile
                 adapter.notifyItemChanged(position)
                 lifecycleScope.launch {
                     try {
