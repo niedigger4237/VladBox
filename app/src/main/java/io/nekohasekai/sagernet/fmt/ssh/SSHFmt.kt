@@ -5,6 +5,9 @@ import moe.matsuri.nb4a.utils.listByLineOrComma
 
 fun buildSingBoxOutboundSSHBean(bean: SSHBean): SingBoxOptions.Outbound_SSHOptions {
     return SingBoxOptions.Outbound_SSHOptions().apply {
+        require(bean.serverAddress.isNotBlank() && bean.serverPort in 1..65535) { "Invalid SSH server address or port" }
+        require(bean.authType in 0..2) { "Invalid SSH authentication type" }
+        require(bean.clientVersion.isBlank() || (bean.clientVersion.startsWith("SSH-2.0-") && !bean.clientVersion.contains('\n') && !bean.clientVersion.contains('\r'))) { "Invalid SSH client version" }
         type = "ssh"
         io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(bean.outboundDialer, "", _hack_config_map)
         server = bean.serverAddress
@@ -26,6 +29,7 @@ fun buildSingBoxOutboundSSHBean(bean: SSHBean): SingBoxOptions.Outbound_SSHOptio
                 private_key_passphrase = bean.privateKeyPassphrase
             }
             SSHBean.AUTH_TYPE_PASSWORD -> {
+                require(bean.password.isNotEmpty()) { "SSH password is required" }
                 password = bean.password
             }
         }
