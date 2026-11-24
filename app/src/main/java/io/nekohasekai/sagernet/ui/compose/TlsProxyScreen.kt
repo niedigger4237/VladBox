@@ -16,7 +16,7 @@ fun TlsProxyScreen(shadow: Boolean, onSave: () -> Unit, onClose: () -> Unit, men
     var section by rememberSaveable { mutableStateOf("") }
     fun read(key: String) = store.getString(key, "").orEmpty()
     fun write(key: String, value: String) { store.putString(key,value); revision++ }
-    val valid = remember(revision) {
+    val valid = remember(revision, DataStore.profileCacheStore.observableRevision) {
         val tlsValid = runCatching {
             val extra = org.json.JSONObject(if (shadow) "{}" else read("tlsExtras").ifBlank { "{}" })
             fun value(bean: String, json: String) = if (shadow) read(bean) else extra.optString(json)
