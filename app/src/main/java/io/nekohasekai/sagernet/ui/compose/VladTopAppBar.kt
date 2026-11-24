@@ -39,7 +39,7 @@ fun VladTopAppBar(
         windowInsets = WindowInsets(0, 0, 0, 0),
         actions = {
             extraActions()
-            if (onAdd != null) IconButton(onClick = onAdd) {
+            if (onAdd != null) FilledTonalIconButton(onClick = onAdd) {
                 Icon(painterResource(R.drawable.ic_baseline_add_road_24), addLabel)
             }
             if (onProfiles != null) TextButton(onClick = onProfiles) { Text("Profiles") }
