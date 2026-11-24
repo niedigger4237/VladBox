@@ -40,10 +40,16 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
 
     private lateinit var routeBackCallback: OnBackPressedCallback
     private var showingRules = false
+    private val barCanGoBack = androidx.compose.runtime.mutableStateOf(false)
     private val barTitle = androidx.compose.runtime.mutableStateOf("")
     private val barSubtitle = androidx.compose.runtime.mutableStateOf<String?>(null)
 
     private fun syncComposeBar() {
+        barCanGoBack.value = showingRules
+        toolbar.setNavigationIcon(if (showingRules) R.drawable.baseline_arrow_back_24 else R.drawable.ic_navigation_menu)
+        toolbar.setNavigationOnClickListener {
+            if (showingRules) renderProfileHome() else activity.binding.drawerLayout.openDrawer(androidx.core.view.GravityCompat.START)
+        }
         barTitle.value = toolbar.title?.toString().orEmpty()
         barSubtitle.value = toolbar.subtitle?.toString()
     }
@@ -66,7 +72,6 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         toolbar.setTitle(R.string.menu_route)
         toolbar.subtitle = "Default"
         toolbar.inflateMenu(R.menu.add_route_menu)
-        toolbar.menu.add(0, 0x741231, 0, "Profiles").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
         toolbar.setOnMenuItemClickListener(this)
         if (!io.nekohasekai.sagernet.SagerNet.isTv) {
             val oldBar = view.findViewById<View>(R.id.appbar)
@@ -84,7 +89,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                         onNavigation = { activity.binding.drawerLayout.openDrawer(androidx.core.view.GravityCompat.START) },
                         onAdd = { handleRouteAction(R.id.action_new_route) },
                         addLabel = getString(R.string.route_add),
-                        onProfiles = { handleRouteAction(0x741231) },
+                        onBack = if (barCanGoBack.value) ({ renderProfileHome() }) else null,
                         onReset = { handleRouteAction(R.id.action_reset_route) },
                         resetLabel = getString(R.string.route_reset)
                     )
@@ -264,7 +269,6 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
 
     private fun handleRouteAction(itemId: Int): Boolean {
         when (itemId) {
-            0x741231 -> renderProfileHome()
             R.id.action_new_route -> {
                 startActivity(Intent(context, RouteSettingsActivity::class.java))
             }
