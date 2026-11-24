@@ -36,6 +36,17 @@ public class HysteriaBean extends AbstractBean {
     public String hy2HopIntervalMax;
     public String hy2GeckoMin;
     public String hy2GeckoMax;
+    public String hy2Network;
+    public String hy2IdleTimeout;
+    public String hy2KeepAlive;
+    public String hy2StreamWindow;
+    public String hy2ConnectionWindow;
+    public String hy2MaxStreams;
+    public String hy2InitialPacket;
+    public String hy2Realm;
+    public Boolean hy2BrutalDebug;
+    public Boolean hy2DisableChrome;
+    public Boolean hy2DisablePathMtu;
 
     // HY1
 
@@ -88,11 +99,22 @@ public class HysteriaBean extends AbstractBean {
         if (hy2HopIntervalMax == null) hy2HopIntervalMax = "";
         if (hy2GeckoMin == null) hy2GeckoMin = "";
         if (hy2GeckoMax == null) hy2GeckoMax = "";
+        if (hy2Network == null) hy2Network = "";
+        if (hy2IdleTimeout == null) hy2IdleTimeout = "";
+        if (hy2KeepAlive == null) hy2KeepAlive = "";
+        if (hy2StreamWindow == null) hy2StreamWindow = "";
+        if (hy2ConnectionWindow == null) hy2ConnectionWindow = "";
+        if (hy2MaxStreams == null) hy2MaxStreams = "";
+        if (hy2InitialPacket == null) hy2InitialPacket = "";
+        if (hy2Realm == null) hy2Realm = "";
+        if (hy2BrutalDebug == null) hy2BrutalDebug = false;
+        if (hy2DisableChrome == null) hy2DisableChrome = false;
+        if (hy2DisablePathMtu == null) hy2DisablePathMtu = false;
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(8);
+        output.writeInt(9);
         super.serialize(output);
 
         output.writeInt(protocolVersion);
@@ -119,6 +141,17 @@ public class HysteriaBean extends AbstractBean {
         output.writeString(hy2HopIntervalMax);
         output.writeString(hy2GeckoMin);
         output.writeString(hy2GeckoMax);
+        output.writeString(hy2Network);
+        output.writeString(hy2IdleTimeout);
+        output.writeString(hy2KeepAlive);
+        output.writeString(hy2StreamWindow);
+        output.writeString(hy2ConnectionWindow);
+        output.writeString(hy2MaxStreams);
+        output.writeString(hy2InitialPacket);
+        output.writeString(hy2Realm);
+        output.writeBoolean(hy2BrutalDebug);
+        output.writeBoolean(hy2DisableChrome);
+        output.writeBoolean(hy2DisablePathMtu);
     }
 
     @Override
@@ -169,6 +202,19 @@ public class HysteriaBean extends AbstractBean {
             hy2HopIntervalMax = input.readString();
             hy2GeckoMin = input.readString();
             hy2GeckoMax = input.readString();
+        }
+        if (version >= 9) {
+            hy2Network = input.readString();
+            hy2IdleTimeout = input.readString();
+            hy2KeepAlive = input.readString();
+            hy2StreamWindow = input.readString();
+            hy2ConnectionWindow = input.readString();
+            hy2MaxStreams = input.readString();
+            hy2InitialPacket = input.readString();
+            hy2Realm = input.readString();
+            hy2BrutalDebug = input.readBoolean();
+            hy2DisableChrome = input.readBoolean();
+            hy2DisablePathMtu = input.readBoolean();
         }
     }
 
