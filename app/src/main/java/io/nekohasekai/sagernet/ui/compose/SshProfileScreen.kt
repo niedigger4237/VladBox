@@ -11,11 +11,38 @@ import io.nekohasekai.sagernet.database.DataStore
 
 @Composable
 fun SshProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pair<String, () -> Unit>>) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val store = DataStore.profileCacheStore
     var revision by remember { mutableStateOf(0) }
     var section by rememberSaveable { mutableStateOf("") }
     fun read(key: String) = store.getString(key,"").orEmpty()
     fun write(key: String,value: String) { store.putString(key,value); revision++ }
+    var importError by remember { mutableStateOf("") }
+    val importKey = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val buffer = ByteArray(65537)
+                    var size = 0
+                    while (size < buffer.size) {
+                        val count = stream.read(buffer, size, buffer.size - size)
+                        if (count <= 0) break
+                        size += count
+                    }
+                    require(size in 1..65536) { "Invalid key file size" }
+                    String(buffer, 0, size, Charsets.UTF_8)
+                } ?: error("Cannot read key")
+            }.onSuccess { key ->
+                if (key.contains("PRIVATE KEY-----")) {
+                    DataStore.serverPrivateKey = key
+                    write("privateKeyPath","")
+                    importError = ""
+                } else importError = "Unsupported private key file"
+            }.onFailure { importError = "Unable to read private key" }
+        }
+    }
     val auth = remember(revision) { DataStore.serverAuthType }
     val valid = remember(revision) {
         DataStore.serverAddress.isNotBlank() && DataStore.serverPort in 1..65535 &&
@@ -64,6 +91,8 @@ fun SshProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pa
                                 if (auth == 1) SimpleField("Password",DataStore.serverPassword,true) { DataStore.serverPassword = it; revision++ }
                                 if (auth == 2) {
                                     SimpleField("Private key (PEM)",DataStore.serverPrivateKey,true) { DataStore.serverPrivateKey = it; revision++ }
+                                    OutlinedButton(onClick = { importKey.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Import private key from file") }
+                                    if (importError.isNotEmpty()) Text(importError,color = MaterialTheme.colorScheme.error)
                                     SimpleField("Private key path",read("privateKeyPath")) { write("privateKeyPath",it) }
                                     SimpleField("Private key passphrase",DataStore.serverPassword1,true) { DataStore.serverPassword1 = it; revision++ }
                                 }
@@ -71,6 +100,7 @@ fun SshProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pa
                             "Security" -> {
                                 SimpleField("Server host key",DataStore.serverCertificates) { DataStore.serverCertificates = it; revision++ }
                                 Text("Set a trusted server host key to verify the SSH server identity.",style = MaterialTheme.typography.bodySmall)
+                                Text("Leave algorithm lists empty to use core defaults. Separate custom algorithms with commas.",style = MaterialTheme.typography.bodySmall)
                                 listOf("hostKeyAlgorithms" to "Host key algorithms","clientVersion" to "Client version","cipherAlgorithms" to "Cipher algorithms","macAlgorithms" to "MAC algorithms","kexAlgorithms" to "Key exchange algorithms").forEach { (k,label) -> SimpleField(label,read(k)) { write(k,it) } }
                             }
                             "Advanced" -> VlessDialer(read("outboundDialer")) { write("outboundDialer",it) }
