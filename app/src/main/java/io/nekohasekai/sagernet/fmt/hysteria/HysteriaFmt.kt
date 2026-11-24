@@ -348,6 +348,32 @@ fun buildSingBoxOutboundHysteriaBean(bean: HysteriaBean): SingBoxOptions.SingBox
                 _hack_config_map["bbr_profile"] = it
             }
             bean.hy2HopIntervalMax.takeIf { it.isNotBlank() }?.let { _hack_config_map["hop_interval_max"] = it }
+            bean.hy2Network.trim().takeIf { it.isNotEmpty() }?.let {
+                require(it in listOf("tcp", "udp")) { "Invalid Hysteria2 network" }
+                _hack_config_map["network"] = it
+            }
+            bean.hy2IdleTimeout.trim().takeIf { it.isNotEmpty() }?.let { _hack_config_map["idle_timeout"] = it }
+            bean.hy2KeepAlive.trim().takeIf { it.isNotEmpty() }?.let { _hack_config_map["keep_alive_period"] = it }
+            bean.hy2StreamWindow.trim().takeIf { it.isNotEmpty() }?.let { _hack_config_map["stream_receive_window"] = it }
+            bean.hy2ConnectionWindow.trim().takeIf { it.isNotEmpty() }?.let { _hack_config_map["connection_receive_window"] = it }
+            bean.hy2MaxStreams.trim().takeIf { it.isNotEmpty() }?.let {
+                val value = it.toIntOrNull() ?: error("Invalid max_concurrent_streams")
+                require(value > 0) { "max_concurrent_streams must be positive" }
+                _hack_config_map["max_concurrent_streams"] = value
+            }
+            bean.hy2InitialPacket.trim().takeIf { it.isNotEmpty() }?.let {
+                val value = it.toIntOrNull() ?: error("Invalid initial_packet_size")
+                require(value > 0) { "initial_packet_size must be positive" }
+                _hack_config_map["initial_packet_size"] = value
+            }
+            if (bean.hy2BrutalDebug) _hack_config_map["brutal_debug"] = true
+            if (bean.hy2DisableChrome) _hack_config_map["disable_chrome_parrot"] = true
+            if (bean.hy2DisablePathMtu) _hack_config_map["disable_path_mtu_discovery"] = true
+            bean.hy2Realm.trim().takeIf { it.isNotEmpty() }?.let {
+                val realm = com.google.gson.JsonParser.parseString(it).asJsonObject
+                require(realm.has("server_url") && realm.has("realm_id") && realm.has("stun_servers")) { "Realm requires server_url, realm_id and stun_servers" }
+                _hack_config_map["realm"] = realm
+            }
             password = bean.authPayload
 //            if (bean.streamReceiveWindow > 0) {
 //                recv_window_conn = bean.streamReceiveWindow.toLong()
