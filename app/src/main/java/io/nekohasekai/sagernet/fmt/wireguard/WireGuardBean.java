@@ -51,6 +51,15 @@ public class WireGuardBean extends AbstractBean {
     public Boolean system;
     public Integer workers;
     public String udpTimeout;
+    public String wgInterfaceName;
+    public Integer wgListenPort;
+    public String wgUdpMapping;
+    public String wgUdpFiltering;
+    public Integer wgUdpNatMax;
+    public Integer wgBuffers;
+    public Boolean wgDisablePauses;
+    public String wgAllowedIps;
+    public String wgExtraPeers;
 
     /** Сбросить все параметры AmneziaWG (превратить в обычный WireGuard). */
     public void clearAmnezia() {
@@ -100,6 +109,15 @@ public class WireGuardBean extends AbstractBean {
         if (system == null) system = false;
         if (workers == null) workers = 0;
         if (udpTimeout == null) udpTimeout = "";
+        if (wgInterfaceName == null) wgInterfaceName = "";
+        if (wgListenPort == null) wgListenPort = 0;
+        if (wgUdpMapping == null) wgUdpMapping = "";
+        if (wgUdpFiltering == null) wgUdpFiltering = "";
+        if (wgUdpNatMax == null) wgUdpNatMax = 0;
+        if (wgBuffers == null) wgBuffers = 0;
+        if (wgDisablePauses == null) wgDisablePauses = false;
+        if (wgAllowedIps == null) wgAllowedIps = "0.0.0.0/0, ::/0";
+        if (wgExtraPeers == null) wgExtraPeers = "";
     }
 
     /** true when any AmneziaWG obfuscation parameter is set */
@@ -120,7 +138,7 @@ public class WireGuardBean extends AbstractBean {
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(5);
+        output.writeInt(6);
         super.serialize(output);
         output.writeString(localAddress);
         output.writeString(privateKey);
@@ -160,6 +178,15 @@ public class WireGuardBean extends AbstractBean {
         output.writeBoolean(system);
         output.writeInt(workers);
         output.writeString(udpTimeout);
+        output.writeString(wgInterfaceName);
+        output.writeInt(wgListenPort);
+        output.writeString(wgUdpMapping);
+        output.writeString(wgUdpFiltering);
+        output.writeInt(wgUdpNatMax);
+        output.writeInt(wgBuffers);
+        output.writeBoolean(wgDisablePauses);
+        output.writeString(wgAllowedIps);
+        output.writeString(wgExtraPeers);
     }
 
     @Override
@@ -206,6 +233,17 @@ public class WireGuardBean extends AbstractBean {
             system = input.readBoolean();
             workers = input.readInt();
             udpTimeout = input.readString();
+        }
+        if (version >= 6) {
+            wgInterfaceName = input.readString();
+            wgListenPort = input.readInt();
+            wgUdpMapping = input.readString();
+            wgUdpFiltering = input.readString();
+            wgUdpNatMax = input.readInt();
+            wgBuffers = input.readInt();
+            wgDisablePauses = input.readBoolean();
+            wgAllowedIps = input.readString();
+            wgExtraPeers = input.readString();
         }
     }
 
