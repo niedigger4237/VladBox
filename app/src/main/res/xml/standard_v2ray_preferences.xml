@@ -297,4 +297,15 @@
     </PreferenceCategory>
     <EditTextPreference app:key="vlessEncryption" app:title="VLESS encryption" app:useSimpleSummaryProvider="true" />
     <EditTextPreference app:key="vlessNetwork" app:title="Network (tcp / udp)" app:useSimpleSummaryProvider="true" />
+    <PreferenceCategory app:title="mKCP">
+        <EditTextPreference app:key="kcpMtu" app:title="MTU" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="kcpTti" app:title="TTI" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="kcpUp" app:title="Uplink capacity" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="kcpDown" app:title="Downlink capacity" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="kcpRead" app:title="Read buffer size" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="kcpWrite" app:title="Write buffer size" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="kcpHeader" app:title="Header type" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="kcpSeed" app:title="Seed" app:useSimpleSummaryProvider="true" />
+        <SwitchPreference app:key="kcpCongestion" app:title="Congestion control" />
+    </PreferenceCategory>
 </PreferenceScreen>
