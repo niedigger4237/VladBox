@@ -1546,10 +1546,9 @@ class ConfigurationFragment @JvmOverloads constructor(
                 profileName.text = proxyEntity.displayName()
                 profileType.text = proxyEntity.displayType()
                 val surface = com.google.android.material.color.MaterialColors.getColor(view, com.google.android.material.R.attr.colorSurface)
-                val primary = com.google.android.material.color.MaterialColors.getColor(view, androidx.appcompat.R.attr.colorPrimary)
                 profileType.background = android.graphics.drawable.GradientDrawable().apply {
                     cornerRadius = 10 * view.resources.displayMetrics.density
-                    setColor(androidx.core.graphics.ColorUtils.blendARGB(surface, primary, 0.12f))
+                    setColor(androidx.core.graphics.ColorUtils.blendARGB(surface, requireContext().getColorAttr(android.R.attr.textColorPrimary), 0.16f))
                 }
                 profileType.setTextColor(requireContext().getColorAttr(android.R.attr.textColorPrimary))
                 val density = view.resources.displayMetrics.density
@@ -1645,6 +1644,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                     shareLayout.isGone = true
                 }
                 val canShare = !selectOrChain && proxyEntity.nekoBean == null
+                shareLayout.setOnClickListener(null)
                 shareLayout.isGone = true
                 removeButton.isGone = true
                 overflowButton.isGone = select
