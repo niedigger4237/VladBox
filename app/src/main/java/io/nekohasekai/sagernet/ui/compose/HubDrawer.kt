@@ -2,6 +2,7 @@ package io.nekohasekai.sagernet.ui.compose
 
 import android.view.View
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -41,7 +42,7 @@ fun installHubDrawer(activity: MainActivity, navigation: NavigationView) {
             val items = remember(version) {
                 (0 until navigation.menu.size()).map { navigation.menu.getItem(it) }.filter { it.isVisible }
             }
-            Surface(color = androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.onSurface, 0.07f)) {
+            Surface(modifier = Modifier.fillMaxSize(), shape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp), color = androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.onSurface, 0.07f)) {
                 Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(12.dp)) {
                     Text(activity.getString(R.string.app_name), Modifier.padding(horizontal = 16.dp, vertical = 20.dp), fontSize = 22.sp)
                     items.forEach { item ->
@@ -54,7 +55,7 @@ fun installHubDrawer(activity: MainActivity, navigation: NavigationView) {
                                 icon = {
                                     item.icon?.let { drawable ->
                                         val bitmap = remember(drawable) { (drawable.constantState?.newDrawable()?.mutate()?.apply { setTint(android.graphics.Color.WHITE); alpha = 255 } ?: drawable).toBitmap(48, 48).asImageBitmap() }
-                                        Image(bitmap, null, Modifier.size(24.dp), colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurfaceVariant))
+                                        Image(bitmap, null, Modifier.size(24.dp), colorFilter = ColorFilter.tint(if (item.isChecked) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface))
                                     }
                                 }
                             )
