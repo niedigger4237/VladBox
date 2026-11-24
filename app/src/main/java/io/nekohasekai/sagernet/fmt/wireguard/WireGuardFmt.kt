@@ -68,6 +68,40 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean): SingBoxOptions.Endpo
             allowed_ips = listOf("0.0.0.0/0", "::/0")
             if (bean.persistentKeepalive > 0) persistent_keepalive_interval = bean.persistentKeepalive
         })
+        if (!bean.isAmnezia) {
+            require(bean.wgListenPort in 0..65535) { "Invalid WireGuard listen port" }
+            require(bean.wgUdpNatMax >= 0 && bean.wgBuffers >= 0) { "Invalid WireGuard resource limits" }
+            if (bean.system && bean.wgInterfaceName.isNotBlank()) _hack_config_map["name"] = bean.wgInterfaceName.trim()
+            if (bean.wgListenPort > 0) _hack_config_map["listen_port"] = bean.wgListenPort
+            val natModes = setOf("endpoint_independent", "address_dependent", "address_and_port_dependent")
+            listOf("udp_mapping" to bean.wgUdpMapping, "udp_filtering" to bean.wgUdpFiltering).forEach { (key, value) ->
+                if (value.isNotBlank()) {
+                    require(value in natModes) { "Invalid WireGuard NAT behavior" }
+                    _hack_config_map[key] = value
+                }
+            }
+            if (bean.wgUdpNatMax > 0) _hack_config_map["udp_nat_max"] = bean.wgUdpNatMax
+            if (bean.wgBuffers > 0) _hack_config_map["preallocated_buffers_per_pool"] = bean.wgBuffers
+            if (bean.wgDisablePauses) _hack_config_map["disable_pauses"] = true
+            peers.first().allowed_ips = bean.wgAllowedIps.listByLineOrComma().filter { it.isNotBlank() }.map { it.asPrefix() }.also {
+                require(it.isNotEmpty()) { "WireGuard Allowed IPs required" }
+            }
+            if (bean.wgExtraPeers.isNotBlank()) {
+                val extra = org.json.JSONArray(bean.wgExtraPeers)
+                peers = peers + (0 until extra.length()).map { index ->
+                    val peer = extra.getJSONObject(index)
+                    SingBoxOptions.Endpoint_WireGuardPeer().apply {
+                        address = peer.optString("address")
+                        port = peer.optInt("port", 0).also { require(it in 0..65535) }
+                        public_key = peer.getString("public_key").also { require(it.isNotBlank()) }
+                        pre_shared_key = peer.optString("pre_shared_key")
+                        val ips = peer.getJSONArray("allowed_ips")
+                        allowed_ips = (0 until ips.length()).map { ips.getString(it).asPrefix() }.also { require(it.isNotEmpty()) }
+                        persistent_keepalive_interval = peer.optInt("persistent_keepalive_interval", 0).also { require(it in 0..65535) }
+                    }
+                }
+            }
+        }
         if (bean.isAmnezia) {
             amnezia = SingBoxOptions.Endpoint_WireGuardAmnezia().apply {
                 if (bean.awgJc > 0) jc = bean.awgJc
