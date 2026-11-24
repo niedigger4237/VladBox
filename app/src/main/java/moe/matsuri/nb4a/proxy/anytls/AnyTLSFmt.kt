@@ -15,6 +15,14 @@ fun buildSingBoxOutboundAnyTLSBean(bean: AnyTLSBean): SingBoxOptions.Outbound_An
         server = bean.serverAddress
         server_port = bean.serverPort
         password = bean.password
+        bean.idleSessionCheckInterval.blankAsNull()?.let { _hack_config_map["idle_session_check_interval"] = it }
+        bean.idleSessionTimeout.blankAsNull()?.let { _hack_config_map["idle_session_timeout"] = it }
+        bean.minIdleSession.blankAsNull()?.let {
+            val count = it.toIntOrNull() ?: error("Invalid minimum idle sessions")
+            require(count >= 0) { "Minimum idle sessions must be non-negative" }
+            _hack_config_map["min_idle_session"] = count
+        }
+        bean.clientMetadata.blankAsNull()?.let { _hack_config_map["client_metadata"] = it }
 
         tls = SingBoxOptions.OutboundTLSOptions().apply {
             enabled = true
