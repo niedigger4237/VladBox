@@ -80,7 +80,12 @@ fun ProfileCard(
                         IconButton(onClick = { if (onRemove != null) expanded = true else onMore() }, modifier = Modifier.size(44.dp)) {
                             Icon(painterResource(R.drawable.ic_profile_overflow), androidx.compose.ui.res.stringResource(R.string.share), Modifier.size(22.dp), tint = colors.onSurface)
                         }
-                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false },
+                            containerColor = lerp(colors.surface, colors.onSurface, 0.12f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
                             if (canShare && onShare != null) DropdownMenuItem(
                                 text = { Text(androidx.compose.ui.res.stringResource(R.string.share)) },
                                 onClick = { expanded = false; onShare() })
