@@ -1486,6 +1486,14 @@ class ConfigurationFragment @JvmOverloads constructor(
             val shareButton: ImageView = view.findViewById(R.id.shareIcon)
             val removeButton: ImageView = view.findViewById(R.id.remove)
 
+            private fun renderSelection(selected: Boolean) {
+                selectedView.visibility = if (selected) View.VISIBLE else View.INVISIBLE
+                val card = view.findViewById<com.google.android.material.card.MaterialCardView>(R.id.content)
+                val surface = com.google.android.material.color.MaterialColors.getColor(card, com.google.android.material.R.attr.colorSurface)
+                val primary = com.google.android.material.color.MaterialColors.getColor(card, androidx.appcompat.R.attr.colorPrimary)
+                card.setCardBackgroundColor(if (selected) androidx.core.graphics.ColorUtils.blendARGB(surface, primary, 0.16f) else surface)
+            }
+
             fun bind(proxyEntity: ProxyEntity, trafficData: TrafficData? = null) {
                 val pf = parentFragment as? ConfigurationFragment ?: return
 
@@ -1505,7 +1513,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                                 lastSelected = DataStore.selectedProxy
                                 DataStore.selectedProxy = proxyEntity.id
                                 onMainDispatcher {
-                                    selectedView.visibility = View.VISIBLE
+                                    if (entity.id == proxyEntity.id) renderSelection(true)
                                 }
                             }
 
@@ -1628,7 +1636,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                     onMainDispatcher {
                         editButton.isEnabled = !started
                         removeButton.isEnabled = !started
-                        selectedView.visibility = if (selected) View.VISIBLE else View.INVISIBLE
+                        if (entity.id == proxyEntity.id) renderSelection(selected)
                     }
 
                     fun showShare(anchor: View) {
