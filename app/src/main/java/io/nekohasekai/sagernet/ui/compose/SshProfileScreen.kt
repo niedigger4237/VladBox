@@ -47,6 +47,8 @@ fun SshProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pa
     val valid = remember(revision) {
         DataStore.serverAddress.isNotBlank() && DataStore.serverPort in 1..65535 &&
         DataStore.serverUsername.isNotBlank() && auth in 0..2 &&
+        (auth != 1 || DataStore.serverPassword.isNotEmpty()) &&
+        (read("clientVersion").isBlank() || (read("clientVersion").startsWith("SSH-2.0-") && !read("clientVersion").contains('\n') && !read("clientVersion").contains('\r'))) &&
         (auth != 2 || (DataStore.serverPrivateKey.isNotBlank() xor read("privateKeyPath").isNotBlank())) &&
         runCatching { io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(read("outboundDialer"),"",mutableMapOf()) }.isSuccess
     }
@@ -100,6 +102,8 @@ fun SshProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pa
                             "Security" -> {
                                 SimpleField("Server host key",DataStore.serverCertificates) { DataStore.serverCertificates = it; revision++ }
                                 Text("Set a trusted server host key to verify the SSH server identity.",style = MaterialTheme.typography.bodySmall)
+                                if (DataStore.serverCertificates.isBlank()) Text("Warning: server identity is not verified without a host key.",color = MaterialTheme.colorScheme.error)
+                                Text("Exported profiles can contain passwords and private keys. Share only with trusted recipients.",style = MaterialTheme.typography.bodySmall)
                                 Text("Leave algorithm lists empty to use core defaults. Separate custom algorithms with commas.",style = MaterialTheme.typography.bodySmall)
                                 SimpleField("Client version",read("clientVersion")) { write("clientVersion",it) }
                                 SshAlgorithms("Host key algorithms",read("hostKeyAlgorithms"),listOf("ssh-ed25519","ecdsa-sha2-nistp256","ecdsa-sha2-nistp384","ecdsa-sha2-nistp521","rsa-sha2-256","rsa-sha2-512")) { write("hostKeyAlgorithms",it) }
