@@ -66,6 +66,81 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
     private val awgRandomTrailers = pbm.add(PreferenceBinding(Type.Bool, "awgRandomTrailers"))
     private val awgDisableCookies = pbm.add(PreferenceBinding(Type.Bool, "awgDisableCookies"))
 
+    private fun showPeers(pref: EditTextPreference) {
+        val peers = try { org.json.JSONArray(pref.text.orEmpty().ifBlank { "[]" }) }
+        catch (e: Exception) {
+            android.widget.Toast.makeText(this, "Invalid peers JSON. Correct it before editing.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        val labels = (0 until peers.length()).map { i ->
+            val p = peers.optJSONObject(i)
+            "Peer ${i + 2}: " + (p?.optString("address").orEmpty().ifBlank { "No endpoint" })
+        } + "Add peer"
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Additional WireGuard peers")
+            .setItems(labels.toTypedArray()) { _, index -> editPeer(pref, peers, index) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun editPeer(pref: EditTextPreference, peers: org.json.JSONArray, index: Int) {
+        val existing = peers.optJSONObject(index)
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(32, 16, 32, 16)
+        }
+        fun field(label: String, value: String, secret: Boolean = false): android.widget.EditText {
+            container.addView(android.widget.TextView(this).apply { text = label })
+            return android.widget.EditText(this).apply {
+                setText(value)
+                if (secret) inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                container.addView(this)
+            }
+        }
+        val address = field("Endpoint address", existing?.optString("address").orEmpty())
+        val port = field("Endpoint port", existing?.optString("port").orEmpty())
+        val publicKey = field("Public key", existing?.optString("public_key").orEmpty())
+        val psk = field("Pre-shared key", existing?.optString("pre_shared_key").orEmpty(), true)
+        val ips = existing?.optJSONArray("allowed_ips")
+        val allowed = field("Allowed IPs", if (ips == null) "" else (0 until ips.length()).joinToString(", ") { ips.getString(it) })
+        val keepalive = field("Persistent keepalive (seconds)", existing?.optString("persistent_keepalive_interval") ?: "0")
+        val scroll = android.widget.ScrollView(this).apply { addView(container) }
+        val builder = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(if (existing == null) "Add peer" else "Edit peer")
+            .setView(scroll)
+            .setPositiveButton("Save", null)
+            .setNegativeButton(android.R.string.cancel, null)
+        if (existing != null) builder.setNeutralButton("Remove") { _, _ ->
+            peers.remove(index)
+            pref.text = peers.toString()
+            showPeers(pref)
+        }
+        val dialog = builder.create()
+        dialog.setOnShowListener {
+            dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+                val p = port.text.toString().trim().ifBlank { "0" }.toIntOrNull()
+                val k = keepalive.text.toString().trim().ifBlank { "0" }.toIntOrNull()
+                val routes = allowed.text.toString().split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+                if (p == null || p !in 0..65535 || k == null || k !in 0..65535 || routes.isEmpty() || publicKey.text.isBlank()) {
+                    android.widget.Toast.makeText(this, "Check port, keepalive, public key and Allowed IPs", android.widget.Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val obj = existing ?: org.json.JSONObject()
+                obj.put("address", address.text.toString().trim())
+                obj.put("port", p)
+                obj.put("public_key", publicKey.text.toString().trim())
+                obj.put("pre_shared_key", psk.text.toString().trim())
+                obj.put("allowed_ips", org.json.JSONArray(routes))
+                obj.put("persistent_keepalive_interval", k)
+                peers.put(index, obj)
+                pref.text = peers.toString()
+                dialog.dismiss()
+                showPeers(pref)
+            }
+        }
+        dialog.show()
+    }
+
     override fun WireGuardBean.init() {
         pbm.writeToCacheAll(this)
         DataStore.profileCacheStore.putBoolean("awgEnabled", isAmnezia)
@@ -134,6 +209,16 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
             summary = "Additional peers in native sing-box JSON format"
         })
         pbm.setPreferenceFragment(this)
+        val peersJson = wgExtraPeers.preference as EditTextPreference
+        val peerManager = androidx.preference.Preference(requireContext()).apply {
+            title = "Manage additional peers"
+            summary = "Add, edit or remove WireGuard peers"
+            setOnPreferenceClickListener {
+                showPeers(peersJson)
+                true
+            }
+        }
+        wgAdvanced.addPreference(peerManager)
 
         (serverPort.preference as EditTextPreference)
             .setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
