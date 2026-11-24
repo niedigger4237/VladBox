@@ -160,7 +160,7 @@ class BackupFragment : NamedFragment(R.layout.layout_backup) {
         Row(Modifier.fillMaxWidth().toggleable(checked, enabled = enabled, role = Role.Checkbox, onValueChange = onChange)
             .padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked, onCheckedChange = null, enabled = enabled)
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(20.dp))
             Text(label, modifier = Modifier.weight(1f))
         }
     }
