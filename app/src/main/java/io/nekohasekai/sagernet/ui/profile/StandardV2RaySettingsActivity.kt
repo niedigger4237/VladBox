@@ -175,6 +175,28 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
             }
         }
 
+        fun updateMux(enabled: Boolean, brutal: Boolean) {
+            muxType.preference.isVisible = enabled
+            muxPadding.preference.isVisible = enabled
+            muxConcurrency.preference.isVisible = enabled
+            muxMaxConnections.preference.isVisible = enabled
+            muxMinStreams.preference.isVisible = enabled
+            muxBrutal.preference.isVisible = enabled
+            muxBrutalUp.preference.isVisible = enabled && brutal
+            muxBrutalDown.preference.isVisible = enabled && brutal
+        }
+        val muxSwitch = enableMux.preference as androidx.preference.TwoStatePreference
+        val brutalSwitch = muxBrutal.preference as androidx.preference.TwoStatePreference
+        enableMux.preference.isVisible = !isHttp
+        updateMux(!isHttp && muxSwitch.isChecked, brutalSwitch.isChecked)
+        muxSwitch.setOnPreferenceChangeListener { _, value ->
+            updateMux(!isHttp && value as Boolean, brutalSwitch.isChecked)
+            true
+        }
+        brutalSwitch.setOnPreferenceChangeListener { _, value ->
+            updateMux(!isHttp && muxSwitch.isChecked, value as Boolean)
+            true
+        }
         // menu with listener
 
         type.preference.apply {
