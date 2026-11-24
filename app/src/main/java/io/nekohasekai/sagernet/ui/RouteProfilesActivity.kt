@@ -1,6 +1,8 @@
 package io.nekohasekai.sagernet.ui
 
 import android.os.Bundle
+import android.os.Build
+import com.google.android.material.color.MaterialColors
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.EditText
@@ -36,6 +38,8 @@ class RouteProfilesActivity : ThemedActivity() {
         root.addView(header)
         val add = MaterialButton(this).apply {
             text = "+ New profile"
+            isAllCaps = false
+            cornerRadius = dp(18)
             setOnClickListener { nameDialog(null) }
         }
         root.addView(add)
@@ -89,11 +93,17 @@ class RouteProfilesActivity : ThemedActivity() {
         for (profile in RouteProfiles.all()) {
             val active = profile.id == selected
             val card = MaterialCardView(this).apply {
-                radius = dp(18).toFloat()
-                cardElevation = dp(2).toFloat()
-                isChecked = active
-                isCheckable = true
-                setContentPadding(dp(16), dp(12), dp(16), dp(12))
+                radius = dp(24).toFloat()
+                cardElevation = 0f
+                strokeWidth = if (active) dp(2) else 0
+                if (Build.VERSION.SDK_INT >= 31) {
+                    setCardBackgroundColor(getColor(if (active) android.R.color.system_accent1_50 else android.R.color.system_neutral2_50))
+                    if (active) strokeColor = getColor(android.R.color.system_accent1_300)
+                } else {
+                    setCardBackgroundColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface))
+                    if (active) strokeColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary)
+                }
+                setContentPadding(dp(20), dp(18), dp(20), dp(18))
             }
             val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             val title = TextView(this).apply {
@@ -111,6 +121,10 @@ class RouteProfilesActivity : ThemedActivity() {
                 actions.addView(MaterialButton(this).apply {
                     text = label
                     textSize = 12f
+                    isAllCaps = false
+                    cornerRadius = dp(14)
+                    insetTop = 0
+                    insetBottom = 0
                     minWidth = 0
                     minimumWidth = 0
                     setPadding(dp(6), 0, dp(6), 0)
