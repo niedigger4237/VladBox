@@ -92,6 +92,7 @@ fun parseHysteria2(url: String): HysteriaBean {
 //        link.queryParameter("downmbps")?.also {
 //            downloadMbps = it.toIntOrNull() ?: downloadMbps
 //        }
+        link.queryParameter("obfs")?.also { hy2ObfsType = it }
         link.queryParameter("obfs-password")?.also {
             obfuscation = it
         }
@@ -157,7 +158,7 @@ fun HysteriaBean.toUri(): String {
             builder.addQueryParameter("sni", sni)
         }
         if (obfuscation.isNotBlank()) {
-            builder.addQueryParameter("obfs", "salamander")
+            builder.addQueryParameter("obfs", hy2ObfsType)
             builder.addQueryParameter("obfs-password", obfuscation)
         }
     }
@@ -326,12 +327,27 @@ fun buildSingBoxOutboundHysteriaBean(bean: HysteriaBean): SingBoxOptions.SingBox
             up_mbps = bean.uploadMbps
             down_mbps = bean.downloadMbps
             if (bean.obfuscation.isNotBlank()) {
-                obfs = SingBoxOptions.Hysteria2Obfs().apply {
-                    type = "salamander"
-                    password = bean.obfuscation
+                val kind = bean.hy2ObfsType.ifBlank { "salamander" }
+                require(kind in listOf("salamander", "gecko")) { "Invalid Hysteria2 obfuscation type" }
+                val options = mutableMapOf<String, Any>("type" to kind, "password" to bean.obfuscation)
+                if (kind == "gecko") {
+                    fun packetSize(value: String): Int? = value.takeIf { it.isNotBlank() }?.let {
+                        (it.toIntOrNull() ?: error("Invalid Gecko packet size")).also { n -> require(n > 0) }
+                    }
+                    val min = packetSize(bean.hy2GeckoMin)
+                    val max = packetSize(bean.hy2GeckoMax)
+                    require(min == null || max == null || min <= max) { "Invalid Gecko packet range" }
+                    min?.let { options["min_packet_size"] = it }
+                    max?.let { options["max_packet_size"] = it }
                 }
+                _hack_config_map["obfs"] = options
             }
 //            disable_mtu_discovery = bean.disableMtuDiscovery
+            bean.hy2BbrProfile.takeIf { it.isNotBlank() }?.let {
+                require(it in listOf("standard", "conservative", "aggressive")) { "Invalid BBR profile" }
+                _hack_config_map["bbr_profile"] = it
+            }
+            bean.hy2HopIntervalMax.takeIf { it.isNotBlank() }?.let { _hack_config_map["hop_interval_max"] = it }
             password = bean.authPayload
 //            if (bean.streamReceiveWindow > 0) {
 //                recv_window_conn = bean.streamReceiveWindow.toLong()
