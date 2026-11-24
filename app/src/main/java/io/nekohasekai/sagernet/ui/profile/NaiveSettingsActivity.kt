@@ -41,21 +41,37 @@ class NaiveSettingsActivity : ProfileSettingsActivity<NaiveBean>() {
         sUoT = DataStore.profileCacheStore.getBoolean("sUoT")
     }
 
-    override fun PreferenceFragmentCompat.createPreferences(
-        savedInstanceState: Bundle?,
-        rootKey: String?,
-    ) {
-        addPreferencesFromResource(R.xml.naive_preferences)
-        findPreference<EditTextPreference>(Key.SERVER_PORT)!!.apply {
-            setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
-        }
-        findPreference<EditTextPreference>(Key.SERVER_PASSWORD)!!.apply {
-            summaryProvider = PasswordSummaryProvider
-        }
-        findPreference<EditTextPreference>(Key.SERVER_INSECURE_CONCURRENCY)!!.apply {
-            setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
-        }
+    override fun PreferenceFragmentCompat.createPreferences(savedInstanceState: Bundle?, rootKey: String?) {
+        preferenceScreen = preferenceManager.createPreferenceScreen(requireContext())
     }
 
-
+    override fun PreferenceFragmentCompat.viewCreated(view: android.view.View, savedInstanceState: Bundle?) {
+        val legacyList = listView
+        val parent = legacyList.parent as? android.view.ViewGroup ?: return
+        val index = parent.indexOfChild(legacyList)
+        val params = legacyList.layoutParams
+        val menu = androidx.appcompat.widget.PopupMenu(requireContext(), legacyList).menu
+        this@NaiveSettingsActivity.onCreateOptionsMenu(menu)
+        val actions = (0 until menu.size()).map { menu.getItem(it) }
+            .filter { it.isVisible && it.itemId != R.id.action_apply }
+            .map { item -> item.title.toString() to { this@NaiveSettingsActivity.onOptionsItemSelected(item); Unit } }
+        supportActionBar?.hide()
+        findViewById<android.view.View>(R.id.appbar)?.visibility = android.view.View.GONE
+        findViewById<android.view.View>(R.id.settings)?.let { container ->
+            container.layoutParams = container.layoutParams.apply { height = android.view.ViewGroup.LayoutParams.MATCH_PARENT }
+        }
+        parent.removeView(legacyList)
+        val host = androidx.compose.ui.platform.ComposeView(requireContext())
+        host.setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        parent.addView(host, index, params)
+        host.setContent {
+            io.nekohasekai.sagernet.ui.compose.HubTheme {
+                io.nekohasekai.sagernet.ui.compose.NaiveProfileScreen(
+                    onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
+                    onClose = { this@NaiveSettingsActivity.onBackPressed() },
+                    menuItems = actions
+                )
+            }
+        }
+    }
 }
