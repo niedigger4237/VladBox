@@ -86,16 +86,19 @@ fun buildConfig(
     val selectorNames = ArrayList<String>()
     val group = SagerDatabase.groupDao.getById(proxy.groupId)
 
-    fun ProxyEntity.resolveChainInternal(): MutableList<ProxyEntity> {
+    fun ProxyEntity.resolveChainInternal(ancestors: Set<Long> = emptySet()): MutableList<ProxyEntity> {
         val bean = requireBean()
         if (bean is ChainBean) {
+            require(id !in ancestors) { "Circular proxy chain: $id" }
+            val nextAncestors = ancestors + id
             val beans = SagerDatabase.proxyDao.getEntities(bean.proxies)
             val beansMap = beans.associateBy { it.id }
             val beanList = ArrayList<ProxyEntity>()
             for (proxyId in bean.proxies) {
-                val item = beansMap[proxyId] ?: continue
-                beanList.addAll(item.resolveChainInternal())
+                val item = beansMap[proxyId] ?: error("Missing proxy in chain: $proxyId")
+                beanList.addAll(item.resolveChainInternal(nextAncestors))
             }
+            require(beanList.isNotEmpty()) { "Empty proxy chain: $id" }
             return beanList.asReversed()
         }
         return mutableListOf(this)
