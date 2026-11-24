@@ -487,6 +487,7 @@
         <item>h2mux</item>
         <item>smux</item>
         <item>yamux</item>
+        <item>rmux</item>
     </string-array>
 
     <string-array name="dns_network_select">
