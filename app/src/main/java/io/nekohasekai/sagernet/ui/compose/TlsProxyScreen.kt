@@ -17,7 +17,31 @@ fun TlsProxyScreen(shadow: Boolean, onSave: () -> Unit, onClose: () -> Unit, men
     fun read(key: String) = store.getString(key, "").orEmpty()
     fun write(key: String, value: String) { store.putString(key,value); revision++ }
     val valid = remember(revision) {
-        read("serverAddress").isNotBlank() && (read("serverPort").toIntOrNull() ?: 0) in 1..65535 &&
+        val tlsValid = runCatching {
+            val extra = org.json.JSONObject(if (shadow) "{}" else read("tlsExtras").ifBlank { "{}" })
+            fun value(bean: String, json: String) = if (shadow) read(bean) else extra.optString(json)
+            val min = value("tlsMinVersion","min_version")
+            val max = value("tlsMaxVersion","max_version")
+            val versions = listOf("1.0","1.1","1.2","1.3")
+            require(min.isBlank() || min in versions)
+            require(max.isBlank() || max in versions)
+            require(min.isBlank() || max.isBlank() || versions.indexOf(min) <= versions.indexOf(max))
+            val cert = value("tlsClientCertificate","client_certificate")
+            val certPath = value("tlsClientCertificatePath","client_certificate_path")
+            val key = value("tlsClientKey","client_key")
+            val keyPath = value("tlsClientKeyPath","client_key_path")
+            require(cert.isBlank() || certPath.isBlank())
+            require(key.isBlank() || keyPath.isBlank())
+            require((cert.isNotBlank() || certPath.isNotBlank()) == (key.isNotBlank() || keyPath.isNotBlank()))
+            require(read("certificates").isBlank() || value("tlsCertificatePath","certificate_path").isBlank())
+            require(read("echConfig").isBlank() || value("echConfigPath","ech_config_path").isBlank())
+            if (!shadow && extra.optString("reality_public_key").isNotBlank()) {
+                require(read("sni").isNotBlank())
+                require(read("echConfig").isBlank() && extra.optString("ech_config_path").isBlank() && extra.optString("ech_query_server_name").isBlank())
+            }
+            io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(read("outboundDialer"), "", mutableMapOf())
+        }.isSuccess
+        tlsValid && read("serverAddress").isNotBlank() && (read("serverPort").toIntOrNull() ?: 0) in 1..65535 &&
             (if (shadow) read("version") in listOf("1","2","3") && (read("version") == "1" || read("password").isNotBlank())
              else read("password").isNotBlank() && (read("minIdleSession").isBlank() || (read("minIdleSession").toIntOrNull() ?: -1) >= 0))
     }
@@ -46,6 +70,7 @@ fun TlsProxyScreen(shadow: Boolean, onSave: () -> Unit, onClose: () -> Unit, men
                 item { Button(onClick = onSave, enabled = valid, modifier = Modifier.fillMaxWidth()) { Text("Save profile") } }
             }
             item {
+                if (!valid) Text("Check required fields and TLS / connection settings.", color = MaterialTheme.colorScheme.error)
                 if (section.isNotEmpty()) SimpleSection(section) {
                     when(section) {
                         "General" -> {
@@ -62,6 +87,17 @@ fun TlsProxyScreen(shadow: Boolean, onSave: () -> Unit, onClose: () -> Unit, men
                             SimpleToggle("Allow insecure",store.getBoolean("allowInsecure",false)) { store.putBoolean("allowInsecure",it); revision++ }
                             SimpleField("uTLS fingerprint",read("utlsFingerprint")) { write("utlsFingerprint",it) }
                             if (!shadow) SimpleField("ECH configuration",read("echConfig")) { write("echConfig",it) }
+                            if (shadow) {
+                                SimpleToggle("Enable ECH",store.getBoolean("enableECH",false)) { store.putBoolean("enableECH",it); revision++ }
+                                if (store.getBoolean("enableECH",false)) {
+                                    SimpleField("ECH configuration",read("echConfig")) { write("echConfig",it) }
+                                    SimpleField("ECH config path",read("echConfigPath")) { write("echConfigPath",it) }
+                                    SimpleField("ECH query server name",read("echQueryName")) { write("echQueryName",it) }
+                                }
+                                SimpleToggle("TLS fragmentation",store.getBoolean("tlsFragment",false)) { store.putBoolean("tlsFragment",it); revision++ }
+                                if (store.getBoolean("tlsFragment",false)) SimpleField("Fragment fallback delay",read("tlsFragmentFallbackDelay")) { write("tlsFragmentFallbackDelay",it) }
+                                SimpleToggle("TLS record fragmentation",store.getBoolean("tlsRecordFragment",false)) { store.putBoolean("tlsRecordFragment",it); revision++ }
+                            }
                             if (shadow && read("version") == "1") Text("ShadowTLS v1 always uses TLS 1.2.")
                             val extra = runCatching { org.json.JSONObject(read("tlsExtras").ifBlank { "{}" }) }.getOrElse { org.json.JSONObject() }
                             if (!shadow) {
