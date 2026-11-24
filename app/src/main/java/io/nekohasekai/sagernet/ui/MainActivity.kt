@@ -129,7 +129,7 @@ class MainActivity : ThemedActivity(),
 
         if (isPreview) {
             MaterialAlertDialogBuilder(this)
-                .setTitle(BuildConfig.PRE_VERSION_NAME)
+                .setTitle("Preview Build")
                 .setMessage(R.string.preview_version_hint)
                 .setPositiveButton(android.R.string.ok, null)
                 .show()
