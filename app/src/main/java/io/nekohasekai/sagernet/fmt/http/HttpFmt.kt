@@ -16,7 +16,12 @@ fun parseHttp(link: String): HttpBean {
         serverPort = httpUrl.port
         username = httpUrl.username
         password = httpUrl.password
-        sni = httpUrl.queryParameter("sni")
+        sni = httpUrl.queryParameter("sni") ?: ""
+        httpPath = httpUrl.queryParameter("path") ?: ""
+        httpHeaders = httpUrl.queryParameter("headers") ?: ""
+        alpn = httpUrl.queryParameter("alpn")?.replace(",", "\n") ?: ""
+        allowInsecure = httpUrl.queryParameter("allowInsecure") in listOf("1","true")
+        tlsPubKeySha256 = httpUrl.queryParameter("pinSHA256") ?: ""
         name = httpUrl.fragment
         setTLS(httpUrl.scheme == "https")
     }
@@ -37,6 +42,13 @@ fun HttpBean.toUri(): String {
     }
     if (sni.isNotBlank()) {
         builder.addQueryParameter("sni", sni)
+    }
+    if (httpPath.isNotBlank()) builder.addQueryParameter("path", httpPath)
+    if (httpHeaders.isNotBlank()) builder.addQueryParameter("headers", httpHeaders)
+    if (isTLS()) {
+        if (alpn.isNotBlank()) builder.addQueryParameter("alpn", alpn.replace("\n", ","))
+        if (allowInsecure) builder.addQueryParameter("allowInsecure", "1")
+        if (tlsPubKeySha256.isNotBlank()) builder.addQueryParameter("pinSHA256", tlsPubKeySha256)
     }
     if (name.isNotBlank()) {
         builder.encodedFragment(name.urlSafe())
