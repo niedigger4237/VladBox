@@ -103,4 +103,11 @@
             app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:key="hy2Advanced" app:title="Hysteria 2 advanced">
+        <EditTextPreference app:key="hy2ObfsType" app:title="Obfuscation type" app:summary="salamander or gecko" />
+        <EditTextPreference app:key="hy2BbrProfile" app:title="BBR profile" app:summary="standard, conservative or aggressive" />
+        <EditTextPreference app:key="hy2HopIntervalMax" app:title="Maximum hop interval" app:summary="Duration, e.g. 30s" />
+        <EditTextPreference app:key="hy2GeckoMin" app:title="Gecko minimum packet size" app:summary="Optional positive integer" />
+        <EditTextPreference app:key="hy2GeckoMax" app:title="Gecko maximum packet size" app:summary="Optional positive integer" />
+    </PreferenceCategory>
 </PreferenceScreen> 
