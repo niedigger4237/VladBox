@@ -52,7 +52,7 @@ class ServiceButton @JvmOverloads constructor(
                     else -> colors.primary
                 }
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    if (busy) CircularProgressIndicator(Modifier.size(68.dp), strokeWidth = 4.dp)
+                    
                     Surface(
                         onClick = { this@ServiceButton.performClick() },
                         enabled = state.canStop || state == BaseService.State.Stopped,
@@ -75,6 +75,7 @@ class ServiceButton @JvmOverloads constructor(
         alpha = 0f
         importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
         progress.alpha = 0f
+        progress.visibility = android.view.View.GONE
     }
 
     @Suppress("UNUSED_PARAMETER")
@@ -104,7 +105,8 @@ class ServiceButton @JvmOverloads constructor(
         }
 
         val busy = state == BaseService.State.Connecting || state == BaseService.State.Stopping
-        progress?.let { if (busy) it.show() else it.hide() }
+        progress?.let { it.hide(); it.visibility = android.view.View.GONE; it.alpha = 0f }
+        alpha = 0f
 
         val description = context.getText(if (state.canStop) R.string.stop else R.string.connect)
         contentDescription = description
