@@ -103,6 +103,11 @@ public abstract class StandardV2RayBean extends AbstractBean {
     public String kcpHeader;
     public String kcpSeed;
     public Boolean kcpCongestion;
+    public String tlsEngine;
+    public String tlsCertificatePath;
+    public String tlsClientCertificatePath;
+    public String tlsClientKeyPath;
+    public String echConfigPath;
 
 
     // --------------------------------------- //
@@ -190,11 +195,16 @@ public abstract class StandardV2RayBean extends AbstractBean {
         if (kcpHeader == null) kcpHeader = "";
         if (kcpSeed == null) kcpSeed = "";
         if (kcpCongestion == null) kcpCongestion = false;
+        if (tlsEngine == null) tlsEngine = "";
+        if (tlsCertificatePath == null) tlsCertificatePath = "";
+        if (tlsClientCertificatePath == null) tlsClientCertificatePath = "";
+        if (tlsClientKeyPath == null) tlsClientKeyPath = "";
+        if (echConfigPath == null) echConfigPath = "";
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(8);
+        output.writeInt(9);
         super.serialize(output);
         output.writeString(uuid);
         output.writeString(encryption);
@@ -291,6 +301,11 @@ public abstract class StandardV2RayBean extends AbstractBean {
         output.writeString(kcpHeader);
         output.writeString(kcpSeed);
         output.writeBoolean(kcpCongestion);
+        output.writeString(tlsEngine);
+        output.writeString(tlsCertificatePath);
+        output.writeString(tlsClientCertificatePath);
+        output.writeString(tlsClientKeyPath);
+        output.writeString(echConfigPath);
     }
 
     @Override
@@ -433,6 +448,13 @@ public abstract class StandardV2RayBean extends AbstractBean {
             kcpHeader = input.readString();
             kcpSeed = input.readString();
             kcpCongestion = input.readBoolean();
+        }
+        if (version >= 9) {
+            tlsEngine = input.readString();
+            tlsCertificatePath = input.readString();
+            tlsClientCertificatePath = input.readString();
+            tlsClientKeyPath = input.readString();
+            echConfigPath = input.readString();
         }
     }
 
