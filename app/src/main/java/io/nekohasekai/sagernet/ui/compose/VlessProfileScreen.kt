@@ -22,7 +22,8 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     fun toggle(key: String, value: Boolean) { store.putBoolean(key, value); revision++ }
     var section by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var reality by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(read("realityPubKey").isNotBlank()) }
-    val valid = read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && read("uuid").isNotBlank() && (!reality || read("realityPubKey").isNotBlank())
+    val muxValid = !mux || (listOf("muxConcurrency","muxMaxConnections","muxMinStreams").all { read(it).toIntOrNull()?.let { n -> n >= 0 } == true } && (!store.getBoolean("muxBrutal",false) || listOf("muxBrutalUp","muxBrutalDown").all { read(it).toIntOrNull()?.let { n -> n > 0 } == true }))
+    val valid = muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && read("uuid").isNotBlank() && (!reality || read("realityPubKey").isNotBlank())
     androidx.activity.compose.BackHandler(enabled = section.isNotEmpty()) { section = "" }
     Column(Modifier.fillMaxSize()) {
     VladTopAppBar(title = section.ifEmpty { "VLESS" }, onBack = { if (section.isNotEmpty()) section = "" else onClose() }, extraActions = {
@@ -158,13 +159,43 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 }
             }
         }
-        if (section == "Multiplex") item {
-            ProfileSection("Multiplex") {
-                ProfileSwitch("Enable Multiplex", mux) { toggle("enableMux",it) }
-                if (mux) {
-                    ProfileChoices(listOf("0" to "h2mux","1" to "smux","2" to "yamux","3" to "rmux"), read("muxType")) { write("muxType",it) }
-                    listOf("muxConcurrency","muxMaxConnections","muxMinStreams","muxBrutalUp","muxBrutalDown").forEach { ProfileText(it,it,read(it),::write) }
-                    listOf("muxPadding","muxBrutal").forEach { key -> ProfileSwitch(key,store.getBoolean(key,false)) { toggle(key,it) } }
+        if (section == "Multiplex") {
+            item {
+                ProfileSection("Multiplex") {
+                    ProfileSwitch("Enable multiplex", mux) { toggle("enableMux",it) }
+                    if (mux) {
+                        Text("Protocol")
+                        ProfileChoices(listOf("0" to "h2mux","1" to "smux","2" to "yamux","3" to "rmux (experimental)"), read("muxType")) { write("muxType",it) }
+                        ProfileSwitch("Padding",store.getBoolean("muxPadding",false)) { toggle("muxPadding",it) }
+                    }
+                }
+            }
+            if (mux) {
+                item {
+                    ProfileSection("Connection limits") {
+                        if (!muxValid) Text("Check connection limits and Brutal bandwidth.",color = MaterialTheme.colorScheme.error)
+                        val connectionMode = (read("muxMaxConnections").toIntOrNull() ?: 0) > 0 || (read("muxMinStreams").toIntOrNull() ?: 0) > 0
+                        Text("Maximum streams and connection limits are alternative settings.",style = MaterialTheme.typography.bodySmall)
+                        if (!connectionMode) ProfileText("Maximum streams","muxConcurrency",read("muxConcurrency"),::write)
+                        ProfileText("Maximum connections","muxMaxConnections",read("muxMaxConnections")) { key,value ->
+                            write(key,value)
+                            if ((value.toIntOrNull() ?: 0) > 0) write("muxConcurrency","0")
+                        }
+                        ProfileText("Minimum streams","muxMinStreams",read("muxMinStreams")) { key,value ->
+                            write(key,value)
+                            if ((value.toIntOrNull() ?: 0) > 0) write("muxConcurrency","0")
+                        }
+                    }
+                }
+                item {
+                    ProfileSection("TCP Brutal") {
+                        val brutal = store.getBoolean("muxBrutal",false)
+                        ProfileSwitch("Enable TCP Brutal",brutal) { toggle("muxBrutal",it) }
+                        if (brutal) {
+                            ProfileText("Upload bandwidth (Mbps)","muxBrutalUp",read("muxBrutalUp"),::write)
+                            ProfileText("Download bandwidth (Mbps)","muxBrutalDown",read("muxBrutalDown"),::write)
+                        }
+                    }
                 }
             }
         }
