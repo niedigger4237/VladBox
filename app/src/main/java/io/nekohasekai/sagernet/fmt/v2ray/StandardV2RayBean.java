@@ -94,6 +94,15 @@ public abstract class StandardV2RayBean extends AbstractBean {
     public Boolean realityHybrid;
     public String vlessEncryption;
     public String vlessNetwork;
+    public String kcpMtu;
+    public String kcpTti;
+    public String kcpUp;
+    public String kcpDown;
+    public String kcpRead;
+    public String kcpWrite;
+    public String kcpHeader;
+    public String kcpSeed;
+    public Boolean kcpCongestion;
 
 
     // --------------------------------------- //
@@ -172,11 +181,20 @@ public abstract class StandardV2RayBean extends AbstractBean {
         if (realityHybrid == null) realityHybrid = false;
         if (vlessEncryption == null) vlessEncryption = "";
         if (vlessNetwork == null) vlessNetwork = "";
+        if (kcpMtu == null) kcpMtu = "";
+        if (kcpTti == null) kcpTti = "";
+        if (kcpUp == null) kcpUp = "";
+        if (kcpDown == null) kcpDown = "";
+        if (kcpRead == null) kcpRead = "";
+        if (kcpWrite == null) kcpWrite = "";
+        if (kcpHeader == null) kcpHeader = "";
+        if (kcpSeed == null) kcpSeed = "";
+        if (kcpCongestion == null) kcpCongestion = false;
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(7);
+        output.writeInt(8);
         super.serialize(output);
         output.writeString(uuid);
         output.writeString(encryption);
@@ -264,6 +282,15 @@ public abstract class StandardV2RayBean extends AbstractBean {
         output.writeBoolean(realityHybrid);
         output.writeString(vlessEncryption);
         output.writeString(vlessNetwork);
+        output.writeString(kcpMtu);
+        output.writeString(kcpTti);
+        output.writeString(kcpUp);
+        output.writeString(kcpDown);
+        output.writeString(kcpRead);
+        output.writeString(kcpWrite);
+        output.writeString(kcpHeader);
+        output.writeString(kcpSeed);
+        output.writeBoolean(kcpCongestion);
     }
 
     @Override
@@ -395,6 +422,17 @@ public abstract class StandardV2RayBean extends AbstractBean {
         if (version >= 7) {
             vlessEncryption = input.readString();
             vlessNetwork = input.readString();
+        }
+        if (version >= 8) {
+            kcpMtu = input.readString();
+            kcpTti = input.readString();
+            kcpUp = input.readString();
+            kcpDown = input.readString();
+            kcpRead = input.readString();
+            kcpWrite = input.readString();
+            kcpHeader = input.readString();
+            kcpSeed = input.readString();
+            kcpCongestion = input.readBoolean();
         }
     }
 
