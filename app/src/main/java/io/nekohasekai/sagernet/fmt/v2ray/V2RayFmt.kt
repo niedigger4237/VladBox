@@ -685,6 +685,11 @@ fun buildSingBoxOutboundStandardV2RayBean(bean: StandardV2RayBean): Outbound {
                 server_port = bean.serverPort
                 username = bean.username
                 password = bean.password
+                bean.httpPath.takeIf { it.isNotBlank() }?.let { _hack_config_map["path"] = it }
+                bean.httpHeaders.takeIf { it.isNotBlank() }?.let {
+                    val headers = com.google.gson.JsonParser.parseString(it).asJsonObject
+                    _hack_config_map["headers"] = headers
+                }
                 tls = buildSingBoxOutboundTLS(bean)
             }
         }
