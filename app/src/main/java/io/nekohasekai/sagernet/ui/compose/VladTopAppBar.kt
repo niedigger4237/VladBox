@@ -60,3 +60,10 @@ fun VladTopAppBar(
         )
     )
 }
+
+/** Hide the legacy app bar in the owning screen before mounting a Compose top bar.
+ * Keep the old view attached for existing binding and menu callbacks.
+ */
+fun hideLegacyTopAppBar(screenRoot: android.view.View) {
+    screenRoot.findViewById<android.view.View>(R.id.appbar)?.visibility = android.view.View.GONE
+}
