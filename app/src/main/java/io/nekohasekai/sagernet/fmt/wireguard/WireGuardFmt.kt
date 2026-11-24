@@ -82,9 +82,17 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean): SingBoxOptions.Endpo
                     is org.json.JSONArray -> (0 until value.length()).map { native(value.get(it)) }
                     else -> value
                 }
+                require(dialer.optString("network_strategy").isBlank() || listOf("bind_interface", "inet4_bind_address", "inet6_bind_address").none { dialer.optString(it).isNotBlank() }) { "Network strategy conflicts with interface or IP binding" }
                 for (key in dialer.keys()) {
                     require(key in allowed) { "Unsupported WireGuard dialer field: $key" }
-                    native(dialer.get(key))?.let { _hack_config_map[key] = it }
+                    val value = dialer.get(key)
+                    if (key == "routing_mark") {
+                        val raw = value.toString().trim()
+                        val hex = raw.startsWith("0x", ignoreCase = true)
+                        val mark = if (hex) raw.substring(2).toLongOrNull(16) else raw.toLongOrNull()
+                        require(mark != null && mark in 0L..4294967295L) { "Invalid routing mark" }
+                        _hack_config_map[key] = if (hex) "0x" + mark.toString(16) else mark
+                    } else native(value)?.let { _hack_config_map[key] = it }
                 }
             }
             require(bean.wgListenPort in 0..65535) { "Invalid WireGuard listen port" }
