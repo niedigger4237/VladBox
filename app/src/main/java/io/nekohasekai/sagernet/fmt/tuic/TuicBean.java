@@ -42,6 +42,8 @@ public class TuicBean extends AbstractBean {
     public String tuicInitialPacket;
     public Boolean tuicUdpOverStream;
     public Boolean tuicDisablePathMtu;
+    public String outboundDialer;
+    public String quicTlsOptions;
 
     @Override
     public void initializeDefaultValues() {
@@ -70,11 +72,13 @@ public class TuicBean extends AbstractBean {
         if (tuicInitialPacket == null) tuicInitialPacket = "";
         if (tuicUdpOverStream == null) tuicUdpOverStream = false;
         if (tuicDisablePathMtu == null) tuicDisablePathMtu = false;
+        if (outboundDialer == null) outboundDialer = "";
+        if (quicTlsOptions == null) quicTlsOptions = "";
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(3);
+        output.writeInt(4);
         super.serialize(output);
         output.writeString(token);
         output.writeString(caText);
@@ -100,6 +104,8 @@ public class TuicBean extends AbstractBean {
         output.writeString(tuicInitialPacket);
         output.writeBoolean(tuicUdpOverStream);
         output.writeBoolean(tuicDisablePathMtu);
+        output.writeString(outboundDialer);
+        output.writeString(quicTlsOptions);
     }
 
     @Override
@@ -137,6 +143,10 @@ public class TuicBean extends AbstractBean {
             tuicInitialPacket = input.readString();
             tuicUdpOverStream = input.readBoolean();
             tuicDisablePathMtu = input.readBoolean();
+        }
+        if (version >= 4) {
+            outboundDialer = input.readString();
+            quicTlsOptions = input.readString();
         }
     }
 
