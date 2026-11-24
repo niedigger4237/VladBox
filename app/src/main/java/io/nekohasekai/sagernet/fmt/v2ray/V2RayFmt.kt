@@ -576,6 +576,8 @@ fun buildSingBoxOutboundStreamSettings(bean: StandardV2RayBean): V2RayTransportO
         "http" -> {
             return V2RayTransportOptions_HTTPOptions().apply {
                 type = "http"
+                bean.httpIdleTimeout.trim().takeIf { it.isNotEmpty() }?.let { _hack_config_map["idle_timeout"] = it }
+                bean.httpPingTimeout.trim().takeIf { it.isNotEmpty() }?.let { _hack_config_map["ping_timeout"] = it }
                 if (bean.httpMethod.isNotBlank()) method = bean.httpMethod
                 else if (!bean.isTLS()) method = "GET" // v2ray tcp header
                 bean.parseTransportHeaders().takeIf { it.isNotEmpty() }?.let { headers = it }
@@ -596,8 +598,9 @@ fun buildSingBoxOutboundStreamSettings(bean: StandardV2RayBean): V2RayTransportO
             return V2RayTransportOptions_GRPCOptions().apply {
                 type = "grpc"
                 service_name = bean.path
-                if (bean.grpcIdleTimeout > 0) idle_timeout = bean.grpcIdleTimeout.toLong() * 1_000_000_000L
-                if (bean.grpcPingTimeout > 0) ping_timeout = bean.grpcPingTimeout.toLong() * 1_000_000_000L
+                if (bean.grpcIdleTimeout > 0) _hack_config_map["idle_timeout"] = "${bean.grpcIdleTimeout}s"
+                if (bean.grpcPingTimeout > 0) _hack_config_map["ping_timeout"] = "${bean.grpcPingTimeout}s"
+                if (bean.grpcPermitWithoutStream) _hack_config_map["permit_without_stream"] = true
             }
         }
 
