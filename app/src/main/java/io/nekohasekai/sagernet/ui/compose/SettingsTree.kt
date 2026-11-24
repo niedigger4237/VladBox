@@ -85,7 +85,7 @@ fun buildSettingsTree(manager: PreferenceManager): PreferenceScreen {
     category(R.string.cat_advanced) {
         addPreference(LongClickListPreference(ctx).apply { key = "logLevel"; setTitle(R.string.log_level); setEntries(R.array.log_level); setEntryValues(R.array.int_array_5); setDefaultValue("2"); summaryProvider = ListPreference.SimpleSummaryProvider.getInstance() })
         addPreference(SwitchPreference(ctx).apply { key = "enableClashAPI"; setTitle(R.string.enable_clash_api); setSummary(R.string.enable_clash_api_summary) })
-        addPreference(EditConfigPreference(ctx).apply { key = "globalCustomConfig"; setTitle(R.string.custom_config); summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance() })
+        addPreference(EditConfigPreference(ctx).apply { key = "globalCustomConfig"; setTitle(R.string.custom_config) })
     }
     return screen
 }
