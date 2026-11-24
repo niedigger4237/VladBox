@@ -1,7 +1,7 @@
 package io.nekohasekai.sagernet.ui.compose
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -27,8 +27,8 @@ fun ConnectionPower(state: BaseService.State, onClick: () -> Unit) {
         Surface(
             onClick = onClick,
             enabled = state.canStop || state == BaseService.State.Stopped,
-            modifier = Modifier.size(60.dp),
-            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.size(72.dp),
+            shape = CircleShape,
             color = tint,
             contentColor = if (busy || connected) Color.Black else colors.onPrimary
         ) {
