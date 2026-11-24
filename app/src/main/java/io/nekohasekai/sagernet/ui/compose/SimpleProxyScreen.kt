@@ -16,12 +16,12 @@ fun SimpleProxyScreen(shadowsocks: Boolean, onSave: () -> Unit, onClose: () -> U
     val store = DataStore.profileCacheStore
     var revision by remember { mutableStateOf(0) }
     var section by rememberSaveable { mutableStateOf("") }
-    val version = remember(revision) { if (shadowsocks) 2 else DataStore.serverProtocolInt }
-    val name = remember(revision) { if (shadowsocks) store.getString("name", "").orEmpty() else DataStore.profileName }
-    val address = remember(revision) { if (shadowsocks) store.getString("serverAddress", "").orEmpty() else DataStore.serverAddress }
-    val port = remember(revision) { if (shadowsocks) store.getString("serverPort", "").orEmpty() else DataStore.serverPort.toString() }
-    val method = remember(revision) { store.getString("method", "").orEmpty() }
-    val password = remember(revision) { if (shadowsocks) store.getString("password", "").orEmpty() else DataStore.serverPassword }
+    val version = remember(revision, DataStore.profileCacheStore.observableRevision) { if (shadowsocks) 2 else DataStore.serverProtocolInt }
+    val name = remember(revision, DataStore.profileCacheStore.observableRevision) { if (shadowsocks) store.getString("name", "").orEmpty() else DataStore.profileName }
+    val address = remember(revision, DataStore.profileCacheStore.observableRevision) { if (shadowsocks) store.getString("serverAddress", "").orEmpty() else DataStore.serverAddress }
+    val port = remember(revision, DataStore.profileCacheStore.observableRevision) { if (shadowsocks) store.getString("serverPort", "").orEmpty() else DataStore.serverPort.toString() }
+    val method = remember(revision, DataStore.profileCacheStore.observableRevision) { store.getString("method", "").orEmpty() }
+    val password = remember(revision, DataStore.profileCacheStore.observableRevision) { if (shadowsocks) store.getString("password", "").orEmpty() else DataStore.serverPassword }
     val dialerValid = runCatching { io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(store.getString("outboundDialer","").orEmpty(), store.getString("outboundNetwork","").orEmpty(), mutableMapOf()) }.isSuccess
     val mux = shadowsocks && store.getBoolean("enableMux",false)
     val muxValid = !mux || (!store.getBoolean("sUoT",false) && listOf("muxConcurrency","muxMaxConnections","muxMinStreams").all { store.getString(it,"").orEmpty().toIntOrNull()?.let { n -> n >= 0 } == true } && (!store.getBoolean("muxBrutal",false) || listOf("muxBrutalUp","muxBrutalDown").all { store.getString(it,"").orEmpty().toIntOrNull()?.let { n -> n > 0 } == true }))
