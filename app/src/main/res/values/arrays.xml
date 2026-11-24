@@ -284,6 +284,7 @@
         <item>grpc</item>
         <item>httpupgrade</item>
         <item>xhttp</item>
+        <item>kcp</item>
     </string-array>
 
     <string-array name="xhttp_mode_value">
