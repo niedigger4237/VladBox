@@ -37,6 +37,8 @@ class HysteriaSettingsActivity : ProfileSettingsActivity<HysteriaBean>() {
 
     override fun HysteriaBean.init() {
         extra.writeToCacheAll(this)
+        DataStore.profileCacheStore.putString("outboundDialer", outboundDialer)
+        DataStore.profileCacheStore.putString("quicTlsOptions", quicTlsOptions)
         DataStore.profileName = name
         DataStore.protocolVersion = protocolVersion
         DataStore.serverAddress = serverAddress
@@ -59,6 +61,8 @@ class HysteriaSettingsActivity : ProfileSettingsActivity<HysteriaBean>() {
 
     override fun HysteriaBean.serialize() {
         extra.fromCacheAll(this)
+        outboundDialer = DataStore.profileCacheStore.getString("outboundDialer", "").orEmpty()
+        quicTlsOptions = DataStore.profileCacheStore.getString("quicTlsOptions", "").orEmpty()
         name = DataStore.profileName
         protocolVersion = DataStore.protocolVersion
         serverAddress = DataStore.serverAddress
