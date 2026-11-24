@@ -79,41 +79,9 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         }
     }
 
-    private val settingsRevision = kotlinx.coroutines.flow.MutableStateFlow(0)
-    private var observedAdapter: androidx.recyclerview.widget.RecyclerView.Adapter<*>? = null
-    private val settingsObserver = object : androidx.recyclerview.widget.RecyclerView.AdapterDataObserver() {
-        override fun onChanged() { settingsRevision.value++ }
-        override fun onItemRangeChanged(positionStart: Int, itemCount: Int) { onChanged() }
-        override fun onItemRangeChanged(positionStart: Int, itemCount: Int, payload: Any?) { onChanged() }
-        override fun onItemRangeInserted(positionStart: Int, itemCount: Int) { onChanged() }
-        override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) { onChanged() }
-    }
-
-    override fun onDestroyView() {
-        observedAdapter?.unregisterAdapterDataObserver(settingsObserver)
-        observedAdapter = null
-        super.onDestroyView()
-    }
-
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
         listView.layoutManager = FixedLinearLayoutManager(listView)
-        if (!SagerNet.isTv) {
-            val host = androidx.compose.ui.platform.ComposeView(requireContext())
-            host.setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-            val parent = listView.parent as android.view.ViewGroup
-            listView.visibility = View.GONE
-            parent.addView(host, android.view.ViewGroup.LayoutParams(-1, -1))
-            io.nekohasekai.sagernet.ui.compose.installSettingsScreen(host, preferenceScreen, settingsRevision) { settingsRevision.value++ }
-            listView.post {
-                if (this.view === view) {
-                    observedAdapter = listView.adapter
-                    observedAdapter?.registerAdapterDataObserver(settingsObserver)
-                    settingsRevision.value++
-                }
-            }
-        }
     }
 
     private val reloadListener = Preference.OnPreferenceChangeListener { _, _ ->
@@ -124,8 +92,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         preferenceManager.preferenceDataStore = DataStore.configurationStore
         DataStore.initGlobal()
-        if (SagerNet.isTv) addPreferencesFromResource(R.xml.global_preferences)
-        else preferenceScreen = io.nekohasekai.sagernet.ui.compose.buildSettingsTree(preferenceManager)
+        addPreferencesFromResource(R.xml.global_preferences)
 
         val nightTheme = findPreference<SimpleMenuPreference>(Key.NIGHT_THEME)!!
         nightTheme.setOnPreferenceChangeListener { _, newTheme ->
@@ -282,7 +249,6 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
 
     override fun onResume() {
         super.onResume()
-        settingsRevision.value++
 
         if (::isProxyApps.isInitialized) {
             updateProxyAppsSummary()
