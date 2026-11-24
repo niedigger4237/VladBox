@@ -32,6 +32,16 @@ public class TuicBean extends AbstractBean {
     public String customJSON;
     public Integer protocolVersion;
     public String uuid;
+    public String tuicHeartbeat;
+    public String tuicNetwork;
+    public String tuicIdleTimeout;
+    public String tuicKeepAlive;
+    public String tuicStreamWindow;
+    public String tuicConnectionWindow;
+    public String tuicMaxStreams;
+    public String tuicInitialPacket;
+    public Boolean tuicUdpOverStream;
+    public Boolean tuicDisablePathMtu;
 
     @Override
     public void initializeDefaultValues() {
@@ -50,11 +60,21 @@ public class TuicBean extends AbstractBean {
         if (customJSON == null) customJSON = "";
         if (protocolVersion == null) protocolVersion = 5;
         if (uuid == null) uuid = "";
+        if (tuicHeartbeat == null) tuicHeartbeat = "";
+        if (tuicNetwork == null) tuicNetwork = "";
+        if (tuicIdleTimeout == null) tuicIdleTimeout = "";
+        if (tuicKeepAlive == null) tuicKeepAlive = "";
+        if (tuicStreamWindow == null) tuicStreamWindow = "";
+        if (tuicConnectionWindow == null) tuicConnectionWindow = "";
+        if (tuicMaxStreams == null) tuicMaxStreams = "";
+        if (tuicInitialPacket == null) tuicInitialPacket = "";
+        if (tuicUdpOverStream == null) tuicUdpOverStream = false;
+        if (tuicDisablePathMtu == null) tuicDisablePathMtu = false;
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(2);
+        output.writeInt(3);
         super.serialize(output);
         output.writeString(token);
         output.writeString(caText);
@@ -70,6 +90,16 @@ public class TuicBean extends AbstractBean {
         output.writeString(customJSON);
         output.writeInt(protocolVersion);
         output.writeString(uuid);
+        output.writeString(tuicHeartbeat);
+        output.writeString(tuicNetwork);
+        output.writeString(tuicIdleTimeout);
+        output.writeString(tuicKeepAlive);
+        output.writeString(tuicStreamWindow);
+        output.writeString(tuicConnectionWindow);
+        output.writeString(tuicMaxStreams);
+        output.writeString(tuicInitialPacket);
+        output.writeBoolean(tuicUdpOverStream);
+        output.writeBoolean(tuicDisablePathMtu);
     }
 
     @Override
@@ -95,6 +125,18 @@ public class TuicBean extends AbstractBean {
             uuid = input.readString();
         } else {
             protocolVersion = 4;
+        }
+        if (version >= 3) {
+            tuicHeartbeat = input.readString();
+            tuicNetwork = input.readString();
+            tuicIdleTimeout = input.readString();
+            tuicKeepAlive = input.readString();
+            tuicStreamWindow = input.readString();
+            tuicConnectionWindow = input.readString();
+            tuicMaxStreams = input.readString();
+            tuicInitialPacket = input.readString();
+            tuicUdpOverStream = input.readBoolean();
+            tuicDisablePathMtu = input.readBoolean();
         }
     }
 
