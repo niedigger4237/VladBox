@@ -144,7 +144,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                     if ("tls" in security) {
                         ProfileText("Server name (SNI)", "sni", read("sni"), ::write)
                         ProfileText("ALPN", "alpn", read("alpn"), ::write)
-                        ProfileText("uTLS fingerprint", "utlsFingerprint", read("utlsFingerprint"), ::write)
+                        UtlsFingerprintPicker("uTLS fingerprint", read("utlsFingerprint")) { write("utlsFingerprint", it) }
                         if (!reality) {
                             ProfileSwitch("Allow insecure",store.getBoolean("allowInsecure",false)) { toggle("allowInsecure",it) }
                             ProfileSwitch("Disable SNI",store.getBoolean("tlsDisableSni",false)) { toggle("tlsDisableSni",it) }
@@ -371,7 +371,8 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 if (!download) continue
             }
             for ((key,label) in entries) {
-                if (key in bools) ProfileSwitch(label,read(key) == true) { update(key,it) }
+                if (key == "download.tls.utls.fingerprint") UtlsFingerprintPicker(label, read(key)?.toString().orEmpty()) { update(key, it.ifBlank { null }) }
+                else if (key in bools) ProfileSwitch(label,read(key) == true) { update(key,it) }
                 else {
                     var draft by remember(key,read(key)?.toString()) { mutableStateOf(read(key)?.toString().orEmpty()) }
                     var error by remember(key) { mutableStateOf(false) }
@@ -452,4 +453,27 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     }
     TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide extra JSON" else "Show extra JSON") }
     if (advanced || json == null) ProfileText("Dialer extra JSON","outboundDialer",raw) { _, value -> change(value) }
+}
+
+@Composable
+internal fun UtlsFingerprintPicker(label: String, selected: String, change: (String) -> Unit) {
+    val options = listOf("" to "Default / unset", "chrome" to "Chrome", "firefox" to "Firefox",
+        "edge" to "Edge", "safari" to "Safari", "ios" to "iOS", "android" to "Android",
+        "360" to "360 Browser", "qq" to "QQ Browser", "random" to "Random", "randomized" to "Randomized")
+    var expanded by remember { mutableStateOf(false) }
+    Column {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        Box {
+            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(options.firstOrNull { it.first == selected }?.second ?: selected, Modifier.weight(1f))
+                Text("▾")
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { (value, title) ->
+                    DropdownMenuItem(text = { Text(if (value == selected) "✓  $title" else title) },
+                        onClick = { expanded = false; change(value) })
+                }
+            }
+        }
+    }
 }
