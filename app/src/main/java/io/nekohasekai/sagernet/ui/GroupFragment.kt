@@ -49,6 +49,14 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
         toolbar.setTitle(R.string.menu_group)
         toolbar.inflateMenu(R.menu.add_group_menu)
         toolbar.setOnMenuItemClickListener(this)
+        if (!SagerNet.isTv) {
+            val parent = toolbar.parent as ViewGroup
+            val index = parent.indexOfChild(toolbar)
+            toolbar.visibility = View.GONE
+            val host = androidx.compose.ui.platform.ComposeView(requireContext())
+            parent.addView(host, index, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            io.nekohasekai.sagernet.ui.compose.installGroupHeader(this, host)
+        }
 
         groupListView = view.findViewById(R.id.group_list)
         layoutManager = FixedLinearLayoutManager(groupListView)
@@ -107,8 +115,10 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
 
     }
 
-    override fun onMenuItemClick(item: MenuItem): Boolean {
-        when (item.itemId) {
+    override fun onMenuItemClick(item: MenuItem): Boolean = onGroupAction(item.itemId)
+
+    fun onGroupAction(actionId: Int): Boolean {
+        when (actionId) {
             R.id.action_new_group -> {
                 startActivity(Intent(context, GroupSettingsActivity::class.java))
             }
