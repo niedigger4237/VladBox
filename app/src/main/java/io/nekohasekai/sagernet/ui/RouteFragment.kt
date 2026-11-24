@@ -434,39 +434,28 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         inner class RuleHolder(binding: LayoutRouteItemBinding) : RecyclerView.ViewHolder(binding.root) {
 
             lateinit var rule: RuleEntity
-            val profileName = binding.profileName
-            val profileType = binding.profileType
-            val routeOutbound = binding.routeOutbound
-            val editButton = binding.edit
-            val shareLayout = binding.share
-            val enableSwitch = binding.enable
-
+            private val host = binding.root as androidx.compose.ui.platform.ComposeView
             fun bind(ruleEntity: RuleEntity) {
                 rule = ruleEntity
-                profileName.text = rule.displayName()
-                profileType.text = rule.mkSummary()
-                routeOutbound.text = rule.displayOutbound()
-                itemView.setOnClickListener {
-                    enableSwitch.performClick()
-                }
-                enableSwitch.isChecked = rule.enabled
-                enableSwitch.setOnCheckedChangeListener { _, isChecked ->
-                    runOnDefaultDispatcher {
-                        rule.enabled = isChecked
-                        SagerDatabase.rulesDao.updateRule(rule)
-                        onMainDispatcher {
-                            needReload()
-                        }
+                host.setContent {
+                    io.nekohasekai.sagernet.ui.compose.HubTheme {
+                        io.nekohasekai.sagernet.ui.compose.RuleTile(ruleEntity.displayName(), ruleEntity.mkSummary().toString(),
+                            ruleEntity.displayOutbound().toString(), ruleEntity.enabled,
+                            toggle = { checked ->
+                                ruleEntity.enabled = checked
+                                runOnDefaultDispatcher {
+                                    SagerDatabase.rulesDao.updateRule(ruleEntity)
+                                    onMainDispatcher { needReload(); val index = ruleList.indexOfFirst { it.id == ruleEntity.id }; if (index >= 0) notifyItemChanged(index + 1) }
+                                }
+                            },
+                            edit = {
+                                startActivity(Intent(requireContext(), RouteSettingsActivity::class.java).apply {
+                                    putExtra(RouteSettingsActivity.EXTRA_ROUTE_ID, ruleEntity.id)
+                                })
+                            })
                     }
-                }
-                editButton.setOnClickListener {
-                    startActivity(Intent(it.context, RouteSettingsActivity::class.java).apply {
-                        putExtra(RouteSettingsActivity.EXTRA_ROUTE_ID, rule.id)
-                    })
                 }
             }
         }
-
     }
-
 }
