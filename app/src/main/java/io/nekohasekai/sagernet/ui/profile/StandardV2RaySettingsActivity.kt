@@ -72,6 +72,14 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
     private val globalPadding = pbm.add(PreferenceBinding(Type.Bool, "globalPadding"))
     private val authenticatedLength = pbm.add(PreferenceBinding(Type.Bool, "authenticatedLength"))
 
+    private val tlsMinVersion = pbm.add(PreferenceBinding(Type.Text, "tlsMinVersion"))
+    private val tlsMaxVersion = pbm.add(PreferenceBinding(Type.Text, "tlsMaxVersion"))
+    private val tlsCurves = pbm.add(PreferenceBinding(Type.Text, "tlsCurves"))
+    private val tlsHandshakeTimeout = pbm.add(PreferenceBinding(Type.Text, "tlsHandshakeTimeout"))
+    private val tlsClientCertificate = pbm.add(PreferenceBinding(Type.Text, "tlsClientCertificate"))
+    private val tlsClientKey = pbm.add(PreferenceBinding(Type.Text, "tlsClientKey"))
+    private val echQueryName = pbm.add(PreferenceBinding(Type.Text, "echQueryName"))
+    private val realityHybrid = pbm.add(PreferenceBinding(Type.Bool, "realityHybrid"))
     private val httpExtra = PreferenceBindingManager()
     private val httpPath = httpExtra.add(PreferenceBinding(Type.Text, "httpPath"))
     private val httpHeaders = httpExtra.add(PreferenceBinding(Type.Text, "httpHeaders"))
@@ -235,6 +243,14 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
         securityCategory.isVisible = isTLS
         tlsCamouflageCategory.isVisible = isTLS
         echCategory.isVisible = isTLS
+        tlsMinVersion.preference.isVisible = isTLS
+        tlsMaxVersion.preference.isVisible = isTLS
+        tlsCurves.preference.isVisible = isTLS
+        tlsHandshakeTimeout.preference.isVisible = isTLS
+        tlsClientCertificate.preference.isVisible = isTLS
+        tlsClientKey.preference.isVisible = isTLS
+        echQueryName.preference.isVisible = isTLS
+        realityHybrid.preference.isVisible = isTLS
     }
 
 }
