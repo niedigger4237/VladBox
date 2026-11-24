@@ -206,6 +206,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
             updateMux(!isHttp && muxSwitch.isChecked, value as Boolean)
             true
         }
+        addXhttpFields()
         // menu with listener
 
         type.preference.apply {
@@ -227,7 +228,88 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
         }
     }
 
+
+    private fun PreferenceFragmentCompat.addXhttpFields() {
+        val category = PreferenceCategory(requireContext()).apply {
+            key = "xhttpStructured"
+            title = "XHTTP advanced settings"
+        }
+        preferenceScreen.addPreference(category)
+        val fields = linkedMapOf(
+            "headers" to "Headers (JSON)",
+            "x_padding_bytes" to "Padding bytes",
+            "no_grpc_header" to "Disable gRPC header",
+            "no_sse_header" to "Disable SSE header",
+            "sc_max_each_post_bytes" to "Max POST bytes",
+            "sc_min_posts_interval_ms" to "Min POST interval (ms)",
+            "sc_max_buffered_posts" to "Max buffered POSTs",
+            "sc_stream_up_server_secs" to "Stream up server seconds",
+            "x_padding_obfs_mode" to "Padding obfuscation",
+            "x_padding_key" to "Padding key",
+            "x_padding_header" to "Padding header",
+            "x_padding_placement" to "Padding placement",
+            "x_padding_method" to "Padding method",
+            "uplink_http_method" to "Uplink HTTP method",
+            "session_placement" to "Session placement",
+            "session_key" to "Session key",
+            "session_id_table" to "Session ID table",
+            "session_id_length" to "Session ID length",
+            "seq_placement" to "Sequence placement",
+            "seq_key" to "Sequence key",
+            "uplink_data_placement" to "Uplink data placement",
+            "uplink_data_key" to "Uplink data key",
+            "uplink_chunk_size" to "Uplink chunk size",
+            "server_max_header_bytes" to "Max header bytes",
+            "domain_strategy" to "Domain strategy",
+            "congestion_controller" to "Congestion controller",
+            "cwnd" to "CWND",
+            "trusted_x_forwarded_for" to "Trusted X-Forwarded-For",
+            "xmux" to "XMUX (JSON)",
+            "download" to "Download settings (JSON)"
+        )
+        val booleans = setOf("no_grpc_header", "no_sse_header", "x_padding_obfs_mode")
+        val numbers = setOf("sc_max_buffered_posts", "server_max_header_bytes", "cwnd")
+        val objects = setOf("headers", "xmux", "download")
+        for ((field, label) in fields) {
+            val pref = EditTextPreference(requireContext()).apply {
+                key = "xhttp_structured_" + field
+                title = label
+                isPersistent = false
+                summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance()
+            }
+            fun refresh() {
+                val json = runCatching { org.json.JSONObject(xhttpExtra.readStringFromCache().ifBlank { "{}" }) }.getOrNull()
+                pref.text = json?.opt(field)?.takeUnless { it == org.json.JSONObject.NULL }?.toString().orEmpty()
+            }
+            refresh()
+            pref.setOnPreferenceClickListener { refresh(); false }
+            pref.setOnPreferenceChangeListener { _, value ->
+                try {
+                    val json = org.json.JSONObject(xhttpExtra.readStringFromCache().ifBlank { "{}" })
+                    val raw = value.toString().trim()
+                    if (raw.isEmpty()) json.remove(field)
+                    else json.put(field, when (field) {
+                        in booleans -> raw.toBooleanStrict()
+                        in numbers -> raw.toLong()
+                        in objects -> org.json.JSONObject(raw)
+                        else -> raw
+                    })
+                    val extra = xhttpExtra.preference as EditTextPreference
+                    extra.text = json.toString()
+                    true
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(requireContext(), "Invalid XHTTP value", android.widget.Toast.LENGTH_SHORT).show()
+                    false
+                }
+            }
+            category.addPreference(pref)
+        }
+        xhttpStructured = category
+    }
+    private var xhttpStructured: PreferenceCategory? = null
+
     private fun updateView(network: String) {
+        xhttpStructured?.isVisible = network == "xhttp" && tmpBean !is HttpBean
         findKcpVisibility(network == "kcp" && tmpBean !is HttpBean)
         host.preference.isVisible = false
         path.preference.isVisible = false
