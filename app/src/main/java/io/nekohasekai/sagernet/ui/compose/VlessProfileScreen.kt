@@ -67,7 +67,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 }
                 if (transport == "xhttp") {
                     ProfileChoices(listOf("auto","packet-up","stream-up","stream-one").map { it to it }, read("xhttpMode").ifBlank { "auto" }) { write("xhttpMode", it) }
-                    ProfileText("Extra JSON", "xhttpExtra", read("xhttpExtra"), ::write)
+                    XhttpComposeFields(read("xhttpExtra"), read("xhttpMode")) { write("xhttpExtra", it) }
                 }
                 if (transport == "grpc") {
                     ProfileText("Service name", "path", read("path"), ::write)
@@ -147,4 +147,120 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
             }
         }
     }
+}
+
+@Composable private fun XhttpComposeFields(raw: String, mode: String, change: (String) -> Unit) {
+        val fields = linkedMapOf(
+            "headers" to "Headers (JSON)",
+            "x_padding_bytes" to "Padding bytes",
+            "no_grpc_header" to "Disable gRPC header",
+            "no_sse_header" to "Disable SSE header",
+            "sc_max_each_post_bytes" to "Max POST bytes",
+            "sc_min_posts_interval_ms" to "Min POST interval (ms)",
+            "sc_max_buffered_posts" to "Max buffered POSTs",
+            "sc_stream_up_server_secs" to "Stream up server seconds",
+            "x_padding_obfs_mode" to "Padding obfuscation",
+            "x_padding_key" to "Padding key",
+            "x_padding_header" to "Padding header",
+            "x_padding_placement" to "Padding placement",
+            "x_padding_method" to "Padding method",
+            "uplink_http_method" to "Uplink HTTP method",
+            "session_placement" to "Session placement",
+            "session_key" to "Session key",
+            "session_id_table" to "Session ID table",
+            "session_id_length" to "Session ID length",
+            "seq_placement" to "Sequence placement",
+            "seq_key" to "Sequence key",
+            "uplink_data_placement" to "Uplink data placement",
+            "uplink_data_key" to "Uplink data key",
+            "uplink_chunk_size" to "Uplink chunk size",
+            "server_max_header_bytes" to "Max header bytes",
+            "domain_strategy" to "Domain strategy",
+            "congestion_controller" to "Congestion controller",
+            "cwnd" to "CWND",
+            "trusted_x_forwarded_for" to "Trusted X-Forwarded-For",
+            "xmux" to "XMUX (JSON)",
+            "download" to "Download settings (JSON)"
+        )
+
+        val xmuxFields = linkedMapOf(
+            "xmux.max_concurrency" to "XMUX Max concurrency",
+            "xmux.max_connections" to "XMUX Max connections",
+            "xmux.c_max_reuse_times" to "XMUX Connection reuse times",
+            "xmux.h_max_request_times" to "XMUX HTTP request times",
+            "xmux.h_max_reusable_secs" to "XMUX Reusable seconds",
+            "xmux.h_keep_alive_period" to "XMUX Keep alive period"
+        )
+        val downloadFields = linkedMapOf(
+            "download.server" to "Download server address",
+            "download.server_port" to "Download server port",
+            "download.host" to "Download host",
+            "download.path" to "Download path",
+            "download.x_padding_bytes" to "Download padding bytes",
+            "download.headers" to "Download headers (JSON)",
+            "download.detour" to "Download detour",
+            "download.tls.enabled" to "Download TLS",
+            "download.tls.server_name" to "Download SNI",
+            "download.tls.insecure" to "Download allow insecure",
+            "download.tls.alpn" to "Download ALPN (JSON array)",
+            "download.tls.utls.enabled" to "Download uTLS",
+            "download.tls.utls.fingerprint" to "Download fingerprint",
+            "download.tls.reality.enabled" to "Download Reality",
+            "download.tls.reality.public_key" to "Download Reality public key",
+            "download.tls.reality.short_id" to "Download Reality short ID"
+        )
+
+    val json = remember(raw) { runCatching { org.json.JSONObject(raw.ifBlank { "{}" }) }.getOrNull() }
+    var showRaw by remember { mutableStateOf(false) }
+    fun read(key: String): Any? {
+        val parts = key.split('.')
+        val parent = parts.dropLast(1).fold(json) { obj, part -> obj?.optJSONObject(part) }
+        return parent?.opt(parts.last())?.takeUnless { it == org.json.JSONObject.NULL }
+    }
+    fun update(key: String, value: Any?) {
+        if (json == null) return
+        val copy = org.json.JSONObject(json.toString())
+        val parts = key.split('.')
+        val target = parts.dropLast(1).fold(copy) { obj, part -> obj.optJSONObject(part) ?: org.json.JSONObject().also { obj.put(part,it) } }
+        if (value == null) target.remove(parts.last()) else target.put(parts.last(),value)
+        change(copy.toString())
+    }
+    if (json == null) Text("Invalid XHTTP JSON", color = MaterialTheme.colorScheme.error)
+    else {
+        val bools = setOf("no_grpc_header","no_sse_header","x_padding_obfs_mode","download.tls.enabled","download.tls.insecure","download.tls.utls.enabled","download.tls.reality.enabled")
+        val numbers = setOf("sc_max_buffered_posts","server_max_header_bytes","cwnd","xmux.h_keep_alive_period","download.server_port")
+        val objects = setOf("headers","download.headers")
+        val arrays = setOf("download.tls.alpn","trusted_x_forwarded_for")
+        val download = read("download") != null
+        for ((title, entries) in listOf("XHTTP settings" to fields.filterKeys { it !in setOf("xmux","download") }, "XMUX" to xmuxFields, "Download settings" to downloadFields)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            if (title == "Download settings") {
+                ProfileSwitch("Separate download connection",download) { update("download",if (it) org.json.JSONObject().put("x_padding_bytes","100-1000") else null) }
+                if (mode == "stream-one" && download) Text("Download connection is not supported in stream-one mode.",color = MaterialTheme.colorScheme.error)
+                if (!download) continue
+            }
+            for ((key,label) in entries) {
+                if (key in bools) ProfileSwitch(label,read(key) == true) { update(key,it) }
+                else {
+                    var draft by remember(key,read(key)?.toString()) { mutableStateOf(read(key)?.toString().orEmpty()) }
+                    var error by remember(key) { mutableStateOf(false) }
+                    OutlinedTextField(draft,{ value ->
+                        draft = value
+                        runCatching {
+                            val v = value.trim()
+                            val parsed = if (v.isEmpty()) null else when (key) {
+                                in numbers -> v.toLong().also { require(it >= 0); if (key == "download.server_port") require(it in 1L..65535L) }
+                                in objects -> org.json.JSONObject(v)
+                                in arrays -> org.json.JSONArray(v)
+                                else -> v
+                            }
+                            update(key,parsed)
+                        }.onSuccess { error = false }.onFailure { error = true }
+                    },label = { Text(label) },modifier = Modifier.fillMaxWidth(),isError = error)
+                }
+            }
+        }
+    }
+    TextButton(onClick = { showRaw = !showRaw }) { Text(if (showRaw) "Hide Extra JSON" else "Show Extra JSON") }
+    if (showRaw || json == null) OutlinedTextField(raw,change,label = { Text("Extra JSON") },modifier = Modifier.fillMaxWidth())
 }
