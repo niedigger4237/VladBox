@@ -610,6 +610,21 @@ fun buildSingBoxOutboundStreamSettings(bean: StandardV2RayBean): V2RayTransportO
             }
         }
 
+        "kcp" -> {
+            return V2RayTransportOptions().apply {
+                type = "kcp"
+                bean.kcpMtu.trim().takeIf { it.isNotEmpty() }?.let { val n = it.toLongOrNull() ?: error("Invalid KCP mtu"); require(n in 1L..4294967295L); _hack_config_map["mtu"] = n }
+                bean.kcpTti.trim().takeIf { it.isNotEmpty() }?.let { val n = it.toLongOrNull() ?: error("Invalid KCP tti"); require(n in 1L..4294967295L); _hack_config_map["tti"] = n }
+                bean.kcpUp.trim().takeIf { it.isNotEmpty() }?.let { val n = it.toLongOrNull() ?: error("Invalid KCP uplink_capacity"); require(n in 1L..4294967295L); _hack_config_map["uplink_capacity"] = n }
+                bean.kcpDown.trim().takeIf { it.isNotEmpty() }?.let { val n = it.toLongOrNull() ?: error("Invalid KCP downlink_capacity"); require(n in 1L..4294967295L); _hack_config_map["downlink_capacity"] = n }
+                bean.kcpRead.trim().takeIf { it.isNotEmpty() }?.let { val n = it.toLongOrNull() ?: error("Invalid KCP read_buffer_size"); require(n in 1L..4294967295L); _hack_config_map["read_buffer_size"] = n }
+                bean.kcpWrite.trim().takeIf { it.isNotEmpty() }?.let { val n = it.toLongOrNull() ?: error("Invalid KCP write_buffer_size"); require(n in 1L..4294967295L); _hack_config_map["write_buffer_size"] = n }
+                bean.kcpHeader.trim().takeIf { it.isNotEmpty() }?.let { _hack_config_map["header_type"] = it }
+                bean.kcpSeed.trim().takeIf { it.isNotEmpty() }?.let { _hack_config_map["seed"] = it }
+                if (bean.kcpCongestion) _hack_config_map["congestion"] = true
+            }
+        }
+
         "xhttp" -> {
             return V2RayTransportOptions_XHTTPOptions().apply {
                 type = "xhttp"
