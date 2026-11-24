@@ -18,16 +18,12 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.drawerlayout.widget.DrawerLayout
-import com.google.android.material.navigation.NavigationView
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.ui.MainActivity
 
-fun installHubDrawer(activity: MainActivity, navigation: NavigationView) {
+fun installHubDrawer(activity: MainActivity, params: DrawerLayout.LayoutParams) {
     val drawer = activity.binding.drawerLayout
-    val params = navigation.layoutParams as DrawerLayout.LayoutParams
     val host = ComposeView(activity)
-    navigation.visibility = View.GONE
-    drawer.removeView(navigation)
     drawer.addView(host, DrawerLayout.LayoutParams(
         (320 * activity.resources.displayMetrics.density).toInt(),
         params.height, params.gravity))
