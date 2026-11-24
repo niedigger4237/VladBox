@@ -17,6 +17,35 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
 
     override fun createEntity() = WireGuardBean()
 
+    private val importConf = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && !DataStore.profileCacheStore.getBoolean("awgEnabled", false)) {
+            try {
+                val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: error("Cannot read file")
+                val bean = io.nekohasekai.sagernet.fmt.wireguard.WireGuardConf.parse(text)
+                val current = createEntity().apply { initializeDefaultValues(); pbm.fromCacheAll(this) }
+                bean.name = current.name
+                pbm.writeToCacheAll(bean)
+                DataStore.dirty = true
+                // Rebuild the preference screen to reflect imported values.
+                supportFragmentManager.beginTransaction().replace(R.id.settings, ProfileSettingsActivity.MyPreferenceFragmentCompat()).commitNow()
+                DataStore.dirty = true
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(this, "WireGuard import failed: " + e.message, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    private val exportConf = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null && !DataStore.profileCacheStore.getBoolean("awgEnabled", false)) {
+            try {
+                val bean = createEntity().apply { initializeDefaultValues(); pbm.fromCacheAll(this) }
+                val text = io.nekohasekai.sagernet.fmt.wireguard.WireGuardConf.export(bean)
+                contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(text) } ?: error("Cannot write file")
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(this, "WireGuard export failed: " + e.message, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private val pbm = PreferenceBindingManager()
     private val name = pbm.add(PreferenceBinding(Type.Text, "name"))
     private val serverAddress = pbm.add(PreferenceBinding(Type.Text, "serverAddress"))
@@ -219,6 +248,28 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
             }
         }
         wgAdvanced.addPreference(peerManager)
+        wgAdvanced.addPreference(androidx.preference.Preference(requireContext()).apply {
+            title = "Import WireGuard configuration"
+            summary = "Replace current WireGuard connection settings from a .conf file"
+            setOnPreferenceClickListener {
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                    .setMessage("Replace current connection settings?")
+                    .setPositiveButton("Import") { _, _ -> importConf.launch(arrayOf("*/*")) }
+                    .setNegativeButton(android.R.string.cancel, null).show()
+                true
+            }
+        })
+        wgAdvanced.addPreference(androidx.preference.Preference(requireContext()).apply {
+            title = "Export WireGuard configuration"
+            summary = "Save .conf containing private keys"
+            setOnPreferenceClickListener {
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                    .setMessage("The exported file contains private keys. Keep it secure.")
+                    .setPositiveButton("Export") { _, _ -> exportConf.launch("wireguard.conf") }
+                    .setNegativeButton(android.R.string.cancel, null).show()
+                true
+            }
+        })
 
         (serverPort.preference as EditTextPreference)
             .setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
