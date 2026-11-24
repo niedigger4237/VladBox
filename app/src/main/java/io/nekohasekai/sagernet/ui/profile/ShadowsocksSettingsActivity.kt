@@ -25,6 +25,15 @@ class ShadowsocksSettingsActivity : ProfileSettingsActivity<ShadowsocksBean>() {
         pbm.add(PreferenceBinding(Type.Text, "pluginName").apply { disable = true })
     private val pluginConfig =
         pbm.add(PreferenceBinding(Type.Text, "pluginConfig").apply { disable = true })
+    private val enableMux = pbm.add(PreferenceBinding(Type.Bool, "enableMux"))
+    private val muxPadding = pbm.add(PreferenceBinding(Type.Bool, "muxPadding"))
+    private val muxType = pbm.add(PreferenceBinding(Type.TextToInt, "muxType"))
+    private val muxConcurrency = pbm.add(PreferenceBinding(Type.TextToInt, "muxConcurrency"))
+    private val muxMaxConnections = pbm.add(PreferenceBinding(Type.TextToInt, "muxMaxConnections"))
+    private val muxMinStreams = pbm.add(PreferenceBinding(Type.TextToInt, "muxMinStreams"))
+    private val muxBrutal = pbm.add(PreferenceBinding(Type.Bool, "muxBrutal"))
+    private val muxBrutalUp = pbm.add(PreferenceBinding(Type.TextToInt, "muxBrutalUp"))
+    private val muxBrutalDown = pbm.add(PreferenceBinding(Type.TextToInt, "muxBrutalDown"))
     private val sUoT = pbm.add(PreferenceBinding(Type.Bool, "sUoT"))
 
     override fun ShadowsocksBean.init() {
