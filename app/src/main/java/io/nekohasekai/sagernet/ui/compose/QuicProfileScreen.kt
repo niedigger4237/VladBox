@@ -20,7 +20,7 @@ fun QuicProfileScreen(tuic: Boolean, onSave: () -> Unit, onClose: () -> Unit, me
     val title = if (tuic) "TUIC" else "Hysteria $version"
     val valid = remember(revision) {
         DataStore.serverAddress.isNotBlank() && if (tuic) {
-            DataStore.serverPort in 1..65535 && runCatching { java.util.UUID.fromString(DataStore.serverUsername) }.isSuccess
+            DataStore.serverPort in 1..65535 && !(DataStore.serverUDPRelayMode == "quic" && store.getBoolean("tuicUdpOverStream",false)) && runCatching { java.util.UUID.fromString(DataStore.serverUsername) }.isSuccess
         } else {
             DataStore.serverPorts.split(",").all { part ->
                 val ends = part.trim().split("-", ":")
@@ -98,9 +98,9 @@ fun QuicProfileScreen(tuic: Boolean, onSave: () -> Unit, onClose: () -> Unit, me
                         "Transport" -> {
                             if (tuic) {
                                 choices(listOf("cubic","new_reno","bbr").map { it to it },DataStore.serverCongestionController) { DataStore.serverCongestionController = it }
-                                choices(listOf("native" to "Native","quic" to "QUIC"),DataStore.serverUDPRelayMode) { DataStore.serverUDPRelayMode = it }
+                                choices(listOf("native" to "Native","quic" to "QUIC"),DataStore.serverUDPRelayMode) { DataStore.serverUDPRelayMode = it; if (it == "quic") store.putBoolean("tuicUdpOverStream",false) }
                                 toggle("Zero RTT handshake",DataStore.serverReduceRTT) { DataStore.serverReduceRTT = it }
-                                flag("tuicUdpOverStream","UDP over stream")
+                                if (DataStore.serverUDPRelayMode != "quic") flag("tuicUdpOverStream","UDP over stream")
                                 extra("tuicHeartbeat","Heartbeat")
                             } else {
                                 if (!hy2) choices(listOf("0" to "UDP","1" to "FakeTCP","2" to "WeChat video"),DataStore.serverProtocolInt.toString()) { DataStore.serverProtocolInt = it.toInt() }
@@ -109,8 +109,10 @@ fun QuicProfileScreen(tuic: Boolean, onSave: () -> Unit, onClose: () -> Unit, me
                                 if (hy2) choices(listOf("salamander" to "Salamander","gecko" to "Gecko"),store.getString("hy2ObfsType","salamander").orEmpty()) { store.putString("hy2ObfsType",it) }
                                 field("Obfuscation password",DataStore.serverObfs,true) { DataStore.serverObfs = it }
                                 if (hy2) {
-                                    extra("hy2GeckoMin","Gecko minimum packet size")
-                                    extra("hy2GeckoMax","Gecko maximum packet size")
+                                    if (store.getString("hy2ObfsType","salamander") == "gecko") {
+                                        extra("hy2GeckoMin","Gecko minimum packet size")
+                                        extra("hy2GeckoMax","Gecko maximum packet size")
+                                    }
                                     choices(listOf("" to "Default","standard" to "Standard","conservative" to "Conservative","aggressive" to "Aggressive"),store.getString("hy2BbrProfile","").orEmpty()) { store.putString("hy2BbrProfile",it) }
                                 }
                                 number("Hop interval (seconds)",DataStore.serverHopInterval) { DataStore.serverHopInterval = it }
