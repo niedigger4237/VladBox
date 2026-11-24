@@ -110,6 +110,7 @@ fun JSONObject.parseShadowsocks(): ShadowsocksBean {
 fun buildSingBoxOutboundShadowsocksBean(bean: ShadowsocksBean): SingBoxOptions.Outbound_ShadowsocksOptions {
     return SingBoxOptions.Outbound_ShadowsocksOptions().apply {
         type = "shadowsocks"
+        io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(bean.outboundDialer, bean.outboundNetwork, _hack_config_map)
         server = bean.serverAddress
         server_port = bean.serverPort
         password = bean.password
