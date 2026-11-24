@@ -14,7 +14,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.preference.*
 import io.nekohasekai.sagernet.R
-import kotlinx.coroutines.flow.StateFlow
 
 fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: SettingsViewModel, changed: () -> Unit) {
     host.setContent {
@@ -24,10 +23,10 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
             val query = state.query
             val mode = screen.findPreference<ListPreference>("serviceMode")
             val modeValue = remember(state.revision) { mode?.value ?: "vpn" }
-            fun visible(pref: Preference) = pref.isVisible && settingVisible(pref.key, modeValue)
+            fun isShown(pref: Preference) = pref.isVisible && settingVisible(pref.key, modeValue)
             val groups = remember(state.revision) {
                 (0 until screen.preferenceCount).mapNotNull { screen.getPreference(it) as? PreferenceCategory }
-                    .filter { group -> (0 until group.preferenceCount).any { visible(group.getPreference(it)) } }
+                    .filter { group -> (0 until group.preferenceCount).any { isShown(group.getPreference(it)) } }
             }
             Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
                 if (category != null) {
@@ -54,7 +53,7 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
                                     Spacer(Modifier.width(12.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(group.title.toString(), style = MaterialTheme.typography.titleMedium)
-                                        Text((0 until group.preferenceCount).map { group.getPreference(it) }.filter { visible(it) }.take(3).joinToString(" · ") { it.title.toString() }, style = MaterialTheme.typography.bodySmall)
+                                        Text((0 until group.preferenceCount).map { group.getPreference(it) }.filter { isShown(it) }.take(3).joinToString(" · ") { it.title.toString() }, style = MaterialTheme.typography.bodySmall)
                                     }
                                     Text("›", style = MaterialTheme.typography.headlineSmall)
                                 }
@@ -63,7 +62,7 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
                     } else {
                         val visible = groups.filter { category == null || category == it.title.toString() }.flatMap { group ->
                             (0 until group.preferenceCount).map { group.getPreference(it) }
-                        }.filter { visible(it) && (query.isBlank() || it.title.toString().contains(query, true) || it.key.orEmpty().contains(query, true) || it.summary.toString().contains(query, true)) }
+                        }.filter { isShown(it) && (query.isBlank() || it.title.toString().contains(query, true) || it.key.orEmpty().contains(query, true) || it.summary.toString().contains(query, true)) }
                         items(visible, key = { it.key }) { pref -> SettingTile(pref, changed, revision = state.revision) }
                     }
                 }
@@ -122,6 +121,7 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
                     concurrent = data.connectionTestConcurrent.toString()
                     edit = true
                 }
+                is TwoStatePreference -> { if (pref.callChangeListener(!checked)) { pref.isChecked = !checked; changed() } }
                 else -> { pref.performClick(); changed() }
             }
         }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
