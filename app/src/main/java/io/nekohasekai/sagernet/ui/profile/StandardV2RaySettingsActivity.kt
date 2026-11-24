@@ -270,33 +270,67 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
         val booleans = setOf("no_grpc_header", "no_sse_header", "x_padding_obfs_mode")
         val numbers = setOf("sc_max_buffered_posts", "server_max_header_bytes", "cwnd")
         val objects = setOf("headers", "xmux", "download")
-        for ((field, label) in fields) {
+        fun readExtra() = org.json.JSONObject(xhttpExtra.readStringFromCache().ifBlank { "{}" })
+        fun writeExtra(json: org.json.JSONObject) {
+            (xhttpExtra.preference as EditTextPreference).text = json.toString()
+        }
+        fun update(field: String, value: Any?): Boolean {
+            return try {
+                val json = readExtra()
+                val parts = field.split('.')
+                val target = if (parts.size == 2) {
+                    json.optJSONObject(parts[0]) ?: org.json.JSONObject().also { json.put(parts[0], it) }
+                } else json
+                if (value == null) target.remove(parts.last()) else target.put(parts.last(), value)
+                writeExtra(json)
+                true
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(requireContext(), "Invalid XHTTP value", android.widget.Toast.LENGTH_SHORT).show()
+                false
+            }
+        }
+        fun read(field: String): Any? = runCatching {
+            val json = readExtra()
+            val parts = field.split('.')
+            val target = if (parts.size == 2) json.optJSONObject(parts[0]) else json
+            target?.opt(parts.last())?.takeUnless { it == org.json.JSONObject.NULL }
+        }.getOrNull()
+        val xmuxFields = linkedMapOf(
+            "xmux.max_concurrency" to "XMUX Max concurrency",
+            "xmux.max_connections" to "XMUX Max connections",
+            "xmux.c_max_reuse_times" to "XMUX Connection reuse times",
+            "xmux.h_max_request_times" to "XMUX HTTP request times",
+            "xmux.h_max_reusable_secs" to "XMUX Reusable seconds",
+            "xmux.h_keep_alive_period" to "XMUX Keep alive period"
+        )
+        for ((field, label) in fields + xmuxFields) {
+            if (field in booleans) {
+                category.addPreference(androidx.preference.SwitchPreferenceCompat(requireContext()).apply {
+                    key = "xhttp_structured_" + field
+                    title = label
+                    isPersistent = false
+                    isChecked = read(field) == true
+                    setOnPreferenceChangeListener { _, value -> update(field, value as Boolean) }
+                })
+                continue
+            }
             val pref = EditTextPreference(requireContext()).apply {
                 key = "xhttp_structured_" + field
                 title = label
                 isPersistent = false
                 summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance()
             }
-            fun refresh() {
-                val json = runCatching { org.json.JSONObject(xhttpExtra.readStringFromCache().ifBlank { "{}" }) }.getOrNull()
-                pref.text = json?.opt(field)?.takeUnless { it == org.json.JSONObject.NULL }?.toString().orEmpty()
-            }
+            fun refresh() { pref.text = read(field)?.toString().orEmpty() }
             refresh()
             pref.setOnPreferenceClickListener { refresh(); false }
             pref.setOnPreferenceChangeListener { _, value ->
                 try {
-                    val json = org.json.JSONObject(xhttpExtra.readStringFromCache().ifBlank { "{}" })
                     val raw = value.toString().trim()
-                    if (raw.isEmpty()) json.remove(field)
-                    else json.put(field, when (field) {
-                        in booleans -> raw.toBooleanStrict()
-                        in numbers -> raw.toLong()
+                    update(field, if (raw.isEmpty()) null else when (field) {
+                        in numbers, "xmux.h_keep_alive_period" -> raw.toLong()
                         in objects -> org.json.JSONObject(raw)
                         else -> raw
                     })
-                    val extra = xhttpExtra.preference as EditTextPreference
-                    extra.text = json.toString()
-                    true
                 } catch (e: Exception) {
                     android.widget.Toast.makeText(requireContext(), "Invalid XHTTP value", android.widget.Toast.LENGTH_SHORT).show()
                     false
