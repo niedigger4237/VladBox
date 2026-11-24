@@ -69,10 +69,55 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, revision:
 
 @Composable private fun SettingTile(pref: Preference, changed: () -> Unit, featured: Boolean = false) {
     var expanded by remember(pref.key) { mutableStateOf(false) }
+    var edit by remember(pref.key) { mutableStateOf(false) }
+    var extra by remember(pref.key) { mutableStateOf(false) }
+    var draft by remember(pref.key) { mutableStateOf("") }
+    var concurrent by remember(pref.key) { mutableStateOf("") }
+    val data = io.nekohasekai.sagernet.database.DataStore
+    if (edit || extra) {
+        val port = pref.key in setOf("mixedPort", "socksPort", "rootTproxyPort", "bpfBridgePort")
+        val valid = when {
+            extra && pref.key == "mtu" -> (draft.toIntOrNull() ?: 0) in 1000..10000
+            extra && pref.key == "logLevel" -> (draft.toIntOrNull() ?: 0) > 0
+            port -> (draft.toIntOrNull() ?: 0) in 1..65535
+            else -> true
+        }
+        AlertDialog(onDismissRequest = { edit = false; extra = false },
+            title = { Text(if (extra && pref.key == "logLevel") "Log buffer size (KB)" else pref.title.toString()) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(draft, { draft = it }, isError = !valid, label = { Text(pref.title.toString()) })
+                    if (pref.key == "connectionTestURL") OutlinedTextField(concurrent, { concurrent = it }, label = { Text("Concurrent tests") })
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = valid, onClick = {
+                    if (extra && pref.key == "logLevel") {
+                        data.logBufSize = draft.toInt()
+                        pref.callChangeListener((pref as ListPreference).value)
+                    } else if (pref.callChangeListener(draft)) {
+                        when (pref) {
+                            is EditTextPreference -> pref.text = draft
+                            is ListPreference -> pref.value = draft
+                        }
+                        if (pref.key == "connectionTestURL") data.connectionTestConcurrent = concurrent.toIntOrNull()?.takeIf { it > 0 } ?: 5
+                    }
+                    edit = false; extra = false; changed()
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { edit = false; extra = false }) { Text("Cancel") } })
+    }
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = if (featured) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
         Row(Modifier.fillMaxWidth().clickable(enabled = pref.isEnabled) {
-            if (pref is ListPreference && pref.javaClass.simpleName == "SimpleMenuPreference") expanded = true
-            else { pref.performClick(); changed() }
+            when (pref) {
+                is ListPreference -> expanded = true
+                is EditTextPreference -> {
+                    draft = pref.text.orEmpty()
+                    concurrent = data.connectionTestConcurrent.toString()
+                    edit = true
+                }
+                else -> { pref.performClick(); changed() }
+            }
         }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(pref.title.toString(), style = MaterialTheme.typography.titleMedium)
@@ -85,6 +130,13 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, revision:
                 Box {
                     Text("›", style = MaterialTheme.typography.headlineSmall)
                     if (pref is ListPreference) DropdownMenu(expanded, { expanded = false }) {
+                        if (pref.key == "mtu" || pref.key == "logLevel") DropdownMenuItem(
+                            text = { Text(if (pref.key == "mtu") "Custom MTU" else "Log buffer size") },
+                            onClick = {
+                                expanded = false
+                                draft = if (pref.key == "mtu") pref.value.orEmpty() else data.logBufSize.takeIf { it > 0 }?.toString() ?: "50"
+                                extra = true
+                            })
                         pref.entries.orEmpty().forEachIndexed { index, entry ->
                             DropdownMenuItem(text = { Text(entry.toString()) }, onClick = {
                                 expanded = false
