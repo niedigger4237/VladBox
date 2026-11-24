@@ -193,74 +193,31 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         ruleListView.visibility = View.GONE
         (profileHome.parent as View).visibility = View.VISIBLE
         profileHome.removeAllViews()
-        profileHome.addView(MaterialButton(requireContext()).apply {
-            text = "+ New profile"
-            isAllCaps = false
-            cornerRadius = dp(18)
-            setOnClickListener { profileNameDialog() }
-        }, LinearLayout.LayoutParams(-1, dp(52)).apply { bottomMargin = dp(16) })
         val selected = RouteProfiles.selectedId()
-        RouteProfiles.all().forEach { profile ->
+        val tiles = RouteProfiles.all().map { profile ->
             val active = profile.id == selected
-            val card = MaterialCardView(requireContext()).apply {
-                radius = dp(24).toFloat()
-                cardElevation = 0f
-                strokeWidth = if (active) dp(2) else 0
-                if (Build.VERSION.SDK_INT >= 31) {
-                    setCardBackgroundColor(requireContext().getColor(
-                        if (active) android.R.color.system_accent1_50 else android.R.color.system_neutral2_50))
-                    if (active) strokeColor = requireContext().getColor(android.R.color.system_accent1_300)
-                } else {
-                    setCardBackgroundColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface))
-                    if (active) strokeColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary)
-                }
-                setContentPadding(dp(20), dp(20), dp(20), dp(18))
-            }
-            val column = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
-            column.addView(TextView(requireContext()).apply {
-                text = profile.name + if (active) "  ✓" else ""
-                textSize = 22f
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-            })
-            column.addView(TextView(requireContext()).apply {
-                text = "${if (active) DataStore.routeFinal else profile.routeFinal} · ${if (active) ruleAdapter.ruleList.size else profile.rules.size} rules"
-                textSize = 14f
-                setPadding(0, dp(8), 0, 0)
-            })
-            val actions = LinearLayout(requireContext()).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.END
-            }
-            fun addAction(label: String, action: () -> Unit) {
-                actions.addView(MaterialButton(requireContext()).apply {
-                    text = label
-                    textSize = 12f
-                    isAllCaps = false
-                    cornerRadius = dp(14)
-                    insetTop = 0
-                    insetBottom = 0
-                    minWidth = 0
-                    minimumWidth = 0
-                    setPadding(dp(8), 0, dp(8), 0)
-                    setOnClickListener { action() }
-                }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(8) })
-            }
-            addAction(if (active) "Edit rules" else "Select") {
-                if (active) openRules() else profileAction { RouteProfiles.select(profile.id) }
-            }
-            addAction("Rename") { profileNameDialog(profile.id) }
-            if (profile.id != "default") addAction("Delete") {
-                MaterialAlertDialogBuilder(requireContext())
+            io.nekohasekai.sagernet.ui.compose.RouteProfileTile(
+                profile.id, profile.name, active,
+                if (active) DataStore.routeFinal else profile.routeFinal,
+                if (active) ruleAdapter.ruleList.size else profile.rules.size
+            )
+        }
+        val host = androidx.compose.ui.platform.ComposeView(requireContext())
+        profileHome.addView(host, LinearLayout.LayoutParams(-1, -2))
+        io.nekohasekai.sagernet.ui.compose.installRouteProfiles(host, tiles,
+            create = { profileNameDialog() },
+            select = { id -> profileAction { RouteProfiles.select(id) } },
+            edit = { openRules() },
+            rename = { id -> profileNameDialog(id) },
+            delete = { id ->
+                val profile = RouteProfiles.all().firstOrNull { it.id == id }
+                if (profile != null) MaterialAlertDialogBuilder(requireContext())
                     .setTitle("Delete ${profile.name}?")
                     .setMessage("This routing profile and its rules will be deleted.")
                     .setPositiveButton(android.R.string.ok) { _, _ ->
-                        profileAction { RouteProfiles.delete(profile.id) }
+                        profileAction { RouteProfiles.delete(id) }
                     }.setNegativeButton(android.R.string.cancel, null).show()
-            }
-            column.addView(actions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
-            card.addView(column)
-            profileHome.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
-        }
+            })
     }
 
     override fun onDestroy() {
@@ -302,6 +259,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                 ruleList.clear()
                 ruleList.addAll(rules)
                 ruleAdapter.notifyDataSetChanged()
+                if (!showingRules && isAdded && view != null) renderProfileHome()
             }
         }
 
@@ -430,13 +388,18 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         }
 
         inner class DocumentHolder(val binding: LayoutEmptyRouteBinding) : RecyclerView.ViewHolder(binding.root) {
+            private val host = androidx.compose.ui.platform.ComposeView(binding.root.context)
+            init {
+                val root = binding.root as ViewGroup
+                root.removeAllViews()
+                root.addView(host, ViewGroup.LayoutParams(-1, -2))
+            }
             fun bind() {
                 val ctx = binding.root.context
-                binding.tabOutboundValue.text =
-                    ctx.getString(if (DataStore.routeFinal == "direct") R.string.route_direct else R.string.route_proxy)
-                binding.tabDnsValue.text =
-                    ctx.getString(if (DataStore.dnsMain == "direct") R.string.route_direct else R.string.route_remote)
-                binding.tabOutbound.setOnClickListener {
+                io.nekohasekai.sagernet.ui.compose.installRouteSettingsTiles(host,
+                    ctx.getString(if (DataStore.routeFinal == "direct") R.string.route_direct else R.string.route_proxy),
+                    ctx.getString(if (DataStore.dnsMain == "direct") R.string.route_direct else R.string.route_remote),
+                    onOutbound = {
                     val values = arrayOf("proxy", "direct")
                     MaterialAlertDialogBuilder(activity).setTitle(R.string.route_outbound)
                         .setSingleChoiceItems(
@@ -448,8 +411,8 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                             notifyItemChanged(0)
                             needReload()
                         }.setNegativeButton(R.string.no, null).show()
-                }
-                binding.tabDns.setOnClickListener {
+                },
+                onDns = {
                     val values = arrayOf("remote", "direct")
                     MaterialAlertDialogBuilder(activity).setTitle(R.string.route_dns_tunnel)
                         .setSingleChoiceItems(
@@ -461,10 +424,10 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                             notifyItemChanged(0)
                             needReload()
                         }.setNegativeButton(R.string.no, null).show()
-                }
-                binding.tabAssets.setOnClickListener {
+                },
+                onAssets = {
                     startActivity(Intent(requireContext(), AssetsActivity::class.java))
-                }
+                })
             }
         }
 
