@@ -663,6 +663,12 @@ fun buildSingBoxOutboundTLS(bean: StandardV2RayBean): OutboundTLSOptions? {
         if (bean.sni.isNotBlank()) server_name = bean.sni
         if (bean.alpn.isNotBlank()) alpn = bean.alpn.listByLineOrComma()
         if (bean.certificates.isNotBlank()) certificate = bean.certificates
+        bean.tlsEngine.trim().takeIf { it.isNotEmpty() }?.let {
+            require(it == "go") { "Only the Go TLS engine is supported on Android" }
+            _hack_config_map["engine"] = it
+        }
+        require(bean.certificates.isBlank() || bean.tlsCertificatePath.isBlank()) { "Choose certificate text or path" }
+        bean.tlsCertificatePath.takeIf { it.isNotBlank() }?.let { _hack_config_map["certificate_path"] = it }
         val versions = listOf("1.0", "1.1", "1.2", "1.3")
         val min = bean.tlsMinVersion.trim()
         val max = bean.tlsMaxVersion.trim()
@@ -673,11 +679,16 @@ fun buildSingBoxOutboundTLS(bean: StandardV2RayBean): OutboundTLSOptions? {
         if (max.isNotEmpty()) _hack_config_map["max_version"] = max
         bean.tlsCurves.takeIf { it.isNotBlank() }?.let { _hack_config_map["curve_preferences"] = it.listByLineOrComma() }
         bean.tlsHandshakeTimeout.takeIf { it.isNotBlank() }?.let { _hack_config_map["handshake_timeout"] = it }
-        require(bean.tlsClientCertificate.isBlank() == bean.tlsClientKey.isBlank()) { "Client certificate and key must be configured together" }
+        require(bean.tlsClientCertificate.isBlank() || bean.tlsClientCertificatePath.isBlank()) { "Choose client certificate text or path" }
+        require(bean.tlsClientKey.isBlank() || bean.tlsClientKeyPath.isBlank()) { "Choose client key text or path" }
+        require((bean.tlsClientCertificate.isNotBlank() || bean.tlsClientCertificatePath.isNotBlank()) ==
+            (bean.tlsClientKey.isNotBlank() || bean.tlsClientKeyPath.isNotBlank())) { "Client certificate and key must be configured together" }
+        bean.tlsClientCertificatePath.takeIf { it.isNotBlank() }?.let { _hack_config_map["client_certificate_path"] = it }
+        bean.tlsClientKeyPath.takeIf { it.isNotBlank() }?.let { _hack_config_map["client_key_path"] = it }
         if (bean.tlsClientCertificate.isNotBlank()) {
             _hack_config_map["client_certificate"] = bean.tlsClientCertificate.lines()
-            _hack_config_map["client_key"] = bean.tlsClientKey.lines()
         }
+        if (bean.tlsClientKey.isNotBlank()) _hack_config_map["client_key"] = bean.tlsClientKey.lines()
         if (bean.tlsDisableSni) disable_sni = true
         if (bean.tlsPubKeySha256.isNotBlank()) certificate_public_key_sha256 = bean.tlsPubKeySha256.listByLineOrComma()
         if (bean.tlsCipherSuites.isNotBlank()) cipher_suites = bean.tlsCipherSuites.listByLineOrComma()
@@ -708,6 +719,8 @@ fun buildSingBoxOutboundTLS(bean: StandardV2RayBean): OutboundTLSOptions? {
                 if (bean.echConfig.isNotBlank()) {
                     config = bean.echConfig.lines()
                 }
+                require(bean.echConfig.isBlank() || bean.echConfigPath.isBlank()) { "Choose ECH config text or path" }
+                bean.echConfigPath.takeIf { it.isNotBlank() }?.let { _hack_config_map["config_path"] = it }
                 bean.echQueryName.takeIf { it.isNotBlank() }?.let { _hack_config_map["query_server_name"] = it }
             }
         }
