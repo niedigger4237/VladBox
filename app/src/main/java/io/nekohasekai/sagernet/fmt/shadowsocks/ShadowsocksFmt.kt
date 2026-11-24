@@ -67,7 +67,7 @@ fun parseShadowsocks(url: String): ShadowsocksBean {
             method = link.username
             password = link.password
             plugin = ""
-            val remarks = url.substringAfter("#").unUrlSafe()
+            val remarks = url.substringAfter("#", "").unUrlSafe()
             if (remarks.isNotBlank()) name = remarks
         }
     }
@@ -76,9 +76,12 @@ fun parseShadowsocks(url: String): ShadowsocksBean {
 
 fun ShadowsocksBean.toUri(): String {
 
-    val builder = linkBuilder().username(Util.b64EncodeUrlSafe("$method:$password"))
+    val builder = linkBuilder()
         .host(serverAddress)
         .port(serverPort)
+
+    if (method.startsWith("2022-")) builder.username(method).password(password)
+    else builder.username(Util.b64EncodeUrlSafe("$method:$password"))
 
     if (plugin.isNotBlank()) {
         builder.addQueryParameter("plugin", plugin)
@@ -115,6 +118,7 @@ fun buildSingBoxOutboundShadowsocksBean(bean: ShadowsocksBean): SingBoxOptions.O
         server_port = bean.serverPort
         password = bean.password
         method = bean.method
+        require(!bean.enableMux || !bean.sUoT) { "Shadowsocks multiplex conflicts with UDP over TCP" }
         if (bean.plugin.isNotBlank()) {
             plugin = bean.plugin.substringBefore(";")
             plugin_opts = bean.plugin.substringAfter(";", "")
