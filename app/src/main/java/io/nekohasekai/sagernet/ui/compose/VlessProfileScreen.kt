@@ -23,7 +23,8 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     var section by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var reality by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(read("realityPubKey").isNotBlank()) }
     val muxValid = !mux || (listOf("muxConcurrency","muxMaxConnections","muxMinStreams").all { read(it).toIntOrNull()?.let { n -> n >= 0 } == true } && (!store.getBoolean("muxBrutal",false) || listOf("muxBrutalUp","muxBrutalDown").all { read(it).toIntOrNull()?.let { n -> n > 0 } == true }))
-    val valid = muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && read("uuid").isNotBlank() && (!reality || read("realityPubKey").isNotBlank())
+    val dialerValid = runCatching { org.json.JSONObject(read("outboundDialer").ifBlank { "{}" }) }.isSuccess
+    val valid = dialerValid && muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && read("uuid").isNotBlank() && (!reality || read("realityPubKey").isNotBlank())
     androidx.activity.compose.BackHandler(enabled = section.isNotEmpty()) { section = "" }
     Column(Modifier.fillMaxSize()) {
     VladTopAppBar(title = section.ifEmpty { "VLESS" }, onBack = { if (section.isNotEmpty()) section = "" else onClose() }, extraActions = {
@@ -199,7 +200,10 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 }
             }
         }
-        if (section == "Connection") item { ProfileSection("Connection") { ProfileChoices(listOf("" to "TCP + UDP","tcp" to "TCP","udp" to "UDP"), read("vlessNetwork")) { write("vlessNetwork",it) } } }
+        if (section == "Connection") {
+            item { ProfileSection("Network") { ProfileChoices(listOf("" to "TCP + UDP","tcp" to "TCP","udp" to "UDP"), read("vlessNetwork")) { write("vlessNetwork",it) } } }
+            item { ProfileSection("Dialer settings") { VlessDialer(read("outboundDialer")) { write("outboundDialer",it) } } }
+        }
         if (section.isEmpty()) item { Button(onClick = onSave, modifier = Modifier.fillMaxWidth(), enabled = valid) { Text("Save profile") } }
     }
     }
@@ -349,4 +353,62 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     }
     TextButton(onClick = { showRaw = !showRaw }) { Text(if (showRaw) "Hide Extra JSON" else "Show Extra JSON") }
     if (showRaw || json == null) OutlinedTextField(raw,change,label = { Text("Extra JSON") },modifier = Modifier.fillMaxWidth())
+}
+
+@Composable private fun VlessDialer(raw: String, change: (String)->Unit) {
+    var advanced by remember { mutableStateOf(false) }
+    val json = remember(raw) { runCatching { org.json.JSONObject(raw.ifBlank { "{}" }) }.getOrNull() }
+    fun update(key: String, value: Any?) {
+        if (json == null) return
+        val copy = org.json.JSONObject(json.toString())
+        if (value == null) copy.remove(key) else copy.put(key,value)
+        change(copy.toString())
+    }
+    if (json == null) {
+        Text("Invalid dialer JSON. Correct the JSON below.",color = MaterialTheme.colorScheme.error)
+    } else {
+        val fields = linkedMapOf(
+            "bind_interface" to "Bind interface",
+            "inet4_bind_address" to "IPv4 bind address",
+            "inet6_bind_address" to "IPv6 bind address",
+            "protect_path" to "Protect path",
+            "routing_mark" to "Routing mark",
+            "netns" to "Network namespace",
+            "connect_timeout" to "Connect timeout",
+            "tcp_keep_alive" to "TCP keepalive",
+            "tcp_keep_alive_interval" to "TCP keepalive interval",
+            "fallback_delay" to "Fallback delay"
+        )
+        for ((key,label) in fields) {
+            ProfileText(label,key,json.opt(key)?.toString().orEmpty()) { _, value -> update(key,value.takeIf { v -> v.isNotBlank() }) }
+        }
+        for ((key,label) in linkedMapOf(
+            "bind_address_no_port" to "Bind address without port",
+            "reuse_addr" to "Reuse address",
+            "tcp_fast_open" to "TCP Fast Open",
+            "tcp_multi_path" to "Multipath TCP",
+            "disable_tcp_keep_alive" to "Disable TCP keepalive",
+            "udp_fragment" to "UDP fragmentation"
+        )) {
+            Text(label)
+            ProfileChoices(listOf("" to "Default","true" to "Enabled","false" to "Disabled"),json.opt(key)?.toString().orEmpty()) {
+                update(key,it.takeIf { v -> v.isNotBlank() }?.toBooleanStrict())
+            }
+        }
+        Text("Network strategy")
+        ProfileChoices(listOf("" to "Unset","default" to "Default","fallback" to "Fallback","hybrid" to "Hybrid"),json.optString("network_strategy")) { update("network_strategy",it.takeIf { v -> v.isNotBlank() }) }
+        for ((key,label) in listOf("network_type" to "Network types","fallback_network_type" to "Fallback network types")) {
+            val values = json.optJSONArray(key)
+            val selected = if (values != null) (0 until values.length()).map { values.optString(it) }.toSet() else setOf(json.optString(key)).filter { it.isNotBlank() }.toSet()
+            Text(label,style = MaterialTheme.typography.titleSmall)
+            for (type in listOf("wifi","cellular","ethernet","other")) {
+                ProfileSwitch(type,type in selected) { enabled ->
+                    val next = if (enabled) selected + type else selected - type
+                    update(key,if (next.isEmpty()) null else org.json.JSONArray(next.toList()))
+                }
+            }
+        }
+    }
+    TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide extra JSON" else "Show extra JSON") }
+    if (advanced || json == null) ProfileText("Dialer extra JSON","outboundDialer",raw) { _, value -> change(value) }
 }
