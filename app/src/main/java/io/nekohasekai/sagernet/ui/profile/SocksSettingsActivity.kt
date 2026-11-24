@@ -50,8 +50,11 @@ class SocksSettingsActivity : ProfileSettingsActivity<SOCKSBean>() {
         }
         val protocol = findPreference<SimpleMenuPreference>(Key.SERVER_PROTOCOL)!!
 
+        val udpOverTcp = findPreference<androidx.preference.SwitchPreference>("sUoT")!!
         fun updateProtocol(version: Int) {
-            password.isVisible = version == SOCKSBean.PROTOCOL_SOCKS5
+            val socks5 = version == SOCKSBean.PROTOCOL_SOCKS5
+            password.isVisible = socks5
+            udpOverTcp.isVisible = socks5
         }
 
         updateProtocol(DataStore.protocolVersion)
