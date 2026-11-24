@@ -101,6 +101,10 @@
                         app:indicatorSize="68dp"
                         app:trackThickness="4dp"
                         app:indicatorColor="?attr/colorPrimary"/>
+                    <androidx.compose.ui.platform.ComposeView
+                        android:id="@+id/power_compose"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
                 </FrameLayout>
             </LinearLayout>
         </io.nekohasekai.sagernet.widget.StatsBar>
