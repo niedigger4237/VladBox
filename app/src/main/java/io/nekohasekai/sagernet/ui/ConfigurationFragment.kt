@@ -1681,7 +1681,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                 removeButton.isGone = true
                 overflowButton.isGone = select
                 overflowButton.setOnClickListener { anchor ->
-                    val popup = PopupMenu(requireContext(), composeView)
+                    val popup = PopupMenu(requireContext(), composeView, android.view.Gravity.END)
                     if (canShare) popup.menu.add(0, 1, 0, R.string.share)
                     val started = DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id
                     popup.menu.add(0, 2, 1, R.string.delete).isEnabled = !started
@@ -1712,7 +1712,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                     }
 
                     fun showShare(anchor: View) {
-                        val popup = PopupMenu(requireContext(), anchor)
+                        val popup = PopupMenu(requireContext(), anchor, android.view.Gravity.END)
                         popup.menuInflater.inflate(R.menu.profile_share_menu, popup.menu)
 
                         when {
