@@ -69,10 +69,10 @@ fun ProfileCard(
                 if (status.isEmpty()) Spacer(Modifier.weight(1f))
                 if (actionsVisible) {
                     IconButton(onClick = onEdit, enabled = editEnabled, modifier = Modifier.size(44.dp)) {
-                        Icon(painterResource(R.drawable.ic_image_edit), androidx.compose.ui.res.stringResource(R.string.edit), Modifier.size(22.dp), tint = if (editEnabled) colors.onSurfaceVariant else colors.onSurfaceVariant.copy(alpha = 0.38f))
+                        Icon(painterResource(R.drawable.ic_image_edit), androidx.compose.ui.res.stringResource(R.string.edit), Modifier.size(22.dp), tint = if (editEnabled) colors.onSurface else colors.onSurfaceVariant.copy(alpha = 0.38f))
                     }
                     IconButton(onClick = onMore, modifier = Modifier.size(44.dp)) {
-                        Icon(painterResource(R.drawable.ic_profile_overflow), androidx.compose.ui.res.stringResource(R.string.share), Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                        Icon(painterResource(R.drawable.ic_profile_overflow), androidx.compose.ui.res.stringResource(R.string.share), Modifier.size(22.dp), tint = colors.onSurface)
                     }
                 }
             }
