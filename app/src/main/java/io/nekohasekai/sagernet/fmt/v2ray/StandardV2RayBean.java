@@ -112,6 +112,7 @@ public abstract class StandardV2RayBean extends AbstractBean {
     public String tlsSpoofMethod;
     public Boolean tlsKernelTx;
     public Boolean tlsKernelRx;
+    public String outboundDialer;
 
 
     // --------------------------------------- //
@@ -208,11 +209,12 @@ public abstract class StandardV2RayBean extends AbstractBean {
         if (tlsSpoofMethod == null) tlsSpoofMethod = "";
         if (tlsKernelTx == null) tlsKernelTx = false;
         if (tlsKernelRx == null) tlsKernelRx = false;
+        if (outboundDialer == null) outboundDialer = "";
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(10);
+        output.writeInt(11);
         super.serialize(output);
         output.writeString(uuid);
         output.writeString(encryption);
@@ -318,6 +320,7 @@ public abstract class StandardV2RayBean extends AbstractBean {
         output.writeString(tlsSpoofMethod);
         output.writeBoolean(tlsKernelTx);
         output.writeBoolean(tlsKernelRx);
+        output.writeString(outboundDialer);
     }
 
     @Override
@@ -474,6 +477,7 @@ public abstract class StandardV2RayBean extends AbstractBean {
             tlsKernelTx = input.readBoolean();
             tlsKernelRx = input.readBoolean();
         }
+        if (version >= 11) outboundDialer = input.readString();
     }
 
     public boolean isVLESS() {
