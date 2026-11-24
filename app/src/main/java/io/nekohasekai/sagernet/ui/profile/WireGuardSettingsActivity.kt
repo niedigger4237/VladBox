@@ -46,7 +46,7 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
                     onExport = {
                         com.google.android.material.dialog.MaterialAlertDialogBuilder(this@WireGuardSettingsActivity)
                             .setMessage("The exported file contains private keys. Keep it secure.")
-                            .setPositiveButton("Export") { _, _ -> exportConf.launch("wireguard.conf") }
+                            .setPositiveButton("Export") { _, _ -> exportConf.launch(if (DataStore.profileCacheStore.getBoolean("awgEnabled",false)) "amneziawg.conf" else "wireguard.conf") }
                             .setNegativeButton(android.R.string.cancel, null).show()
                     },
                     onClose = { this@WireGuardSettingsActivity.onBackPressed() },
@@ -85,9 +85,10 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
         }
     }
     private val exportConf = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/plain")) { uri ->
-        if (uri != null && !DataStore.profileCacheStore.getBoolean("awgEnabled", false)) {
+        if (uri != null) {
             try {
                 val bean = createEntity().apply { initializeDefaultValues(); pbm.fromCacheAll(this) }
+                if (!DataStore.profileCacheStore.getBoolean("awgEnabled", false)) bean.clearAmnezia()
                 val text = io.nekohasekai.sagernet.fmt.wireguard.WireGuardConf.export(bean)
                 contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(text) } ?: error("Cannot write file")
             } catch (e: Exception) {
