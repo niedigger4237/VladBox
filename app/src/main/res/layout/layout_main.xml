@@ -36,7 +36,8 @@
             android:id="@+id/fab"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:elevation="6dp"
+            android:elevation="3dp"
+            app:shapeAppearanceOverlay="@style/ShapeAppearance.NieFigger.Medium"
             android:nextFocusDown="@+id/stats"
             app:backgroundTint="?fabColorBackground"
             app:fabCustomSize="64dp"
@@ -94,6 +95,7 @@
                     android:maxLines="1"
                     android:textColor="?android:attr/textColorPrimary"
                     android:textSize="16sp"
+                    android:textStyle="bold"
                     tools:text="@string/connection_test_available" />
 
             </LinearLayout>
