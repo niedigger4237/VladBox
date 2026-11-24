@@ -61,6 +61,16 @@ class StatsBar @JvmOverloads constructor(
             activity.whenStarted { what() }
         }
         refreshMode()
+        val connected = state == BaseService.State.Connected
+        statusText.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            if (connected) android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                val size = (8 * resources.displayMetrics.density).toInt()
+                setSize(size, size)
+                setColor(if (androidx.core.graphics.ColorUtils.calculateLuminance(com.google.android.material.color.MaterialColors.getColor(this@StatsBar, com.google.android.material.R.attr.colorSurface)) < 0.5) android.graphics.Color.parseColor("#A5D5B1") else android.graphics.Color.parseColor("#386A49"))
+            } else null, null, null, null
+        )
+        statusText.compoundDrawablePadding = (6 * resources.displayMetrics.density).toInt()
         if (state == BaseService.State.Connected) {
             postWhenStarted {
                 if (allowShow) performShow()
