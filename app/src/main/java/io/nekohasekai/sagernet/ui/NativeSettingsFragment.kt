@@ -100,6 +100,22 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
         }
     }
 
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner,
+            object : androidx.activity.OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (model.state.value.category != null || model.state.value.query.isNotEmpty()) {
+                        model.select(null)
+                    } else {
+                        isEnabled = false
+                        try { requireActivity().onBackPressedDispatcher.onBackPressed() }
+                        finally { isEnabled = true }
+                    }
+                }
+            })
+    }
+
     private val reloadListener = Preference.OnPreferenceChangeListener { _, _ ->
         needReload()
         true
