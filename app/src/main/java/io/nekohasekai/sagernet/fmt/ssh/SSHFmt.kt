@@ -6,6 +6,7 @@ import moe.matsuri.nb4a.utils.listByLineOrComma
 fun buildSingBoxOutboundSSHBean(bean: SSHBean): SingBoxOptions.Outbound_SSHOptions {
     return SingBoxOptions.Outbound_SSHOptions().apply {
         type = "ssh"
+        io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(bean.outboundDialer, "", _hack_config_map)
         server = bean.serverAddress
         server_port = bean.serverPort
         user = bean.username
@@ -19,7 +20,9 @@ fun buildSingBoxOutboundSSHBean(bean: SSHBean): SingBoxOptions.Outbound_SSHOptio
         }
         when (bean.authType) {
             SSHBean.AUTH_TYPE_PRIVATE_KEY -> {
-                private_key = bean.privateKey
+                require(bean.privateKey.isNotBlank() xor bean.privateKeyPath.isNotBlank()) { "Choose private key text or path" }
+                if (bean.privateKeyPath.isNotBlank()) _hack_config_map["private_key_path"] = bean.privateKeyPath
+                else private_key = bean.privateKey
                 private_key_passphrase = bean.privateKeyPassphrase
             }
             SSHBean.AUTH_TYPE_PASSWORD -> {
