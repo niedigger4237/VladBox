@@ -19,9 +19,9 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     val store = DataStore.profileCacheStore
     var revision by remember { mutableStateOf(0) }
     fun read(key: String) = store.getString(key, "") ?: ""
-    val transport = remember(revision) { read("type").ifBlank { "tcp" } }
-    val security = remember(revision) { read("security").ifBlank { "none" } }
-    val mux = remember(revision) { store.getBoolean("enableMux", false) }
+    val transport = remember(revision, DataStore.profileCacheStore.observableRevision) { read("type").ifBlank { "tcp" } }
+    val security = remember(revision, DataStore.profileCacheStore.observableRevision) { read("security").ifBlank { "none" } }
+    val mux = remember(revision, DataStore.profileCacheStore.observableRevision) { store.getBoolean("enableMux", false) }
     fun write(key: String, value: String) { store.putString(key, value); revision++ }
     fun toggle(key: String, value: Boolean) { store.putBoolean(key, value); revision++ }
     var section by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
