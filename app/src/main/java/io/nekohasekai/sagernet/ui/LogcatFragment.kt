@@ -1,119 +1,126 @@
 package io.nekohasekai.sagernet.ui
 
-import android.annotation.SuppressLint
-import android.graphics.Color
-import android.os.Build
 import android.os.Bundle
-import android.text.SpannableString
-import android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-import android.text.style.ForegroundColorSpan
-import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
-import androidx.appcompat.widget.Toolbar
-import androidx.core.view.ViewCompat
-import androidx.core.view.doOnLayout
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import io.nekohasekai.sagernet.R
-import io.nekohasekai.sagernet.databinding.LayoutLogcatBinding
 import io.nekohasekai.sagernet.ktx.*
-import io.nekohasekai.sagernet.widget.ListListener
+import io.nekohasekai.sagernet.ui.compose.HubTheme
+import io.nekohasekai.sagernet.ui.compose.VladTopAppBar
 import libcore.Libcore
 import moe.matsuri.nb4a.utils.SendLog
 
-class LogcatFragment : ToolbarFragment(R.layout.layout_logcat),
-    Toolbar.OnMenuItemClickListener {
+class LogcatFragment : ToolbarFragment(R.layout.layout_logcat) {
+    private val logs = mutableStateOf("")
+    private val busy = mutableStateOf(false)
 
-    lateinit var binding: LayoutLogcatBinding
-
-    @SuppressLint("RestrictedApi", "WrongConstant")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        toolbar.setTitle(R.string.menu_log)
-
-        toolbar.inflateMenu(R.menu.logcat_menu)
-        toolbar.setOnMenuItemClickListener(this)
-
-        binding = LayoutLogcatBinding.bind(view)
-
-        if (Build.VERSION.SDK_INT >= 23) {
-            binding.textview.breakStrategy = 0 // simple
+        val root = view as ViewGroup
+        root.removeAllViews()
+        val host = ComposeView(requireContext())
+        host.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        root.addView(host, ViewGroup.LayoutParams(-1, -1))
+        host.setContent {
+            HubTheme {
+                var query by remember { mutableStateOf("") }
+                var errorsOnly by remember { mutableStateOf(false) }
+                var confirmClear by remember { mutableStateOf(false) }
+                val scroll = rememberScrollState()
+                val lines = remember(logs.value, query, errorsOnly) {
+                    logs.value.lineSequence().filter { it.contains(query, ignoreCase = true) &&
+                        (!errorsOnly || it.contains("ERROR[") || it.contains(" [Error]") || it.contains("WARN[") || it.contains(" [Warning]")) }.toList()
+                }
+                val colors = MaterialTheme.colorScheme
+                val annotated = remember(lines, colors) {
+                    buildAnnotatedString {
+                        lines.forEachIndexed { index, line ->
+                            val color = when {
+                                line.contains("ERROR[") || line.contains(" [Error]") -> colors.error
+                                line.contains("WARN[") || line.contains(" [Warning]") -> colors.tertiary
+                                line.contains("INFO[") || line.contains(" [Info]") -> colors.primary
+                                else -> colors.onSurface
+                            }
+                            withStyle(SpanStyle(color = color)) { append(line) }
+                            if (index != lines.lastIndex) append('\n')
+                        }
+                    }
+                }
+                LaunchedEffect(logs.value) { scroll.scrollTo(scroll.maxValue) }
+                Column(Modifier.fillMaxSize().navigationBarsPadding()) {
+                    VladTopAppBar(title = getString(R.string.menu_log),
+                        onNavigation = { (requireActivity() as MainActivity).binding.drawerLayout.openDrawer(androidx.core.view.GravityCompat.START) },
+                        extraActions = {
+                            IconButton(onClick = { reloadSession() }, enabled = !busy.value) { Icon(painterResource(R.drawable.ic_baseline_refresh_24), getString(R.string.group_update)) }
+                            IconButton(onClick = { shareLogs() }) { Icon(painterResource(R.drawable.baseline_send_24), getString(R.string.logcat)) }
+                            IconButton(onClick = { confirmClear = true }, enabled = !busy.value) { Icon(painterResource(R.drawable.baseline_delete_sweep_24), getString(R.string.clear_logcat)) }
+                        })
+                    OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Search logs") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+                    Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = !errorsOnly, onClick = { errorsOnly = false }, label = { Text("All") })
+                        FilterChip(selected = errorsOnly, onClick = { errorsOnly = true }, label = { Text("Warnings & errors") })
+                    }
+                    if (busy.value) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Surface(Modifier.weight(1f).fillMaxWidth().padding(12.dp), shape = MaterialTheme.shapes.large, color = colors.surfaceVariant.copy(alpha = .35f)) {
+                        SelectionContainer {
+                            Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(12.dp)) {
+                                if (annotated.isEmpty()) Text("No logs", color = colors.onSurfaceVariant)
+                                else Text(annotated, fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 18.sp)
+                            }
+                        }
+                    }
+                }
+                if (confirmClear) AlertDialog(onDismissRequest = { confirmClear = false },
+                    title = { Text(getString(R.string.clear_logcat)) },
+                    confirmButton = { TextButton(onClick = { confirmClear = false; clearLogs() }) { Text(getString(android.R.string.ok)) } },
+                    dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(getString(android.R.string.cancel)) } })
+            }
         }
-
-        ViewCompat.setOnApplyWindowInsetsListener(binding.root, ListListener)
-
         reloadSession()
     }
 
-    private fun getColorForLine(line: String): ForegroundColorSpan {
-        var color = ForegroundColorSpan(Color.GRAY)
-        when {
-            line.contains("INFO[") || line.contains(" [Info]") -> {
-                color = ForegroundColorSpan((0xFF86C166).toInt())
-            }
-
-            line.contains("ERROR[") || line.contains(" [Error]") -> {
-                color = ForegroundColorSpan(Color.RED)
-            }
-
-            line.contains("WARN[") || line.contains(" [Warning]") -> {
-                color = ForegroundColorSpan(Color.RED)
-            }
-        }
-        return color
+    private fun reloadSession() = viewLifecycleOwner.lifecycleScope.launch {
+        busy.value = true
+        try { logs.value = withContext(Dispatchers.IO) { String(SendLog.getNekoLog(50 * 1024)) } }
+        catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; snackbar(e.readableMessage).show() }
+        finally { busy.value = false }
     }
 
-    private fun reloadSession() {
-        val span = SpannableString(
-            String(SendLog.getNekoLog(50 * 1024))
-        )
-        var offset = 0
-        for (line in span.lines()) {
-            val color = getColorForLine(line)
-            span.setSpan(
-                color, offset, offset + line.length, SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-            offset += line.length + 1
-        }
-        binding.textview.text = span
-        binding.textview.clearFocus()
-        // 等 textview 完成最终 layout 再滚动到底部
-        binding.textview.doOnLayout {
-            binding.scroolview.scrollTo(0, binding.textview.height)
-        }
+    private fun clearLogs() = viewLifecycleOwner.lifecycleScope.launch {
+        busy.value = true
+        try {
+            withContext(Dispatchers.IO) {
+                Libcore.nekoLogClear()
+                Runtime.getRuntime().exec("/system/bin/logcat -c")
+            }
+            logs.value = ""
+        } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; snackbar(e.readableMessage).show() }
+        finally { busy.value = false }
     }
 
-    override fun onMenuItemClick(item: MenuItem): Boolean {
-        when (item.itemId) {
-            R.id.action_clear_logcat -> {
-                runOnDefaultDispatcher {
-                    try {
-                        Libcore.nekoLogClear()
-                        Runtime.getRuntime().exec("/system/bin/logcat -c")
-                    } catch (e: Exception) {
-                        onMainDispatcher {
-                            snackbar(e.readableMessage).show()
-                        }
-                        return@runOnDefaultDispatcher
-                    }
-                    onMainDispatcher {
-                        binding.textview.text = ""
-                    }
-                }
-
-            }
-
-            R.id.action_send_logcat -> {
-                val context = requireContext()
-                runOnDefaultDispatcher {
-                    SendLog.sendLog(context, "NB4A")
-                }
-            }
-
-            R.id.action_refresh -> {
-                reloadSession()
-            }
-        }
-        return true
+    private fun shareLogs() {
+        val context = requireContext()
+        runOnDefaultDispatcher { SendLog.sendLog(context, "NB4A") }
     }
-
 }
