@@ -46,6 +46,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
 
     private fun syncComposeBar() {
         barCanGoBack.value = showingRules
+        toolbar.menu.findItem(R.id.action_new_route)?.isVisible = showingRules
         toolbar.setNavigationIcon(if (showingRules) R.drawable.baseline_arrow_back_24 else R.drawable.ic_navigation_menu)
         toolbar.setNavigationOnClickListener {
             if (showingRules) renderProfileHome() else activity.binding.drawerLayout.openDrawer(androidx.core.view.GravityCompat.START)
@@ -73,6 +74,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         toolbar.subtitle = "Default"
         toolbar.inflateMenu(R.menu.add_route_menu)
         toolbar.setOnMenuItemClickListener(this)
+        syncComposeBar()
         if (!io.nekohasekai.sagernet.SagerNet.isTv) {
             val oldBar = view.findViewById<View>(R.id.appbar)
             val parent = oldBar.parent as ViewGroup
@@ -87,7 +89,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                         title = barTitle.value,
                         subtitle = barSubtitle.value,
                         onNavigation = { activity.binding.drawerLayout.openDrawer(androidx.core.view.GravityCompat.START) },
-                        onAdd = { handleRouteAction(R.id.action_new_route) },
+                        onAdd = if (barCanGoBack.value) ({ handleRouteAction(R.id.action_new_route); Unit }) else null,
                         addLabel = getString(R.string.route_add),
                         onBack = if (barCanGoBack.value) ({ renderProfileHome() }) else null,
                         onReset = { handleRouteAction(R.id.action_reset_route) },
