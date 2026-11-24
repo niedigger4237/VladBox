@@ -43,10 +43,10 @@ class ServiceButton @JvmOverloads constructor(
         val tint = when (state) {
             BaseService.State.Connected -> if (dark) Color.parseColor("#A5D5B1") else Color.parseColor("#386A49")
             BaseService.State.Connecting, BaseService.State.Stopping -> color
-            else -> com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimaryContainer)
+            else -> com.google.android.material.color.MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary)
         }
         backgroundTintList = ColorStateList.valueOf(tint)
-        imageTintList = ColorStateList.valueOf(if (state == BaseService.State.Connected || state == BaseService.State.Connecting || state == BaseService.State.Stopping) { if (androidx.core.graphics.ColorUtils.calculateLuminance(tint) > 0.179) Color.BLACK else Color.WHITE } else com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnPrimaryContainer))
+        imageTintList = ColorStateList.valueOf(if (state == BaseService.State.Connected || state == BaseService.State.Connecting || state == BaseService.State.Stopping) { if (androidx.core.graphics.ColorUtils.calculateLuminance(tint) > 0.179) Color.BLACK else Color.WHITE } else com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnPrimary))
 
         if (animate && state != previousState) {
             animate().cancel()
