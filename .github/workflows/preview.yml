@@ -18,6 +18,8 @@ on:
         description: "Only run the AmneziaWG loopback test (no APK build)."
         type: boolean
         default: false
+env:
+  GO_VERSION: "1.26.4"
 jobs:
   awg-test:
     name: AWG loopback test
@@ -29,7 +31,7 @@ jobs:
       - name: Install Golang
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26.4"
+          go-version: ${{ env.GO_VERSION }}
           cache: false
       - name: Build stock and patched sing-box-extended
         run: |
@@ -66,7 +68,7 @@ jobs:
       - name: Install Golang
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26.4"
+          go-version: ${{ env.GO_VERSION }}
           cache: false
       - name: Build client and reference servers
         run: |
@@ -101,6 +103,21 @@ jobs:
       - uses: actions/checkout@v4
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
+      - name: Resolve native toolchain fingerprint
+        id: toolchain
+        shell: bash
+        run: |
+          set -e
+          source buildScript/init/env_ndk.sh
+          fingerprint=$(sha256sum "$ANDROID_NDK_HOME/source.properties" | cut -d' ' -f1)
+          echo "ndk=$fingerprint" >> "$GITHUB_OUTPUT"
+      - name: Resolve gomobile source revision
+        id: gomobile
+        run: |
+          set -e
+          revision=$(git ls-remote https://github.com/MatsuriDayo/gomobile.git refs/heads/master2 | cut -f1)
+          test -n "$revision"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
       - name: Go core cache
         id: cache
         uses: actions/cache@v4
@@ -108,12 +125,12 @@ jobs:
           path: |
             app/libs/libcore.aar
             app/src/main/jniLibs/*/libsingbox.so
-          key: go-core-v4-go1.26.4-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('libcore/**', 'buildScript/init/**', 'buildScript/lib/core.sh', 'buildScript/lib/core/init.sh', 'buildScript/lib/core/build.sh', 'buildScript/lib/core/build_root_core.sh', 'buildScript/lib/core/get_source*.sh', 'buildScript/lib/core/patches/**', 'run') }}-${{ inputs.fast }}
+          key: go-core-v4-go${{ env.GO_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.ndk }}-${{ steps.gomobile.outputs.revision }}-${{ hashFiles('libcore/**', 'buildScript/init/**', 'buildScript/lib/core.sh', 'buildScript/lib/core/init.sh', 'buildScript/lib/core/build.sh', 'buildScript/lib/core/build_root_core.sh', 'buildScript/lib/core/get_source*.sh', 'buildScript/lib/core/patches/**', 'run') }}-${{ inputs.fast }}
       - name: Install Golang
         if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26.4"
+          go-version: ${{ env.GO_VERSION }}
           cache: false
       - name: Go compiler cache
         if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
@@ -122,12 +139,13 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-build-v4-go1.26.4-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('libcore/**', 'buildScript/init/**', 'buildScript/lib/core/get_source*.sh', 'buildScript/lib/core/patches/**', 'buildScript/lib/core/build*.sh') }}-${{ inputs.fast }}
+          key: go-build-v4-go${{ env.GO_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.ndk }}-${{ steps.gomobile.outputs.revision }}-${{ hashFiles('libcore/**', 'buildScript/init/**', 'buildScript/lib/core/get_source*.sh', 'buildScript/lib/core/patches/**', 'buildScript/lib/core/build*.sh') }}-${{ inputs.fast }}
           restore-keys: |
-            go-build-v4-go1.26.4-${{ runner.os }}-${{ runner.arch }}-
+            go-build-v4-go${{ env.GO_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Compile Go libraries
         if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
         env:
+          GOMOBILE_REVISION: ${{ steps.gomobile.outputs.revision }}
           LIBCORE_TARGETS: ${{ inputs.fast && 'android/arm64' || '' }}
           ROOTCORE_ABIS: ${{ inputs.fast && 'arm64-v8a' || '' }}
         run: |
@@ -160,6 +178,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
+      - name: Resolve native toolchain fingerprint
+        id: toolchain
+        shell: bash
+        run: |
+          set -e
+          source buildScript/init/env_ndk.sh
+          fingerprint=$(sha256sum "$ANDROID_NDK_HOME/source.properties" | cut -d' ' -f1)
+          echo "ndk=$fingerprint" >> "$GITHUB_OUTPUT"
       - name: Native helpers cache
         id: cache
         uses: actions/cache@v4
@@ -168,7 +194,7 @@ jobs:
             app/src/main/jniLibs/*/libasteriskd.so
             app/src/main/jniLibs/*/libhevtun.so
             app/src/main/jniLibs/*/libbpf2socks.so
-          key: native-helpers-v4-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('buildScript/init/**', 'buildScript/lib/core/build_asteriskd.sh', 'buildScript/lib/core/build_root_helpers.sh') }}-${{ inputs.fast }}
+          key: native-helpers-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.ndk }}-${{ hashFiles('buildScript/init/**', 'buildScript/lib/core/build_asteriskd.sh', 'buildScript/lib/core/build_root_helpers.sh') }}-${{ inputs.fast }}
       - name: Compile ROOT helpers
         if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
         env:
@@ -226,7 +252,7 @@ jobs:
         if: ${{ !inputs.compile_only }}
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26.4"
+          go-version: ${{ env.GO_VERSION }}
           cache: false
       - name: Cache SRS compiler
         if: ${{ !inputs.compile_only }}
@@ -235,7 +261,7 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: srs-compiler-v2-go1.26.4-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('buildScript/lib/assets.sh') }}
+          key: srs-compiler-v2-go${{ env.GO_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('buildScript/lib/assets.sh') }}
       - name: Restore keystore
         if: ${{ !inputs.compile_only }}
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
