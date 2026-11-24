@@ -7,10 +7,9 @@ import android.util.AttributeSet
 import android.view.View
 import android.widget.TextView
 import androidx.appcompat.widget.TooltipCompat
-import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.whenStarted
-import com.google.android.material.bottomappbar.BottomAppBar
+import com.google.android.material.card.MaterialCardView
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.database.DataStore
@@ -22,51 +21,26 @@ import kotlinx.coroutines.launch
 
 class StatsBar @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null,
-    defStyleAttr: Int = R.attr.bottomAppBarStyle,
-) : BottomAppBar(context, attrs, defStyleAttr) {
+    defStyleAttr: Int = com.google.android.material.R.attr.materialCardViewStyle,
+) : MaterialCardView(context, attrs, defStyleAttr) {
     private lateinit var statusText: TextView
     private lateinit var txText: TextView
     private lateinit var rxText: TextView
-    private lateinit var behavior: YourBehavior
-
     var allowShow = true
 
-    override fun getBehavior(): YourBehavior {
-        if (!this::behavior.isInitialized) behavior = YourBehavior { allowShow }
-        return behavior
+    fun performShow() {
+        if (allowShow) visibility = View.VISIBLE
+        refreshMode()
     }
 
-    class YourBehavior(val getAllowShow: () -> Boolean) : Behavior() {
-
-        override fun onNestedScroll(
-            coordinatorLayout: CoordinatorLayout, child: BottomAppBar, target: View,
-            dxConsumed: Int, dyConsumed: Int, dxUnconsumed: Int, dyUnconsumed: Int,
-            type: Int, consumed: IntArray,
-        ) {
-            super.onNestedScroll(
-                coordinatorLayout,
-                child,
-                target,
-                dxConsumed,
-                dyConsumed + dyUnconsumed,
-                dxUnconsumed,
-                0,
-                type,
-                consumed
-            )
-        }
-
-        override fun slideUp(child: BottomAppBar) {
-            if (!getAllowShow()) return
-            super.slideUp(child)
-        }
-
-        override fun slideDown(child: BottomAppBar) {
-            if (!getAllowShow()) return
-            super.slideDown(child)
-        }
+    fun performHide() {
+        visibility = View.GONE
     }
 
+    private fun refreshMode() {
+        findViewById<TextView>(R.id.connection_mode)?.text =
+            DataStore.serviceMode.uppercase() + " Mode"
+    }
 
     override fun setOnClickListener(l: OnClickListener?) {
         statusText = findViewById(R.id.status)
@@ -86,7 +60,7 @@ class StatsBar @JvmOverloads constructor(
             delay(100L)
             activity.whenStarted { what() }
         }
-        hideOnScroll = false
+        refreshMode()
         if (state == BaseService.State.Connected) {
             postWhenStarted {
                 if (allowShow) performShow()
