@@ -757,6 +757,31 @@ fun buildSingBoxOutboundTLS(bean: StandardV2RayBean): OutboundTLSOptions? {
     }
 }
 
+private fun applyStandardDialer(bean: StandardV2RayBean, options: MutableMap<String, Any>) {
+    val dialer = org.json.JSONObject(bean.outboundDialer.ifBlank { "{}" })
+    val allowed = setOf("bind_interface","inet4_bind_address","inet6_bind_address","bind_address_no_port","protect_path","routing_mark","reuse_addr","netns","connect_timeout","tcp_fast_open","tcp_multi_path","disable_tcp_keep_alive","tcp_keep_alive","tcp_keep_alive_interval","udp_fragment","network_strategy","network_type","fallback_network_type","fallback_delay")
+    require(!dialer.has("network_strategy") || listOf("bind_interface","inet4_bind_address","inet6_bind_address").none { dialer.optString(it).isNotBlank() }) { "Network strategy conflicts with interface or address binding" }
+    fun native(value: Any?): Any? = when (value) {
+        null, org.json.JSONObject.NULL -> null
+        is org.json.JSONArray -> (0 until value.length()).map { native(value.get(it)) }
+        else -> value
+    }
+    for (key in dialer.keys()) {
+        require(key in allowed) { "Unsupported outbound dialer option: $key" }
+        val value = dialer.get(key)
+        if (key == "routing_mark") {
+            val raw = value.toString()
+            val mark = if (raw.startsWith("0x",true)) raw.substring(2).toLong(16) else raw.toLong()
+            require(mark in 0L..4294967295L) { "Invalid routing mark" }
+            options[key] = mark
+        } else native(value)?.let { options[key] = it }
+    }
+    bean.vlessNetwork.trim().takeIf { it.isNotEmpty() }?.let {
+        require(it in listOf("tcp", "udp")) { "Invalid outbound network" }
+        options["network"] = it
+    }
+}
+
 fun buildSingBoxOutboundStandardV2RayBean(bean: StandardV2RayBean): Outbound {
     when (bean) {
         is HttpBean -> {
@@ -778,32 +803,11 @@ fun buildSingBoxOutboundStandardV2RayBean(bean: StandardV2RayBean): Outbound {
         is VMessBean -> {
             if (bean.isVLESS) return Outbound_VLESSOptions().apply {
                 type = "vless"
-                val dialer = org.json.JSONObject(bean.outboundDialer.ifBlank { "{}" })
-                val allowed = setOf("bind_interface","inet4_bind_address","inet6_bind_address","bind_address_no_port","protect_path","routing_mark","reuse_addr","netns","connect_timeout","tcp_fast_open","tcp_multi_path","disable_tcp_keep_alive","tcp_keep_alive","tcp_keep_alive_interval","udp_fragment","network_strategy","network_type","fallback_network_type","fallback_delay")
-                require(!dialer.has("network_strategy") || listOf("bind_interface","inet4_bind_address","inet6_bind_address").none { dialer.optString(it).isNotBlank() }) { "Network strategy conflicts with interface or address binding" }
-                fun native(value: Any?): Any? = when (value) {
-                    null, org.json.JSONObject.NULL -> null
-                    is org.json.JSONArray -> (0 until value.length()).map { native(value.get(it)) }
-                    else -> value
-                }
-                for (key in dialer.keys()) {
-                    require(key in allowed) { "Unsupported outbound dialer option: $key" }
-                    val value = dialer.get(key)
-                    if (key == "routing_mark") {
-                        val raw = value.toString()
-                        val mark = if (raw.startsWith("0x",true)) raw.substring(2).toLong(16) else raw.toLong()
-                        require(mark in 0L..4294967295L) { "Invalid routing mark" }
-                        _hack_config_map[key] = mark
-                    } else native(value)?.let { _hack_config_map[key] = it }
-                }
+                applyStandardDialer(bean, _hack_config_map)
                 server = bean.serverAddress
                 server_port = bean.serverPort
                 uuid = bean.uuid
                 bean.vlessEncryption.trim().takeIf { it.isNotEmpty() && it != "none" }?.let { _hack_config_map["encryption"] = it }
-                bean.vlessNetwork.trim().takeIf { it.isNotEmpty() }?.let {
-                    require(it in listOf("tcp", "udp")) { "Invalid VLESS network" }
-                    _hack_config_map["network"] = it
-                }
                 if (bean.encryption.isNotBlank() && bean.encryption != "auto" && bean.encryption != "none") {
                     flow = bean.encryption
                 }
@@ -817,6 +821,7 @@ fun buildSingBoxOutboundStandardV2RayBean(bean: StandardV2RayBean): Outbound {
             }
             return Outbound_VMessOptions().apply {
                 type = "vmess"
+                applyStandardDialer(bean, _hack_config_map)
                 server = bean.serverAddress
                 server_port = bean.serverPort
                 uuid = bean.uuid
@@ -837,6 +842,7 @@ fun buildSingBoxOutboundStandardV2RayBean(bean: StandardV2RayBean): Outbound {
         is TrojanBean -> {
             return Outbound_TrojanOptions().apply {
                 type = "trojan"
+                applyStandardDialer(bean, _hack_config_map)
                 server = bean.serverAddress
                 server_port = bean.serverPort
                 password = bean.password
