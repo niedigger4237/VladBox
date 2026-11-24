@@ -20,7 +20,7 @@ object XhttpExtra {
     private val verbatim = setOf("headers")
 
     // not representable 1:1 (different structure in sing-box), ignored
-    private val unsupported = setOf("downloadSettings", "download")
+    private val unsupported = setOf("downloadSettings")
 
     fun snake(key: String): String {
         special[key]?.let { return it }
@@ -50,8 +50,8 @@ object XhttpExtra {
                 (convert(JSONObject(extra), false) as Map<String, Any?>).forEach { (k, v) ->
                     if (v != null) out[k] = v
                 }
-            } catch (_: Exception) {
-                // invalid JSON: fall back to defaults
+            } catch (e: Exception) {
+                throw IllegalArgumentException("Invalid XHTTP extra JSON", e)
             }
         }
         // sing-box-extended refuses an xhttp transport without x_padding_bytes
