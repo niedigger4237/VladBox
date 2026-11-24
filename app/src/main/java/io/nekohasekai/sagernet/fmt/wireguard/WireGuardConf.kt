@@ -3,7 +3,7 @@ package io.nekohasekai.sagernet.fmt.wireguard
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Standard WireGuard INI format, deliberately separate from AmneziaWG. */
+/** WireGuard and AmneziaWG INI import/export. */
 object WireGuardConf {
     data class ImportResult(val bean: WireGuardBean, val warnings: List<String>)
     private val awgInts = mapOf("jc" to "awgJc","jmin" to "awgJmin","jmax" to "awgJmax","s1" to "awgS1","s2" to "awgS2","s3" to "awgS3","s4" to "awgS4")
@@ -80,19 +80,21 @@ object WireGuardConf {
     }
 
     fun export(bean: WireGuardBean): String {
-        fun clean(value: String): String = value.also { require('\n' !in it && '\r' !in it) }
+        require(bean.privateKey.isNotBlank() && bean.localAddress.isNotBlank() && bean.peerPublicKey.isNotBlank()) { "Required WireGuard fields are missing" }
+        fun clean(value: String): String = value.trim().also { require('\n' !in it && '\r' !in it) }
         fun list(value: String) = value.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.joinToString(", ")
         return buildString {
             appendLine("[Interface]")
             appendLine("PrivateKey = ${clean(bean.privateKey)}")
             appendLine("Address = ${list(bean.localAddress)}")
             appendLine("MTU = ${bean.mtu}")
-            if (bean.wgListenPort > 0) appendLine("ListenPort = ${bean.wgListenPort}")
+            if (!bean.isAmnezia && bean.wgListenPort > 0) appendLine("ListenPort = ${bean.wgListenPort}")
             if (bean.reserved.isNotBlank()) appendLine("Reserved = ${clean(bean.reserved)}")
             if (bean.isAmnezia) {
                 for ((key, field) in awgInts) {
                     val value = WireGuardBean::class.java.getField(field).get(bean) as Int
-                    appendLine("${key.replaceFirstChar { it.uppercaseChar() }} = $value")
+                    // Match the endpoint generator: zero means the optional field is unset.
+                    if (value > 0) appendLine("${key.replaceFirstChar { it.uppercaseChar() }} = $value")
                 }
                 for ((key, field) in awgStrings.entries.distinctBy { it.value }) {
                     val value = WireGuardBean::class.java.getField(field).get(bean) as String
