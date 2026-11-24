@@ -170,10 +170,11 @@ fun Project.setupApp() {
             reset()
             isEnable = true
             isUniversalApk = false
-            include("armeabi-v7a")
-            include("arm64-v8a")
-            include("x86")
-            include("x86_64")
+            if (providers.gradleProperty("previewArm64Only").orNull == "true") {
+                include("arm64-v8a")
+            } else {
+                include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            }
         }
 
         flavorDimensions += "vendor"
