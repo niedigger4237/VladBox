@@ -411,7 +411,7 @@ fun buildConfig(
                     // udp over tcp
                     try {
                         val sUoT = bean.javaClass.getField("sUoT").get(bean)
-                        if (sUoT is Boolean && sUoT) {
+                        if (sUoT is Boolean && sUoT && (bean !is SOCKSBean || bean.protocol == SOCKSBean.PROTOCOL_SOCKS5)) {
                             _hack_config_map["udp_over_tcp"] = true
                         }
                     } catch (_: Exception) {
