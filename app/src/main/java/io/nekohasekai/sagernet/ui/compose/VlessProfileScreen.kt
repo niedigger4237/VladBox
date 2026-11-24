@@ -59,7 +59,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     })
     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (section.isEmpty()) {
-            val sections = listOf("General" to (if (isHttp) "Server and credentials" else if (isTrojan) "Server and password" else if (isVmess) "Server, UUID and encryption" else "Server, UUID and flow"), "Transport" to transport.uppercase(), "Security" to (if (reality) "Reality" else security.ifBlank { "None" }), "Multiplex" to (if (mux) "Enabled" else "Disabled"), "Connection" to "Network options").filter { !isHttp || it.first in listOf("General","Security","Connection") }
+            val sections = listOf("General" to (if (isHttp) "Server and credentials" else if (isTrojan) "Server and password" else if (isVmess) "Server, UUID and encryption" else "Server, UUID and flow"), "Transport" to transport.uppercase(), "Security" to (if (reality) "Reality" else security.ifBlank { "None" }), "Multiplex" to (if (mux) "Enabled" else "Disabled"), "Advanced" to "Network options").filter { !isHttp || it.first in listOf("General","Security","Advanced") }
             items(sections.size) { index ->
                 val (name, description) = sections[index]
                 Card(onClick = { section = name }, modifier = Modifier.fillMaxWidth()) {
@@ -244,7 +244,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 }
             }
         }
-        if (section == "Connection") {
+        if (section == "Advanced") {
             if (!isHttp) item { ProfileSection("Network") { ProfileChoices(listOf("" to "TCP + UDP","tcp" to "TCP","udp" to "UDP"), read("vlessNetwork")) { write("vlessNetwork",it) } } }
             item { ProfileSection("Dialer settings") { VlessDialer(read("outboundDialer")) { write("outboundDialer",it) } } }
         }
