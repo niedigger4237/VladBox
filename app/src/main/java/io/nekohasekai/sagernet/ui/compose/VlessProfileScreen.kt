@@ -34,7 +34,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     val valid = transportValid && dialerValid && muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && read("uuid").isNotBlank() && (!reality || read("realityPubKey").isNotBlank())
     androidx.activity.compose.BackHandler(enabled = section.isNotEmpty()) { section = "" }
     Column(Modifier.fillMaxSize()) {
-    VladTopAppBar(title = section.ifEmpty { "VLESS" }, onBack = { if (section.isNotEmpty()) section = "" else onClose() }, extraActions = {
+    VladTopAppBar(title = section.ifEmpty { "VLESS" }, onNavigation = onClose, onBack = { if (section.isNotEmpty()) section = "" else onClose() }, extraActions = {
         var expanded by remember { mutableStateOf(false) }
         TextButton(onClick = onSave, enabled = valid) { Text("Save") }
         Box {
