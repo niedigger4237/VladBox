@@ -79,6 +79,7 @@ fun buildSingBoxOutboundTuicBean(bean: TuicBean): SingBoxOptions.Outbound_TUICOp
     return SingBoxOptions.Outbound_TUICOptions().apply {
         type = "tuic"
         server = bean.serverAddress
+            io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(bean.outboundDialer, "", _hack_config_map)
         server_port = bean.serverPort
         uuid = bean.uuid
         password = bean.token
@@ -134,6 +135,7 @@ fun buildSingBoxOutboundTuicBean(bean: TuicBean): SingBoxOptions.Outbound_TUICOp
             disable_sni = bean.disableSNI
             insecure = bean.allowInsecure || DataStore.globalAllowInsecure
             enabled = true
+                io.nekohasekai.sagernet.fmt.applyQuicTlsOptions(bean.quicTlsOptions, _hack_config_map)
         }
     }
 }
