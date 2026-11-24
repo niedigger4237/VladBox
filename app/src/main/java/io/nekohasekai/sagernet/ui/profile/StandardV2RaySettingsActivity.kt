@@ -140,7 +140,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
         savedInstanceState: Bundle?,
         rootKey: String?,
     ) {
-        if (this@StandardV2RaySettingsActivity is VMessSettingsActivity || tmpBean is TrojanBean || this@StandardV2RaySettingsActivity is TrojanSettingsActivity) {
+        if (this@StandardV2RaySettingsActivity is VMessSettingsActivity || this@StandardV2RaySettingsActivity is HttpSettingsActivity || tmpBean is TrojanBean || this@StandardV2RaySettingsActivity is TrojanSettingsActivity) {
             preferenceScreen = preferenceManager.createPreferenceScreen(requireContext())
             return
         }
@@ -245,7 +245,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
 
 
     override fun PreferenceFragmentCompat.viewCreated(view: android.view.View, savedInstanceState: Bundle?) {
-        if (this@StandardV2RaySettingsActivity !is VMessSettingsActivity && this@StandardV2RaySettingsActivity !is TrojanSettingsActivity) return
+        if (this@StandardV2RaySettingsActivity !is VMessSettingsActivity && this@StandardV2RaySettingsActivity !is TrojanSettingsActivity && this@StandardV2RaySettingsActivity !is HttpSettingsActivity) return
         val legacyList = listView
         val parent = legacyList.parent as? android.view.ViewGroup ?: return
         val index = parent.indexOfChild(legacyList)
@@ -270,7 +270,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
                     onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
                     onClose = { this@StandardV2RaySettingsActivity.onBackPressed() },
                     menuItems = actions,
-                    protocol = if (editingVless()) "VLESS" else if (this@StandardV2RaySettingsActivity is TrojanSettingsActivity) "Trojan" else "VMess"
+                    protocol = if (this@StandardV2RaySettingsActivity is HttpSettingsActivity) "HTTP" else if (editingVless()) "VLESS" else if (this@StandardV2RaySettingsActivity is TrojanSettingsActivity) "Trojan" else "VMess"
                 )
             }
         }
