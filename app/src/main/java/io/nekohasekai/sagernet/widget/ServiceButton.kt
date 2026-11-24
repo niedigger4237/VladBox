@@ -39,16 +39,14 @@ class ServiceButton @JvmOverloads constructor(
         }
         setImageResource(icon)
         val surface = com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface)
-        val primary = com.google.android.material.color.MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary)
-        val foreground = com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface)
         val dark = androidx.core.graphics.ColorUtils.calculateLuminance(surface) < 0.5
         val tint = when (state) {
             BaseService.State.Connected -> if (dark) Color.parseColor("#A5D5B1") else Color.parseColor("#386A49")
             BaseService.State.Connecting, BaseService.State.Stopping -> color
-            else -> androidx.core.graphics.ColorUtils.blendARGB(primary, if (dark) foreground else surface, if (dark) 0.55f else 0.12f)
+            else -> com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimaryContainer)
         }
         backgroundTintList = ColorStateList.valueOf(tint)
-        imageTintList = ColorStateList.valueOf(if (androidx.core.graphics.ColorUtils.calculateLuminance(tint) > 0.45) Color.BLACK else Color.WHITE)
+        imageTintList = ColorStateList.valueOf(if (state == BaseService.State.Connected || state == BaseService.State.Connecting || state == BaseService.State.Stopping) { if (androidx.core.graphics.ColorUtils.calculateLuminance(tint) > 0.179) Color.BLACK else Color.WHITE } else com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnPrimaryContainer))
 
         if (animate && state != previousState) {
             animate().cancel()
