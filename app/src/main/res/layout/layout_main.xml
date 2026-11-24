@@ -11,7 +11,8 @@
         android:id="@+id/coordinator"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:clipChildren="false">
+        android:clipChildren="false"
+        android:background="?attr/colorSurface">
 
         <androidx.coordinatorlayout.widget.CoordinatorLayout
             android:id="@+id/fragment_holder"
@@ -25,7 +26,7 @@
             android:layout_gravity="bottom"
             android:layout_marginHorizontal="12dp"
             android:layout_marginBottom="12dp"
-            app:cardBackgroundColor="?attr/colorSurface"
+            app:cardBackgroundColor="?attr/colorSurfaceVariant"
             app:cardCornerRadius="26dp"
             app:cardElevation="3dp"
             app:strokeWidth="0dp">
@@ -65,8 +66,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal">
-                        <TextView android:id="@+id/rx" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:singleLine="true" android:textSize="13sp"/>
-                        <TextView android:id="@+id/tx" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:singleLine="true" android:textSize="13sp"/>
+                        <TextView android:id="@+id/rx" android:layout_width="wrap_content" android:maxWidth="100dp" android:ellipsize="end" android:layout_marginEnd="12dp" android:layout_height="wrap_content" android:singleLine="true" android:textSize="13sp"/>
+                        <TextView android:id="@+id/tx" android:layout_width="wrap_content" android:maxWidth="100dp" android:ellipsize="end" android:layout_height="wrap_content" android:singleLine="true" android:textSize="13sp"/>
                     </LinearLayout>
                 </LinearLayout>
 
@@ -99,24 +100,33 @@
 
     <com.google.android.material.navigation.NavigationView
         android:id="@+id/nav_view"
-        style="@style/Widget.Design.NavigationView"
+        style="@style/Widget.Material3.NavigationView"
+        android:background="?attr/colorSurface"
+        app:itemHorizontalPadding="16dp"
+        app:itemShapeInsetStart="12dp"
+        app:itemShapeInsetEnd="12dp"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start"
-        app:itemIconTint="@color/navigation_icon"
-        app:itemTextColor="@color/navigation_icon"
+        app:itemIconTint="@color/preview_navigation_text"
+        app:itemTextColor="@color/preview_navigation_text"
+        app:itemShapeFillColor="@color/preview_navigation_selection"
         app:menu="@menu/main_drawer_menu" />
 
     <com.google.android.material.navigation.NavigationView
         android:id="@+id/nav_view_black"
-        style="@style/Widget.Design.NavigationView"
+        style="@style/Widget.Material3.NavigationView"
+        android:background="?attr/colorSurface"
+        app:itemHorizontalPadding="16dp"
+        app:itemShapeInsetStart="12dp"
+        app:itemShapeInsetEnd="12dp"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start"
-        app:itemIconTint="@color/navigation_icon"
-        app:itemShapeAppearance="@style/ShapeAppearance.MaterialComponents.MediumComponent"
-        app:itemShapeFillColor="@color/navigation_item"
-        app:itemTextColor="@color/navigation_icon"
+        app:itemIconTint="@color/preview_navigation_text"
+        app:itemShapeAppearance="@style/ShapeAppearance.NieFigger.Large"
+        app:itemShapeFillColor="@color/preview_navigation_selection"
+        app:itemTextColor="@color/preview_navigation_text"
         app:menu="@menu/main_drawer_menu" />
 
 </androidx.drawerlayout.widget.DrawerLayout>
