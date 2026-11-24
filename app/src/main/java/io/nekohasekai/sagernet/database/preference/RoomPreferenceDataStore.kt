@@ -1,18 +1,38 @@
 package io.nekohasekai.sagernet.database.preference
 
 import androidx.preference.PreferenceDataStore
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 
 @Suppress("MemberVisibilityCanBePrivate", "unused")
-open class RoomPreferenceDataStore(private val kvPairDao: KeyValuePair.Dao) :
+open class RoomPreferenceDataStore(private val kvPairDao: KeyValuePair.Dao, private val observable: Boolean = false) :
     PreferenceDataStore() {
 
-    fun getBoolean(key: String) = kvPairDao[key]?.boolean
-    fun getFloat(key: String) = kvPairDao[key]?.float
-    fun getInt(key: String) = kvPairDao[key]?.long?.toInt()
-    fun getLong(key: String) = kvPairDao[key]?.long
-    fun getString(key: String) = kvPairDao[key]?.string
-    fun getStringSet(key: String) = kvPairDao[key]?.stringSet
-    fun reset() = kvPairDao.reset()
+    fun getBoolean(key: String) = observed { kvPairDao[key]?.boolean }
+    fun getFloat(key: String) = observed { kvPairDao[key]?.float }
+    fun getInt(key: String) = observed { kvPairDao[key]?.long?.toInt() }
+    fun getLong(key: String) = observed { kvPairDao[key]?.long }
+    fun getString(key: String) = observed { kvPairDao[key]?.string }
+    fun getStringSet(key: String) = observed { kvPairDao[key]?.stringSet }
+    private val revision = mutableStateOf(0L)
+    private val revisionLock = Any()
+
+    // Reading from a composable subscribes that exact composition scope.
+    val observableRevision: Long get() = if (observable) revision.value else 0L
+
+    private inline fun <T> observed(read: () -> T): T {
+        if (observable) revision.value
+        return read()
+    }
+
+    private fun invalidate() {
+        if (!observable) return
+        synchronized(revisionLock) {
+            Snapshot.withMutableSnapshot { revision.value = revision.value + 1 }
+        }
+    }
+
+    fun reset() = kvPairDao.reset().also { invalidate() }
 
     override fun getBoolean(key: String, defValue: Boolean) = getBoolean(key) ?: defValue
     override fun getFloat(key: String, defValue: Float) = getFloat(key) ?: defValue
@@ -70,6 +90,7 @@ open class RoomPreferenceDataStore(private val kvPairDao: KeyValuePair.Dao) :
 
     private val listeners = HashSet<OnPreferenceDataStoreChangeListener>()
     private fun fireChangeListener(key: String) {
+        invalidate()
         val listeners = synchronized(listeners) {
             listeners.toList()
         }
