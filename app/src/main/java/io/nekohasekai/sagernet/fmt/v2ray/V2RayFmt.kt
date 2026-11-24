@@ -201,6 +201,10 @@ fun StandardV2RayBean.parseDuckSoft(url: HttpUrl) {
             url.queryParameter("sid")?.let {
                 realityShortId = it
             }
+            (url.queryParameter("support-x25519mlkem768")
+                ?: url.queryParameter("support_x25519mlkem768"))?.let {
+                realityHybrid = it == "1" || it.equals("true", ignoreCase = true)
+            }
         }
     }
 
@@ -565,6 +569,7 @@ fun StandardV2RayBean.toUriVMessVLESSTrojan(isTrojan: Boolean): String {
                     builder.setQueryParameter("security", "reality")
                     builder.addQueryParameter("pbk", realityPubKey)
                     builder.addQueryParameter("sid", realityShortId)
+                    if (realityHybrid) builder.addQueryParameter("support-x25519mlkem768", "true")
                 }
             }
         }
