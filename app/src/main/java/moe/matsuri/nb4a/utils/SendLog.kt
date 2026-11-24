@@ -17,7 +17,7 @@ import java.io.IOException
 
 object SendLog {
     // Create full log and send
-    fun sendLog(context: Context, title: String) {
+    fun createLogFile(title: String): File {
         val logFile = File.createTempFile(
             "$title ",
             ".log",
@@ -44,6 +44,11 @@ object SendLog {
         logFile.appendText("\n")
         logFile.appendBytes(getNekoLog(0))
 
+        return logFile
+    }
+
+    fun sendLog(context: Context, title: String) {
+        val logFile = createLogFile(title)
         context.startActivity(
             Intent.createChooser(
                 Intent(Intent.ACTION_SEND).setType("text/x-log")
