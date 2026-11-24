@@ -1516,7 +1516,10 @@ class ConfigurationFragment @JvmOverloads constructor(
                                 traffic = trafficText.text.toString().takeIf { trafficText.isVisible } ?: "",
                                 actionsVisible = !select,
                                 editEnabled = composeEditEnabled.value,
-                                statusColor = androidx.compose.ui.graphics.Color(profileStatus.currentTextColor),
+                                statusColor = if (entity.status == 1) {
+                                    if (androidx.compose.foundation.isSystemInDarkTheme()) androidx.compose.ui.graphics.Color(0xFFA5D6A7)
+                                    else androidx.compose.ui.graphics.Color(0xFF276738)
+                                } else androidx.compose.ui.graphics.Color(profileStatus.currentTextColor),
                                 onStatus = if (profileStatus.hasOnClickListeners()) ({ profileStatus.performClick(); Unit }) else null
                             )
                         }
