@@ -62,6 +62,73 @@ fun TlsProxyScreen(shadow: Boolean, onSave: () -> Unit, onClose: () -> Unit, men
                             SimpleToggle("Allow insecure",store.getBoolean("allowInsecure",false)) { store.putBoolean("allowInsecure",it); revision++ }
                             SimpleField("uTLS fingerprint",read("utlsFingerprint")) { write("utlsFingerprint",it) }
                             if (!shadow) SimpleField("ECH configuration",read("echConfig")) { write("echConfig",it) }
+                            val extra = runCatching { org.json.JSONObject(read("tlsExtras").ifBlank { "{}" }) }.getOrElse { org.json.JSONObject() }
+                            SimpleField("Minimum TLS version",if (shadow) read("tlsMinVersion") else extra.optString("min_version"),false) { value ->
+                                if (shadow) write("tlsMinVersion",value) else {
+                                    if (value.isBlank()) extra.remove("min_version") else extra.put("min_version",value)
+                                    write("tlsExtras",extra.toString())
+                                }
+                            }
+                            SimpleField("Maximum TLS version",if (shadow) read("tlsMaxVersion") else extra.optString("max_version"),false) { value ->
+                                if (shadow) write("tlsMaxVersion",value) else {
+                                    if (value.isBlank()) extra.remove("max_version") else extra.put("max_version",value)
+                                    write("tlsExtras",extra.toString())
+                                }
+                            }
+                            SimpleField("Handshake timeout",if (shadow) read("tlsHandshakeTimeout") else extra.optString("handshake_timeout"),false) { value ->
+                                if (shadow) write("tlsHandshakeTimeout",value) else {
+                                    if (value.isBlank()) extra.remove("handshake_timeout") else extra.put("handshake_timeout",value)
+                                    write("tlsExtras",extra.toString())
+                                }
+                            }
+                            SimpleField("CA certificate path",if (shadow) read("tlsCertificatePath") else extra.optString("certificate_path"),false) { value ->
+                                if (shadow) write("tlsCertificatePath",value) else {
+                                    if (value.isBlank()) extra.remove("certificate_path") else extra.put("certificate_path",value)
+                                    write("tlsExtras",extra.toString())
+                                }
+                            }
+                            SimpleField("SHA-256 public key pins",if (shadow) read("tlsPubKeySha256") else extra.optString("certificate_public_key_sha256"),false) { value ->
+                                if (shadow) write("tlsPubKeySha256",value) else {
+                                    if (value.isBlank()) extra.remove("certificate_public_key_sha256") else extra.put("certificate_public_key_sha256",value)
+                                    write("tlsExtras",extra.toString())
+                                }
+                            }
+                            SimpleField("Curve preferences",if (shadow) read("tlsCurves") else extra.optString("curve_preferences"),false) { value ->
+                                if (shadow) write("tlsCurves",value) else {
+                                    if (value.isBlank()) extra.remove("curve_preferences") else extra.put("curve_preferences",value)
+                                    write("tlsExtras",extra.toString())
+                                }
+                            }
+                            SimpleField("Cipher suites",if (shadow) read("tlsCipherSuites") else extra.optString("cipher_suites"),false) { value ->
+                                if (shadow) write("tlsCipherSuites",value) else {
+                                    if (value.isBlank()) extra.remove("cipher_suites") else extra.put("cipher_suites",value)
+                                    write("tlsExtras",extra.toString())
+                                }
+                            }
+                            SimpleField("Client certificate PEM",if (shadow) read("tlsClientCertificate") else extra.optString("client_certificate"),false) { value ->
+                                if (shadow) write("tlsClientCertificate",value) else {
+                                    if (value.isBlank()) extra.remove("client_certificate") else extra.put("client_certificate",value)
+                                    write("tlsExtras",extra.toString())
+                                }
+                            }
+                            SimpleField("Client certificate path",if (shadow) read("tlsClientCertificatePath") else extra.optString("client_certificate_path"),false) { value ->
+                                if (shadow) write("tlsClientCertificatePath",value) else {
+                                    if (value.isBlank()) extra.remove("client_certificate_path") else extra.put("client_certificate_path",value)
+                                    write("tlsExtras",extra.toString())
+                                }
+                            }
+                            SimpleField("Client private key PEM",if (shadow) read("tlsClientKey") else extra.optString("client_key"),true) { value ->
+                                if (shadow) write("tlsClientKey",value) else {
+                                    if (value.isBlank()) extra.remove("client_key") else extra.put("client_key",value)
+                                    write("tlsExtras",extra.toString())
+                                }
+                            }
+                            SimpleField("Client key path",if (shadow) read("tlsClientKeyPath") else extra.optString("client_key_path"),false) { value ->
+                                if (shadow) write("tlsClientKeyPath",value) else {
+                                    if (value.isBlank()) extra.remove("client_key_path") else extra.put("client_key_path",value)
+                                    write("tlsExtras",extra.toString())
+                                }
+                            }
                         }
                         "Connection" -> {
                             VlessDialer(read("outboundDialer")) { write("outboundDialer",it) }
