@@ -1568,7 +1568,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                     R.string.traffic, Formatter.formatFileSize(view.context, tx),
                     Formatter.formatFileSize(view.context, rx)
                 ) else ""
-                val address = if (proxyEntity.requireBean().name.isBlank() || !pf.alwaysShowAddress) "" else proxyEntity.displayAddress()
+                val address = proxyEntity.displayAddress()
                 val errorDetail = if (proxyEntity.status == 3) proxyEntity.error ?: "<?>" else null
                 val status = when (proxyEntity.status) {
                     1 -> getString(R.string.available, proxyEntity.ping)
@@ -1582,7 +1582,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                     }
                 }
                 removeAction = remove@{
-                    if (DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id) return@remove
+                    if (DataStore.selectedProxy == proxyEntity.id || (DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id)) return@remove
                     adapter?.let {
                         val index = it.configurationIdList.indexOf(proxyEntity.id)
                         if (index < 0) return@let
