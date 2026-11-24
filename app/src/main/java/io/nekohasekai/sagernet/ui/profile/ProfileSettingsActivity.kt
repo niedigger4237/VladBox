@@ -35,7 +35,7 @@ import io.nekohasekai.sagernet.database.GroupManager
 import io.nekohasekai.sagernet.database.ProfileManager
 import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.database.preference.OnPreferenceDataStoreChangeListener
-import io.nekohasekai.sagernet.databinding.LayoutGroupItemBinding
+import io.nekohasekai.sagernet.databinding.LayoutGroupPickerItemBinding
 import io.nekohasekai.sagernet.fmt.AbstractBean
 import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.ui.ThemedActivity
@@ -339,7 +339,7 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
                     SagerDatabase.groupDao.allGroups()
                         .filter { it.type == GroupType.BASIC && it.id != ent.groupId }
                         .forEach { group ->
-                            LayoutGroupItemBinding.inflate(layoutInflater, this, true).apply {
+                            LayoutGroupPickerItemBinding.inflate(layoutInflater, this, true).apply {
                                 edit.isVisible = false
                                 options.isVisible = false
                                 groupName.text = group.displayName()
