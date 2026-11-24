@@ -47,6 +47,9 @@ fun parseTuic(url: String): TuicBean {
         link.queryParameter("allow_insecure")?.let {
             if (it == "1" || it.equals("true", ignoreCase = true)) allowInsecure = true
         }
+        link.queryParameter("zero_rtt_handshake")?.let { reduceRTT = it == "1" || it.equals("true", true) }
+        link.queryParameter("udp_over_stream")?.let { tuicUdpOverStream = it == "1" || it.equals("true", true) }
+        link.queryParameter("heartbeat")?.let { tuicHeartbeat = it }
         link.queryParameter("disable_sni")?.let {
             if (it == "1" || it.equals("true", ignoreCase = true)) disableSNI = true
         }
@@ -62,6 +65,9 @@ fun TuicBean.toUri(): String {
     if (sni.isNotBlank()) builder.addQueryParameter("sni", sni)
     if (alpn.isNotBlank()) builder.addQueryParameter("alpn", alpn)
     if (allowInsecure) builder.addQueryParameter("allow_insecure", "1")
+    if (reduceRTT) builder.addQueryParameter("zero_rtt_handshake", "1")
+    if (tuicUdpOverStream) builder.addQueryParameter("udp_over_stream", "1")
+    if (tuicHeartbeat.isNotBlank()) builder.addQueryParameter("heartbeat", tuicHeartbeat)
     if (disableSNI) builder.addQueryParameter("disable_sni", "1")
     if (name.isNotBlank()) builder.encodedFragment(name.urlSafe())
 
