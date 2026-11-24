@@ -38,7 +38,11 @@ class ServiceButton @JvmOverloads constructor(
             else -> R.drawable.ic_service_play to COLOR_IDLE
         }
         setImageResource(icon)
-        backgroundTintList = ColorStateList.valueOf(color)
+        val surface = com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface)
+        val primary = com.google.android.material.color.MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary)
+        val tint = if (state == BaseService.State.Connected) color else if (state == BaseService.State.Connecting || state == BaseService.State.Stopping) color else androidx.core.graphics.ColorUtils.blendARGB(surface, primary, 0.8f)
+        backgroundTintList = ColorStateList.valueOf(tint)
+        imageTintList = ColorStateList.valueOf(if (androidx.core.graphics.ColorUtils.calculateLuminance(tint) > 0.45) Color.BLACK else Color.WHITE)
 
         val busy = state == BaseService.State.Connecting || state == BaseService.State.Stopping
         progress?.let { if (busy) it.show() else it.hide() }
