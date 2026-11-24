@@ -3,6 +3,7 @@
 plugins {
     id("com.android.application")
     id("kotlin-android")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
     id("kotlin-parcelize")
 }
@@ -31,6 +32,7 @@ android {
     buildFeatures {
         buildConfig = true
         viewBinding = true
+        compose = true
         aidl = true
     }
     namespace = "io.nekohasekai.sagernet"
@@ -47,6 +49,13 @@ android {
 dependencies {
 
     implementation(fileTree("libs"))
+
+    implementation(platform("androidx.compose:compose-bom:2024.09.03"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4")
     implementation("androidx.core:core-ktx:1.9.0")
