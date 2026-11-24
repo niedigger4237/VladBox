@@ -278,9 +278,9 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
             return try {
                 val json = readExtra()
                 val parts = field.split('.')
-                val target = if (parts.size == 2) {
-                    json.optJSONObject(parts[0]) ?: org.json.JSONObject().also { json.put(parts[0], it) }
-                } else json
+                val target = parts.dropLast(1).fold(json) { parent, part ->
+                    parent.optJSONObject(part) ?: org.json.JSONObject().also { parent.put(part, it) }
+                }
                 if (value == null) target.remove(parts.last()) else target.put(parts.last(), value)
                 writeExtra(json)
                 true
@@ -292,7 +292,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
         fun read(field: String): Any? = runCatching {
             val json = readExtra()
             val parts = field.split('.')
-            val target = if (parts.size == 2) json.optJSONObject(parts[0]) else json
+            val target = parts.dropLast(1).fold(json as org.json.JSONObject?) { parent, part -> parent?.optJSONObject(part) }
             target?.opt(parts.last())?.takeUnless { it == org.json.JSONObject.NULL }
         }.getOrNull()
         val xmuxFields = linkedMapOf(
@@ -303,8 +303,36 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
             "xmux.h_max_reusable_secs" to "XMUX Reusable seconds",
             "xmux.h_keep_alive_period" to "XMUX Keep alive period"
         )
-        for ((field, label) in fields + xmuxFields) {
-            if (field in booleans) {
+        val downloadFields = linkedMapOf(
+            "download.server" to "Download server address",
+            "download.server_port" to "Download server port",
+            "download.host" to "Download host",
+            "download.path" to "Download path",
+            "download.x_padding_bytes" to "Download padding bytes",
+            "download.headers" to "Download headers (JSON)",
+            "download.detour" to "Download detour",
+            "download.tls.enabled" to "Download TLS",
+            "download.tls.server_name" to "Download SNI",
+            "download.tls.insecure" to "Download allow insecure",
+            "download.tls.alpn" to "Download ALPN (JSON array)",
+            "download.tls.utls.enabled" to "Download uTLS",
+            "download.tls.utls.fingerprint" to "Download fingerprint",
+            "download.tls.reality.enabled" to "Download Reality",
+            "download.tls.reality.public_key" to "Download Reality public key",
+            "download.tls.reality.short_id" to "Download Reality short ID"
+        )
+        val downloadSwitches = setOf("download.tls.enabled", "download.tls.insecure", "download.tls.utls.enabled", "download.tls.reality.enabled")
+        category.addPreference(androidx.preference.SwitchPreferenceCompat(requireContext()).apply {
+            key = "xhttp_download_enabled"
+            title = "Separate download connection"
+            isPersistent = false
+            isChecked = read("download") != null
+            setOnPreferenceChangeListener { _, value ->
+                update("download", if (value == true) org.json.JSONObject().put("x_padding_bytes", "100-1000") else null)
+            }
+        })
+        for ((field, label) in fields + xmuxFields + downloadFields) {
+            if (field in booleans || field in downloadSwitches) {
                 category.addPreference(androidx.preference.SwitchPreferenceCompat(requireContext()).apply {
                     key = "xhttp_structured_" + field
                     title = label
@@ -328,6 +356,9 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
                     val raw = value.toString().trim()
                     update(field, if (raw.isEmpty()) null else when (field) {
                         in numbers, "xmux.h_keep_alive_period" -> raw.toLong()
+                        "download.server_port" -> raw.toInt().also { require(it in 1..65535) }
+                        "download.headers" -> org.json.JSONObject(raw)
+                        "download.tls.alpn" -> org.json.JSONArray(raw)
                         in objects -> org.json.JSONObject(raw)
                         else -> raw
                     })
