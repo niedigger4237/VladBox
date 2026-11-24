@@ -229,7 +229,7 @@ class ServiceNotification(
                 try {
                     NotificationManagerCompat.from(service as Service).cancel(notificationId)
                 } finally {
-                    try { service.unregisterReceiver(this) } catch (_: IllegalArgumentException) {}
+                    try { (service as Context).unregisterReceiver(this) } catch (_: IllegalArgumentException) {}
                 }
             }
         }
