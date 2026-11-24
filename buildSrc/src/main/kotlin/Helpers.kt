@@ -196,10 +196,7 @@ fun Project.setupApp() {
                 this as BaseVariantOutputImpl
                 val isPreview = outputFileName.contains("-preview")
                 outputFileName = if (isPreview) {
-                    outputFileName.replace(
-                        project.name,
-                        "NieFigger-Hub-" + requireMetadata().getProperty("PRE_VERSION_NAME")
-                    ).replace("-preview", "")
+                    outputFileName.replace(project.name, "NieFigger-Hub").replace("-preview", "-Preview-Build").replace("-release", "").replace("-oss", "")
                 } else {
                     outputFileName.replace(project.name, "NieFigger-Hub-$versionName")
                         .replace("-release", "")
