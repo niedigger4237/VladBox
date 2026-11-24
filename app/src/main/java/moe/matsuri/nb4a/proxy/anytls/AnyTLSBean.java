@@ -39,6 +39,7 @@ public class AnyTLSBean extends AbstractBean {
     public String idleSessionTimeout;
     public String minIdleSession;
     public String clientMetadata;
+    public String outboundDialer;
 
     @Override
     public void initializeDefaultValues() {
@@ -54,11 +55,12 @@ public class AnyTLSBean extends AbstractBean {
         if (idleSessionTimeout == null) idleSessionTimeout = "";
         if (minIdleSession == null) minIdleSession = "";
         if (clientMetadata == null) clientMetadata = "";
+        if (outboundDialer == null) outboundDialer = "";
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(1);
+        output.writeInt(2);
         super.serialize(output);
         output.writeString(password);
         output.writeString(sni);
@@ -71,6 +73,7 @@ public class AnyTLSBean extends AbstractBean {
         output.writeString(idleSessionTimeout);
         output.writeString(minIdleSession);
         output.writeString(clientMetadata);
+        output.writeString(outboundDialer);
     }
 
     @Override
@@ -90,6 +93,7 @@ public class AnyTLSBean extends AbstractBean {
             minIdleSession = input.readString();
             clientMetadata = input.readString();
         }
+        if (version >= 2) outboundDialer = input.readString();
     }
 
     @NotNull
