@@ -1515,7 +1515,13 @@ class ConfigurationFragment @JvmOverloads constructor(
                                 selected = composeSelected.value,
                                 onSelect = { view.performClick() },
                                 onEdit = { editButton.performClick() },
-                                onMore = { overflowButton.performClick() },
+                                onMore = {},
+                                menuKey = entity.id,
+                                canShare = entity.type != ProxyEntity.TYPE_CHAIN && entity.nekoBean == null,
+                                onShare = { shareLayout.performClick() },
+                                onRemove = {
+                                    if (!DataStore.serviceState.started || DataStore.currentProfile != entity.id) removeButton.performClick()
+                                },
                                 traffic = trafficText.text.toString().takeIf { trafficText.isVisible } ?: "",
                                 actionsVisible = !select,
                                 editEnabled = composeEditEnabled.value,
@@ -1680,20 +1686,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                 shareLayout.isGone = true
                 removeButton.isGone = true
                 overflowButton.isGone = select
-                overflowButton.setOnClickListener { anchor ->
-                    val popup = PopupMenu(requireContext(), composeView, android.view.Gravity.END)
-                    if (canShare) popup.menu.add(0, 1, 0, R.string.share)
-                    val started = DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id
-                    popup.menu.add(0, 2, 1, R.string.delete).isEnabled = !started
-                    popup.setOnMenuItemClickListener { item ->
-                        if (entity.id != proxyEntity.id) false else when (item.itemId) {
-                            1 -> shareLayout.performClick()
-                            2 -> if (!DataStore.serviceState.started || DataStore.currentProfile != proxyEntity.id) removeButton.performClick() else false
-                            else -> false
-                        }
-                    }
-                    popup.show()
-                }
+                overflowButton.setOnClickListener(null)
 
                 composeSelected.value = (selectedItem?.id ?: DataStore.selectedProxy) == proxyEntity.id
                 composeEditEnabled.value = !(DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id)
