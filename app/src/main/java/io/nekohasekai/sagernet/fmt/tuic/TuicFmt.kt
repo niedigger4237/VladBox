@@ -81,6 +81,40 @@ fun buildSingBoxOutboundTuicBean(bean: TuicBean): SingBoxOptions.Outbound_TUICOp
             "quic", "native" -> udp_relay_mode = bean.udpRelayMode
         }
         zero_rtt_handshake = bean.reduceRTT
+        bean.tuicHeartbeat.trim().takeIf { it.isNotEmpty() }?.let {
+            _hack_config_map["heartbeat"] = it
+        }
+        bean.tuicNetwork.trim().takeIf { it.isNotEmpty() }?.let {
+            require(it in listOf("tcp", "udp")) { "Invalid TUIC network" }
+            _hack_config_map["network"] = it
+        }
+        bean.tuicIdleTimeout.trim().takeIf { it.isNotEmpty() }?.let {
+            _hack_config_map["idle_timeout"] = it
+        }
+        bean.tuicKeepAlive.trim().takeIf { it.isNotEmpty() }?.let {
+            _hack_config_map["keep_alive_period"] = it
+        }
+        bean.tuicStreamWindow.trim().takeIf { it.isNotEmpty() }?.let {
+            _hack_config_map["stream_receive_window"] = it
+        }
+        bean.tuicConnectionWindow.trim().takeIf { it.isNotEmpty() }?.let {
+            _hack_config_map["connection_receive_window"] = it
+        }
+        bean.tuicMaxStreams.trim().takeIf { it.isNotEmpty() }?.let {
+            val n = it.toIntOrNull() ?: error("Invalid max_concurrent_streams")
+            require(n > 0)
+            _hack_config_map["max_concurrent_streams"] = n
+        }
+        bean.tuicInitialPacket.trim().takeIf { it.isNotEmpty() }?.let {
+            val n = it.toIntOrNull() ?: error("Invalid initial_packet_size")
+            require(n > 0)
+            _hack_config_map["initial_packet_size"] = n
+        }
+        if (bean.tuicUdpOverStream) {
+            require(bean.udpRelayMode != "quic") { "UDP over stream requires native relay mode" }
+            _hack_config_map["udp_over_stream"] = true
+        }
+        if (bean.tuicDisablePathMtu) _hack_config_map["disable_path_mtu_discovery"] = true
         tls = SingBoxOptions.OutboundTLSOptions().apply {
             if (bean.sni.isNotBlank()) {
                 server_name = bean.sni
