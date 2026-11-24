@@ -31,29 +31,10 @@
             app:cardElevation="0dp"
             app:strokeWidth="0dp">
 
-            <LinearLayout
+            <androidx.compose.ui.platform.ComposeView
+                android:id="@+id/stats_compose"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingHorizontal="12dp"
-                android:paddingVertical="8dp">
-
-                <androidx.compose.ui.platform.ComposeView
-                    android:id="@+id/stats_compose"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1" />
-
-                <FrameLayout
-                    android:layout_width="68dp"
-                    android:layout_height="68dp">
-                    <androidx.compose.ui.platform.ComposeView
-                        android:id="@+id/power_compose"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent" />
-                </FrameLayout>
-            </LinearLayout>
+                android:layout_height="wrap_content" />
         </io.nekohasekai.sagernet.widget.StatsBar>
 
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
