@@ -34,7 +34,6 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
                         TextButton(onClick = { model.select(null) }) { Text("‹") }
                         Text(groups.firstOrNull { it.title.toString() == category }?.title?.toString().orEmpty(), style = MaterialTheme.typography.titleLarge)
                     }
-                    androidx.activity.compose.BackHandler { model.select(null) }
                 } else {
                     OutlinedTextField(query, { model.search(it) }, Modifier.fillMaxWidth().padding(vertical = 8.dp), label = { Text("Search settings") }, singleLine = true)
                 }
