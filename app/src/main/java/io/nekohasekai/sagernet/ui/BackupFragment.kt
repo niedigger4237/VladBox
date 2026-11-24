@@ -20,7 +20,22 @@ import io.nekohasekai.sagernet.bg.Executable
 import io.nekohasekai.sagernet.database.*
 import io.nekohasekai.sagernet.database.preference.KeyValuePair
 import io.nekohasekai.sagernet.database.preference.PublicDatabase
-import io.nekohasekai.sagernet.databinding.LayoutBackupBinding
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+import io.nekohasekai.sagernet.ui.compose.HubTheme
+import io.nekohasekai.sagernet.ui.compose.VladTopAppBar
 import io.nekohasekai.sagernet.databinding.LayoutImportBinding
 import io.nekohasekai.sagernet.databinding.LayoutProgressBinding
 import io.nekohasekai.sagernet.ktx.*
@@ -62,65 +77,116 @@ class BackupFragment : NamedFragment(R.layout.layout_backup) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        val binding = LayoutBackupBinding.bind(view)
-
-        binding.resetSettings.setOnClickListener {
-            MaterialAlertDialogBuilder(requireContext()).setTitle(R.string.confirm)
-                .setMessage(R.string.reset_settings_message)
-                .setNegativeButton(R.string.no, null)
-                .setPositiveButton(R.string.yes) { _, _ ->
-                    DataStore.configurationStore.reset()
-                    triggerFullRestart(requireContext())
-                }
-                .show()
-        }
-
-        binding.actionExport.setOnClickListener {
-            runOnDefaultDispatcher {
-                content = doBackup(
-                    binding.backupConfigurations.isChecked,
-                    binding.backupRules.isChecked,
-                    binding.backupSettings.isChecked
-                )
-                onMainDispatcher {
-                    startFilesForResult(
-                        exportSettings, "niefigger_hub_backup_${java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.json"
+        val root = view as android.view.ViewGroup
+        root.removeAllViews()
+        root.setPadding(0, 0, 0, 0)
+        root.addView(ComposeView(requireContext()).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent {
+                HubTheme {
+                    var profiles by rememberSaveable { mutableStateOf(true) }
+                    var rules by rememberSaveable { mutableStateOf(true) }
+                    var settings by rememberSaveable { mutableStateOf(true) }
+                    var busy by remember { mutableStateOf(false) }
+                    var reset by rememberSaveable { mutableStateOf(false) }
+                    Column(Modifier.fillMaxSize()) {
+                        VladTopAppBar(title = stringResource(R.string.backup), onNavigation = {
+                            (requireActivity() as MainActivity).binding.drawerLayout.openDrawer(androidx.core.view.GravityCompat.START)
+                        })
+                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Card(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(stringResource(R.string.action_export), style = MaterialTheme.typography.titleLarge)
+                                    BackupChoice(stringResource(R.string.backup_groups_and_configurations), profiles, !busy) { profiles = it }
+                                    BackupChoice(stringResource(R.string.backup_rules), rules, !busy) { rules = it }
+                                    BackupChoice(stringResource(R.string.backup_settings), settings, !busy) { settings = it }
+                                    if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(onClick = {
+                                            busy = true
+                                            prepareBackup(profiles, rules, settings, false) { busy = false }
+                                        }, enabled = !busy && (profiles || rules || settings), modifier = Modifier.weight(1f)) {
+                                            Text(stringResource(R.string.action_export))
+                                        }
+                                        FilledTonalButton(onClick = {
+                                            busy = true
+                                            prepareBackup(profiles, rules, settings, true) { busy = false }
+                                        }, enabled = !busy && (profiles || rules || settings), modifier = Modifier.weight(1f)) {
+                                            Text(stringResource(R.string.share))
+                                        }
+                                    }
+                                }
+                            }
+                            Card(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text(stringResource(R.string.backup_import), style = MaterialTheme.typography.titleLarge)
+                                    Text(stringResource(R.string.backup_summary), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    FilledTonalButton(onClick = { startFilesForResult(importFile, "*/*") },
+                                        enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                                        Text(stringResource(R.string.action_import_file))
+                                    }
+                                }
+                            }
+                            OutlinedCard(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(16.dp)) {
+                                    TextButton(onClick = { reset = true }, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                                        Text(stringResource(R.string.reset_settings))
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(160.dp))
+                        }
+                    }
+                    if (reset) androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { reset = false },
+                        title = { Text(stringResource(R.string.confirm)) },
+                        text = { Text(stringResource(R.string.reset_settings_message)) },
+                        confirmButton = { TextButton(onClick = {
+                            reset = false
+                            DataStore.configurationStore.reset()
+                            triggerFullRestart(requireContext())
+                        }) { Text(stringResource(R.string.yes)) } },
+                        dismissButton = { TextButton(onClick = { reset = false }) { Text(stringResource(R.string.no)) } }
                     )
                 }
             }
-        }
+        }, android.view.ViewGroup.LayoutParams(-1, -1))
+    }
 
-        binding.actionShare.setOnClickListener {
-            runOnDefaultDispatcher {
-                content = doBackup(
-                    binding.backupConfigurations.isChecked,
-                    binding.backupRules.isChecked,
-                    binding.backupSettings.isChecked
-                )
-                app.cacheDir.mkdirs()
-                val cacheFile = File(
-                    app.cacheDir, "niefigger_hub_backup_${java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.json"
-                )
-                cacheFile.writeText(content)
-                onMainDispatcher {
-                    startActivity(
-                        Intent.createChooser(
+    @Composable
+    private fun BackupChoice(label: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+        Row(Modifier.fillMaxWidth().toggleable(checked, enabled = enabled, role = Role.Checkbox, onValueChange = onChange)
+            .padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked, onCheckedChange = null, enabled = enabled)
+            Spacer(Modifier.width(12.dp))
+            Text(label, modifier = Modifier.weight(1f))
+        }
+    }
+
+    private fun prepareBackup(profiles: Boolean, rules: Boolean, settings: Boolean, share: Boolean, done: () -> Unit) {
+        runOnDefaultDispatcher {
+            try {
+                content = doBackup(profiles, rules, settings)
+                val name = "niefigger_hub_backup_${java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.json"
+                if (share) {
+                    val cacheFile = File(app.cacheDir, name)
+                    cacheFile.writeText(content)
+                    onMainDispatcher {
+                        if (isAdded) startActivity(Intent.createChooser(
                             Intent(Intent.ACTION_SEND).setType("application/json")
-                                .setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                .putExtra(
-                                    Intent.EXTRA_STREAM, FileProvider.getUriForFile(
-                                        app, BuildConfig.APPLICATION_ID + ".cache", cacheFile
-                                    )
-                                ), app.getString(R.string.abc_shareactionprovider_share_with)
-                        )
-                    )
-                }
-
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                .putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(app, BuildConfig.APPLICATION_ID + ".cache", cacheFile)),
+                            app.getString(R.string.abc_shareactionprovider_share_with)))
+                    }
+                } else onMainDispatcher { if (isAdded) startFilesForResult(exportSettings, name) }
+            } catch (e: Exception) {
+                Logs.w(e)
+                onMainDispatcher { if (isAdded) snackbar(e.readableMessage).show() }
+            } finally {
+                onMainDispatcher { done() }
             }
-        }
-
-        binding.actionImportFile.setOnClickListener {
-            startFilesForResult(importFile, "*/*")
         }
     }
 
