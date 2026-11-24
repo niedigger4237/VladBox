@@ -1,6 +1,16 @@
 package io.nekohasekai.sagernet.widget
 
 import android.content.Context
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.ComposeView
+import io.nekohasekai.sagernet.ui.compose.HubTheme
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Build
@@ -22,16 +32,54 @@ class ServiceButton @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : FloatingActionButton(context, attrs, defStyleAttr) {
 
+    private val composeState = mutableStateOf(BaseService.State.Stopped)
     private var progress: BaseProgressIndicator<*>? = null
 
     fun initProgress(progress: BaseProgressIndicator<*>) {
         this.progress = progress
         progress.isIndeterminate = true
         progress.hide()
+        val host = (parent as android.view.ViewGroup).findViewById<ComposeView>(R.id.power_compose)
+        host.setContent {
+            HubTheme {
+                val state = composeState.value
+                val busy = state == BaseService.State.Connecting || state == BaseService.State.Stopping
+                val connected = state == BaseService.State.Connected
+                val colors = MaterialTheme.colorScheme
+                val tint = when {
+                    connected -> androidx.compose.ui.graphics.Color(0xFFA5D5B1)
+                    busy -> androidx.compose.ui.graphics.Color(0xFFF9A825)
+                    else -> colors.primary
+                }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (busy) CircularProgressIndicator(Modifier.size(68.dp), strokeWidth = 4.dp)
+                    Surface(
+                        onClick = { this@ServiceButton.performClick() },
+                        enabled = state.canStop || state == BaseService.State.Stopped,
+                        modifier = Modifier.size(60.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        color = tint,
+                        contentColor = if (busy || connected) androidx.compose.ui.graphics.Color.Black else colors.onPrimary
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(painterResource(when {
+                                connected -> R.drawable.ic_service_stop
+                                busy -> R.drawable.ic_service_wait
+                                else -> R.drawable.ic_service_play
+                            }), androidx.compose.ui.res.stringResource(if (state.canStop) R.string.stop else R.string.connect), Modifier.size(30.dp))
+                        }
+                    }
+                }
+            }
+        }
+        alpha = 0f
+        importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        progress.alpha = 0f
     }
 
     @Suppress("UNUSED_PARAMETER")
     fun changeState(state: BaseService.State, previousState: BaseService.State, animate: Boolean) {
+        composeState.value = state
         val (icon, color) = when (state) {
             BaseService.State.Connected -> R.drawable.ic_service_stop to COLOR_CONNECTED
             BaseService.State.Connecting, BaseService.State.Stopping -> R.drawable.ic_service_wait to COLOR_BUSY
@@ -48,7 +96,7 @@ class ServiceButton @JvmOverloads constructor(
         backgroundTintList = ColorStateList.valueOf(tint)
         imageTintList = ColorStateList.valueOf(if (state == BaseService.State.Connected || state == BaseService.State.Connecting || state == BaseService.State.Stopping) { if (androidx.core.graphics.ColorUtils.calculateLuminance(tint) > 0.179) Color.BLACK else Color.WHITE } else com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnPrimary))
 
-        if (animate && state != previousState) {
+        if (false && animate && state != previousState) {
             animate().cancel()
             scaleX = 0.94f
             scaleY = 0.94f
