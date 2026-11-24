@@ -15,6 +15,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     val isVless = protocol == "VLESS"
     val isVmess = protocol == "VMess"
     val isTrojan = protocol == "Trojan"
+    val isHttp = protocol == "HTTP"
     val store = DataStore.profileCacheStore
     var revision by remember { mutableStateOf(0) }
     fun read(key: String) = store.getString(key, "") ?: ""
@@ -27,7 +28,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     var reality by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(read("realityPubKey").isNotBlank()) }
     val muxValid = !mux || (listOf("muxConcurrency","muxMaxConnections","muxMinStreams").all { read(it).toIntOrNull()?.let { n -> n >= 0 } == true } && (!store.getBoolean("muxBrutal",false) || listOf("muxBrutalUp","muxBrutalDown").all { read(it).toIntOrNull()?.let { n -> n > 0 } == true }))
     val dialerValid = runCatching { org.json.JSONObject(read("outboundDialer").ifBlank { "{}" }) }.isSuccess
-    val transportValid = when (transport) {
+    val transportValid = if (isHttp) runCatching { org.json.JSONObject(read("httpHeaders").ifBlank { "{}" }) }.isSuccess else when (transport) {
         "ws" -> read("wsMaxEarlyData").toIntOrNull()?.let { it >= 0 } == true
         "grpc" -> listOf("grpcIdleTimeout","grpcPingTimeout").all { read(it).toIntOrNull()?.let { n -> n >= 0 } == true }
         "kcp" -> listOf("kcpMtu","kcpTti","kcpUp","kcpDown","kcpRead","kcpWrite").all { read(it).isBlank() || read(it).toLongOrNull()?.let { n -> n in 1L..4294967295L } == true }
@@ -45,10 +46,10 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
             ((read("tlsClientCertificate").isNotBlank() || read("tlsClientCertificatePath").isNotBlank()) == (read("tlsClientKey").isNotBlank() || read("tlsClientKeyPath").isNotBlank())) &&
             (!store.getBoolean("enableECH",false) || read("echConfig").isBlank() || read("echConfigPath").isBlank())
     }
-    val valid = tlsValid && transportValid && dialerValid && muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && read("uuid").isNotBlank() && (!isVmess || read("alterId").toIntOrNull()?.let { it >= 0 } == true) && (!reality || read("realityPubKey").isNotBlank())
+    val valid = tlsValid && transportValid && dialerValid && muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && (isHttp || read("uuid").isNotBlank()) && (!isVmess || read("alterId").toIntOrNull()?.let { it >= 0 } == true) && (!reality || read("realityPubKey").isNotBlank())
     androidx.activity.compose.BackHandler(enabled = section.isNotEmpty()) { section = "" }
     Column(Modifier.fillMaxSize()) {
-    VladTopAppBar(title = section.ifEmpty { protocol }, onNavigation = onClose, onBack = { if (section.isNotEmpty()) section = "" else onClose() }, extraActions = {
+    VladTopAppBar(title = section.ifEmpty { if (isHttp && security == "tls") "HTTPS" else protocol }, onNavigation = onClose, onBack = { if (section.isNotEmpty()) section = "" else onClose() }, extraActions = {
         var expanded by remember { mutableStateOf(false) }
         TextButton(onClick = onSave, enabled = valid) { Text("Save") }
         Box {
@@ -58,7 +59,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     })
     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (section.isEmpty()) {
-            val sections = listOf("General" to (if (isTrojan) "Server and password" else if (isVmess) "Server, UUID and encryption" else "Server, UUID and flow"), "Transport" to transport.uppercase(), "Security" to (if (reality) "Reality" else security.ifBlank { "None" }), "Multiplex" to (if (mux) "Enabled" else "Disabled"), "Connection" to "Network options")
+            val sections = listOf("General" to (if (isHttp) "Server and credentials" else if (isTrojan) "Server and password" else if (isVmess) "Server, UUID and encryption" else "Server, UUID and flow"), "Transport" to transport.uppercase(), "Security" to (if (reality) "Reality" else security.ifBlank { "None" }), "Multiplex" to (if (mux) "Enabled" else "Disabled"), "Connection" to "Network options").filter { !isHttp || it.first in listOf("General","Security","Connection") }
             items(sections.size) { index ->
                 val (name, description) = sections[index]
                 Card(onClick = { section = name }, modifier = Modifier.fillMaxWidth()) {
@@ -74,7 +75,12 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 ProfileText("Profile name", "name", read("name"), ::write)
                 ProfileText("Server address", "serverAddress", read("serverAddress"), ::write)
                 ProfileText("Server port", "serverPort", read("serverPort"), ::write)
-                ProfileText(if (isTrojan) "Password" else "UUID", "uuid", read("uuid"), ::write, secret = isTrojan)
+                if (isHttp) {
+                    ProfileText("Username", "username", read("username"), ::write)
+                    ProfileText("Password", "password", read("password"), ::write, secret = true)
+                    ProfileText("HTTP path", "httpPath", read("httpPath"), ::write)
+                    ProfileText("HTTP headers (JSON)", "httpHeaders", read("httpHeaders"), ::write)
+                } else ProfileText(if (isTrojan) "Password" else "UUID", "uuid", read("uuid"), ::write, secret = isTrojan)
                 if (isVless) {
                     Text("Flow")
                     ProfileChoices(listOf("" to "None", "xtls-rprx-vision" to "Vision"), read("encryption")) { write("encryption", it) }
@@ -87,7 +93,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                     ProfileSwitch("Global padding",store.getBoolean("globalPadding",false)) { toggle("globalPadding",it) }
                     ProfileSwitch("Authenticated length",store.getBoolean("authenticatedLength",false)) { toggle("authenticatedLength",it) }
                 }
-                if (!isTrojan) {
+                if (!isTrojan && !isHttp) {
                     Text("Packet encoding")
                     ProfileChoices(listOf("0" to "None","1" to "Packet address","2" to "XUDP"), read("packetEncoding")) { write("packetEncoding",it) }
                 }
@@ -239,7 +245,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
             }
         }
         if (section == "Connection") {
-            item { ProfileSection("Network") { ProfileChoices(listOf("" to "TCP + UDP","tcp" to "TCP","udp" to "UDP"), read("vlessNetwork")) { write("vlessNetwork",it) } } }
+            if (!isHttp) item { ProfileSection("Network") { ProfileChoices(listOf("" to "TCP + UDP","tcp" to "TCP","udp" to "UDP"), read("vlessNetwork")) { write("vlessNetwork",it) } } }
             item { ProfileSection("Dialer settings") { VlessDialer(read("outboundDialer")) { write("outboundDialer",it) } } }
         }
         if (!tlsValid) item { Text("Check TLS version range, certificate sources and client certificate/key pair.", color = MaterialTheme.colorScheme.error) }
