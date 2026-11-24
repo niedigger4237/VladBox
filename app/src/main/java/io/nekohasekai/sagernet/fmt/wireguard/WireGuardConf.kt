@@ -80,7 +80,6 @@ object WireGuardConf {
     }
 
     fun export(bean: WireGuardBean): String {
-        require(!bean.isAmnezia) { "AmneziaWG is not supported by this exporter" }
         fun clean(value: String): String = value.also { require('\n' !in it && '\r' !in it) }
         fun list(value: String) = value.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.joinToString(", ")
         return buildString {
@@ -89,6 +88,20 @@ object WireGuardConf {
             appendLine("Address = ${list(bean.localAddress)}")
             appendLine("MTU = ${bean.mtu}")
             if (bean.wgListenPort > 0) appendLine("ListenPort = ${bean.wgListenPort}")
+            if (bean.reserved.isNotBlank()) appendLine("Reserved = ${clean(bean.reserved)}")
+            if (bean.isAmnezia) {
+                for ((key, field) in awgInts) {
+                    val value = WireGuardBean::class.java.getField(field).get(bean) as Int
+                    appendLine("${key.replaceFirstChar { it.uppercaseChar() }} = $value")
+                }
+                for ((key, field) in awgStrings.entries.distinctBy { it.value }) {
+                    val value = WireGuardBean::class.java.getField(field).get(bean) as String
+                    if (value.isNotBlank()) appendLine("${key.replaceFirstChar { it.uppercaseChar() }} = ${clean(value)}")
+                }
+                for ((key, field) in awgBools) {
+                    if (WireGuardBean::class.java.getField(field).get(bean) == true) appendLine("$key = true")
+                }
+            }
             fun addPeer(host: String, port: Int, key: String, psk: String, ips: String, keepalive: Int) {
                 appendLine()
                 appendLine("[Peer]")
@@ -98,8 +111,8 @@ object WireGuardConf {
                 appendLine("AllowedIPs = ${list(ips)}")
                 if (keepalive > 0) appendLine("PersistentKeepalive = $keepalive")
             }
-            addPeer(bean.serverAddress,bean.serverPort,bean.peerPublicKey,bean.peerPreSharedKey,bean.wgAllowedIps,bean.persistentKeepalive)
-            val extra = JSONArray(bean.wgExtraPeers.ifBlank { "[]" })
+            addPeer(bean.serverAddress,bean.serverPort,bean.peerPublicKey,bean.peerPreSharedKey,if (bean.isAmnezia) "0.0.0.0/0, ::/0" else bean.wgAllowedIps,bean.persistentKeepalive)
+            val extra = JSONArray(if (bean.isAmnezia) "[]" else bean.wgExtraPeers.ifBlank { "[]" })
             for (i in 0 until extra.length()) {
                 val p = extra.getJSONObject(i)
                 val ips = p.getJSONArray("allowed_ips")
