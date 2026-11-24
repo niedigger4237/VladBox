@@ -82,6 +82,15 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
     private val realityHybrid = pbm.add(PreferenceBinding(Type.Bool, "realityHybrid"))
     private val vlessEncryption = pbm.add(PreferenceBinding(Type.Text, "vlessEncryption"))
     private val vlessNetwork = pbm.add(PreferenceBinding(Type.Text, "vlessNetwork"))
+    private val kcpMtu = pbm.add(PreferenceBinding(Type.Text, "kcpMtu"))
+    private val kcpTti = pbm.add(PreferenceBinding(Type.Text, "kcpTti"))
+    private val kcpUp = pbm.add(PreferenceBinding(Type.Text, "kcpUp"))
+    private val kcpDown = pbm.add(PreferenceBinding(Type.Text, "kcpDown"))
+    private val kcpRead = pbm.add(PreferenceBinding(Type.Text, "kcpRead"))
+    private val kcpWrite = pbm.add(PreferenceBinding(Type.Text, "kcpWrite"))
+    private val kcpHeader = pbm.add(PreferenceBinding(Type.Text, "kcpHeader"))
+    private val kcpSeed = pbm.add(PreferenceBinding(Type.Text, "kcpSeed"))
+    private val kcpCongestion = pbm.add(PreferenceBinding(Type.Bool, "kcpCongestion"))
     private val httpExtra = PreferenceBindingManager()
     private val httpPath = httpExtra.add(PreferenceBinding(Type.Text, "httpPath"))
     private val httpHeaders = httpExtra.add(PreferenceBinding(Type.Text, "httpHeaders"))
@@ -188,6 +197,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
     }
 
     private fun updateView(network: String) {
+        findKcpVisibility(network == "kcp" && tmpBean !is HttpBean)
         host.preference.isVisible = false
         path.preference.isVisible = false
         xhttpMode.preference.isVisible = false
@@ -240,6 +250,18 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
                 path.preference.isVisible = true
             }
         }
+    }
+
+    private fun findKcpVisibility(visible: Boolean) {
+        kcpMtu.preference.isVisible = visible
+        kcpTti.preference.isVisible = visible
+        kcpUp.preference.isVisible = visible
+        kcpDown.preference.isVisible = visible
+        kcpRead.preference.isVisible = visible
+        kcpWrite.preference.isVisible = visible
+        kcpHeader.preference.isVisible = visible
+        kcpSeed.preference.isVisible = visible
+        kcpCongestion.preference.isVisible = visible
     }
 
     private fun updateTls(tls: String) {
