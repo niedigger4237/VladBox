@@ -38,6 +38,23 @@ class GroupSettingsActivity(
 ) : ThemedActivity(resId),
     OnPreferenceDataStoreChangeListener {
 
+    val editorRevision = kotlinx.coroutines.flow.MutableStateFlow(0)
+    private val nativeEditor get() = !SagerNet.isTv
+    fun refreshEditor() { editorRevision.value++ }
+    fun editorSave() { runOnDefaultDispatcher { saveAndExit() } }
+    fun editorDelete() {
+        if (DataStore.editingId == 0L) finish()
+        else DeleteConfirmationDialogFragment().apply {
+            arg(GroupIdArg(DataStore.editingId))
+            key()
+        }.show(supportFragmentManager, null)
+    }
+    private fun showNativeEditor() {
+        val host = androidx.compose.ui.platform.ComposeView(this)
+        setContentView(host)
+        io.nekohasekai.sagernet.ui.compose.installGroupEditor(this, host)
+    }
+
     private lateinit var frontProxyPreference: OutboundPreference
     private lateinit var landingProxyPreference: OutboundPreference
 
@@ -199,7 +216,7 @@ class GroupSettingsActivity(
     @SuppressLint("CommitTransaction")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setSupportActionBar(findViewById(R.id.toolbar))
+        if (!nativeEditor) setSupportActionBar(findViewById(R.id.toolbar))
         supportActionBar?.apply {
             setTitle(R.string.group_settings)
             setDisplayHomeAsUpEnabled(true)
@@ -224,7 +241,7 @@ class GroupSettingsActivity(
                 }
 
                 onMainDispatcher {
-                    supportFragmentManager.beginTransaction()
+                    if (nativeEditor) showNativeEditor() else supportFragmentManager.beginTransaction()
                         .replace(R.id.settings, MyPreferenceFragmentCompat())
                         .commit()
 
@@ -233,6 +250,9 @@ class GroupSettingsActivity(
                 }
             }
 
+        } else if (nativeEditor) {
+            showNativeEditor()
+            DataStore.profileCacheStore.registerChangeListener(this)
         }
 
     }
@@ -264,6 +284,7 @@ class GroupSettingsActivity(
     val child by lazy { supportFragmentManager.findFragmentById(R.id.settings) as MyPreferenceFragmentCompat }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        if (nativeEditor) return false
         menuInflater.inflate(R.menu.profile_config_menu, menu)
         return true
     }
@@ -365,7 +386,8 @@ class GroupSettingsActivity(
             ) ?: return@runOnDefaultDispatcher
             DataStore.frontProxy = profile.id
             onMainDispatcher {
-                frontProxyPreference.value = "3"
+                if (nativeEditor) { DataStore.frontProxyTmp = 3; refreshEditor() }
+                else frontProxyPreference.value = "3"
             }
         }
     }
@@ -379,7 +401,8 @@ class GroupSettingsActivity(
             ) ?: return@runOnDefaultDispatcher
             DataStore.landingProxy = profile.id
             onMainDispatcher {
-                landingProxyPreference.value = "3"
+                if (nativeEditor) { DataStore.landingProxyTmp = 3; refreshEditor() }
+                else landingProxyPreference.value = "3"
             }
         }
     }
