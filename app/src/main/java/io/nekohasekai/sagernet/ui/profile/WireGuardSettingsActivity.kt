@@ -31,6 +31,15 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
     private val system = pbm.add(PreferenceBinding(Type.Bool, "system"))
     private val workers = pbm.add(PreferenceBinding(Type.TextToInt, "workers"))
     private val udpTimeout = pbm.add(PreferenceBinding(Type.Text, "udpTimeout"))
+    private val wgInterfaceName = pbm.add(PreferenceBinding(Type.Text, "wgInterfaceName"))
+    private val wgListenPort = pbm.add(PreferenceBinding(Type.TextToInt, "wgListenPort"))
+    private val wgUdpMapping = pbm.add(PreferenceBinding(Type.Text, "wgUdpMapping"))
+    private val wgUdpFiltering = pbm.add(PreferenceBinding(Type.Text, "wgUdpFiltering"))
+    private val wgUdpNatMax = pbm.add(PreferenceBinding(Type.TextToInt, "wgUdpNatMax"))
+    private val wgBuffers = pbm.add(PreferenceBinding(Type.TextToInt, "wgBuffers"))
+    private val wgDisablePauses = pbm.add(PreferenceBinding(Type.Bool, "wgDisablePauses"))
+    private val wgAllowedIps = pbm.add(PreferenceBinding(Type.Text, "wgAllowedIps"))
+    private val wgExtraPeers = pbm.add(PreferenceBinding(Type.Text, "wgExtraPeers"))
     private val awgJc = pbm.add(PreferenceBinding(Type.TextToInt, "awgJc"))
     private val awgJmin = pbm.add(PreferenceBinding(Type.TextToInt, "awgJmin"))
     private val awgJmax = pbm.add(PreferenceBinding(Type.TextToInt, "awgJmax"))
@@ -73,6 +82,57 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
         rootKey: String?,
     ) {
         addPreferencesFromResource(R.xml.wireguard_preferences)
+        val wgAdvanced = PreferenceCategory(requireContext()).apply { title = "WireGuard advanced settings"; key = "wgAdvanced" }
+        preferenceScreen.addPreference(wgAdvanced)
+        wgAdvanced.addPreference(EditTextPreference(requireContext()).apply {
+            key = "wgInterfaceName"
+            title = "Interface name"
+            summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance()
+        })
+        wgAdvanced.addPreference(EditTextPreference(requireContext()).apply {
+            key = "wgListenPort"
+            title = "Listen port"
+            summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance()
+        })
+        wgAdvanced.addPreference(androidx.preference.ListPreference(requireContext()).apply {
+            key = "wgUdpMapping"
+            title = "UDP mapping"
+            entries = arrayOf("Default", "Endpoint independent", "Address dependent", "Address and port dependent")
+            entryValues = arrayOf("", "endpoint_independent", "address_dependent", "address_and_port_dependent")
+            summaryProvider = androidx.preference.ListPreference.SimpleSummaryProvider.getInstance()
+        })
+        wgAdvanced.addPreference(androidx.preference.ListPreference(requireContext()).apply {
+            key = "wgUdpFiltering"
+            title = "UDP filtering"
+            entries = arrayOf("Default", "Endpoint independent", "Address dependent", "Address and port dependent")
+            entryValues = arrayOf("", "endpoint_independent", "address_dependent", "address_and_port_dependent")
+            summaryProvider = androidx.preference.ListPreference.SimpleSummaryProvider.getInstance()
+        })
+        wgAdvanced.addPreference(EditTextPreference(requireContext()).apply {
+            key = "wgUdpNatMax"
+            title = "UDP NAT max"
+            summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance()
+        })
+        wgAdvanced.addPreference(EditTextPreference(requireContext()).apply {
+            key = "wgBuffers"
+            title = "Preallocated buffers per pool"
+            summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance()
+        })
+        wgAdvanced.addPreference(SwitchPreference(requireContext()).apply {
+            key = "wgDisablePauses"
+            title = "Disable pauses"
+
+        })
+        wgAdvanced.addPreference(EditTextPreference(requireContext()).apply {
+            key = "wgAllowedIps"
+            title = "Allowed IPs"
+            summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance()
+        })
+        wgAdvanced.addPreference(EditTextPreference(requireContext()).apply {
+            key = "wgExtraPeers"
+            title = "Additional peers (JSON array)"
+            summary = "Additional peers in native sing-box JSON format"
+        })
         pbm.setPreferenceFragment(this)
 
         (serverPort.preference as EditTextPreference)
@@ -85,6 +145,7 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
         val awgCat = findPreference<PreferenceCategory>("awgCategory")!!
         val awgSwitch = findPreference<SwitchPreference>("awgEnabled")!!
         fun applyAwg(on: Boolean) {
+            wgAdvanced.isVisible = !on
             for (i in 0 until awgCat.preferenceCount) {
                 val p = awgCat.getPreference(i)
                 if (p.key != "awgEnabled") p.isVisible = on
