@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 import io.nekohasekai.sagernet.database.DataStore
 
 @Composable
-fun WireGuardProfileScreen(onPeers: () -> Unit, onImport: () -> Unit, onExport: () -> Unit, onLegacy: () -> Unit, onSave: () -> Unit) {
+fun WireGuardProfileScreen(onPeers: () -> Unit, onImport: () -> Unit, onExport: () -> Unit, onLegacy: () -> Unit, onSave: () -> Unit, onClose: () -> Unit, menuItems: List<Pair<String, () -> Unit>> = emptyList()) {
     val store = DataStore.profileCacheStore
     var revision by remember { mutableStateOf(0) }
     fun read(key: String): String { revision; return store.getString(key, "") ?: "" }
@@ -22,7 +22,27 @@ fun WireGuardProfileScreen(onPeers: () -> Unit, onImport: () -> Unit, onExport: 
     val natModes = listOf("" to "Default", "endpoint_independent" to "Endpoint independent", "address_dependent" to "Address dependent", "address_and_port_dependent" to "Address and port dependent")
     var section by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     androidx.activity.compose.BackHandler(enabled = section.isNotEmpty()) { section = "" }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxSize()) {
+        VladTopAppBar(
+            title = section.ifEmpty { "WireGuard" },
+            onNavigation = onClose,
+            onBack = { if (section.isNotEmpty()) section = "" else onClose() },
+            extraActions = {
+                var expanded by remember { mutableStateOf(false) }
+                TextButton(onClick = onSave) { Text("Save") }
+                Box {
+                    IconButton(onClick = { expanded = true }) {
+                        Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_baseline_more_vert_24), "More options")
+                    }
+                    DropdownMenu(expanded, { expanded = false }) {
+                        menuItems.forEach { (label, action) ->
+                            DropdownMenuItem(text = { Text(label) }, onClick = { expanded = false; action() })
+                        }
+                    }
+                }
+            }
+        )
+    LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (section.isEmpty()) {
             items(6) { index ->
                 val names = listOf("General","Interface","Peers","UDP & NAT","Dialer settings","Import / Export")
@@ -35,13 +55,6 @@ fun WireGuardProfileScreen(onPeers: () -> Unit, onImport: () -> Unit, onExport: 
                         }
                         Text("›",style = MaterialTheme.typography.headlineMedium)
                     }
-                }
-            }
-        } else {
-            item {
-                Row(Modifier.fillMaxWidth(),verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { section = "" }) { Text("‹ Back") }
-                    Text(section,style = MaterialTheme.typography.titleLarge)
                 }
             }
         }
@@ -98,6 +111,7 @@ fun WireGuardProfileScreen(onPeers: () -> Unit, onImport: () -> Unit, onExport: 
         if (section.isEmpty()) item {
             Button(onClick = onSave, modifier = Modifier.fillMaxWidth(), enabled = read("privateKey").isNotBlank() && read("peerPublicKey").isNotBlank() && read("localAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 0..65535 } == true) { Text("Save profile") }
         }
+    }
     }
 }
 
