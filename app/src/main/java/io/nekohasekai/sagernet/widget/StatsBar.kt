@@ -43,8 +43,11 @@ class StatsBar @JvmOverloads constructor(
     private var composeInitialized = false
     var allowShow = true
     var onPowerClick: () -> Unit = {}
+    private val powerVisible = androidx.compose.runtime.mutableStateOf(true)
+    fun setPowerVisible(visible: Boolean) { powerVisible.value = visible }
 
     fun performShow() {
+        powerVisible.value = true
         if (allowShow) visibility = View.VISIBLE
         refreshMode()
     }
@@ -81,7 +84,7 @@ class StatsBar @JvmOverloads constructor(
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             SpeedIndicator("Download", ui.rx, false, Modifier.weight(1f).clickable { performClick() })
-                            Box(Modifier.size(76.dp)) { ConnectionPower(ui.serviceState, onPowerClick) }
+                            Box(Modifier.size(76.dp)) { if (powerVisible.value) ConnectionPower(ui.serviceState, onPowerClick) }
                             SpeedIndicator("Upload", ui.tx, true, Modifier.weight(1f).clickable { performClick() })
                         }
                     }
