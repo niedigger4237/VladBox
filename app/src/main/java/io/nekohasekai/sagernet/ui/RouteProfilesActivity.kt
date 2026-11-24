@@ -26,7 +26,7 @@ class RouteProfilesActivity : ThemedActivity() {
         fun dp(n: Int) = (n * density).toInt()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(20), dp(16), dp(12))
+            setPadding(dp(16), dp(20) + resources.getDimensionPixelSize(resources.getIdentifier("status_bar_height", "dimen", "android")).coerceAtLeast(0), dp(16), dp(12))
         }
         val header = TextView(this).apply {
             text = "Routing profiles"
@@ -106,12 +106,16 @@ class RouteProfilesActivity : ThemedActivity() {
                 text = "${profile.routeFinal} · $count rules"
                 textSize = 13f
             })
-            val actions = LinearLayout(this).apply { gravity = Gravity.END }
+            val actions = LinearLayout(this).apply { gravity = Gravity.END; orientation = LinearLayout.HORIZONTAL }
             fun action(label: String, click: () -> Unit) {
                 actions.addView(MaterialButton(this).apply {
                     text = label
+                    textSize = 12f
+                    minWidth = 0
+                    minimumWidth = 0
+                    setPadding(dp(6), 0, dp(6), 0)
                     setOnClickListener { click() }
-                })
+                }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
             }
             action(if (active) "Edit rules" else "Select") {
                 if (active) finish() else perform { RouteProfiles.select(profile.id) }
@@ -128,7 +132,7 @@ class RouteProfilesActivity : ThemedActivity() {
                         .setNegativeButton(android.R.string.cancel, null).show()
                 }
             }
-            column.addView(actions)
+            column.addView(actions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
             card.addView(column)
             cards.addView(card, LinearLayout.LayoutParams(-1, -2).apply {
                 bottomMargin = dp(12)

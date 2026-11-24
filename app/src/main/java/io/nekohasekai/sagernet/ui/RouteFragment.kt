@@ -1,10 +1,22 @@
 package io.nekohasekai.sagernet.ui
 
 import android.content.Intent
+import androidx.activity.OnBackPressedCallback
 import android.os.Bundle
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.view.Gravity
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
 import androidx.appcompat.widget.Toolbar
 import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.ItemTouchHelper
@@ -24,6 +36,9 @@ import io.nekohasekai.sagernet.widget.UndoSnackbarManager
 
 class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItemClickListener {
 
+    private lateinit var routeBackCallback: OnBackPressedCallback
+    private var showingRules = false
+    private lateinit var profileHome: LinearLayout
     lateinit var activity: MainActivity
     lateinit var ruleListView: RecyclerView
     lateinit var ruleAdapter: RuleAdapter
@@ -33,6 +48,10 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         super.onViewCreated(view, savedInstanceState)
 
         activity = requireActivity() as MainActivity
+        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner,
+            object : OnBackPressedCallback(false) {
+                override fun handleOnBackPressed() { renderProfileHome() }
+            }.also { routeBackCallback = it })
 
         ViewCompat.setOnApplyWindowInsetsListener(view, ListListener)
         toolbar.setTitle(R.string.menu_route)
@@ -41,6 +60,13 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         toolbar.menu.add(0, 0x741231, 0, "Profiles").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
         toolbar.setOnMenuItemClickListener(this)
 
+        val content = view.findViewById<LinearLayout>(R.id.route_content)
+        profileHome = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), 0)
+        }
+        content.addView(ScrollView(requireContext()).apply { addView(profileHome) },
+            LinearLayout.LayoutParams(-1, 0, 1f))
         ruleListView = view.findViewById(R.id.route_list)
         ruleListView.layoutManager = FixedLinearLayoutManager(ruleListView)
         ruleAdapter = RuleAdapter()
@@ -107,8 +133,116 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
 
     override fun onResume() {
         super.onResume()
-        toolbar.subtitle = RouteProfiles.all().firstOrNull { it.id == RouteProfiles.selectedId() }?.name ?: "Default"
-        if (::ruleAdapter.isInitialized) runOnDefaultDispatcher { ruleAdapter.reload() }
+        if (showingRules) {
+            toolbar.subtitle = RouteProfiles.all().firstOrNull { it.id == RouteProfiles.selectedId() }?.name ?: "Default"
+            if (::ruleAdapter.isInitialized) runOnDefaultDispatcher { ruleAdapter.reload() }
+        } else renderProfileHome()
+    }
+
+
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    private fun openRules() {
+        showingRules = true
+        routeBackCallback.isEnabled = true
+        (profileHome.parent as View).visibility = View.GONE
+        ruleListView.visibility = View.VISIBLE
+        toolbar.setTitle(R.string.menu_route)
+        toolbar.subtitle = RouteProfiles.all().firstOrNull { it.id == RouteProfiles.selectedId() }?.name
+        runOnDefaultDispatcher { ruleAdapter.reload() }
+    }
+
+    private fun profileAction(block: () -> Unit) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { block() }
+                renderProfileHome()
+            } catch (e: Exception) {
+                MaterialAlertDialogBuilder(requireContext())
+                    .setMessage(e.message ?: "Operation failed")
+                    .setPositiveButton(android.R.string.ok, null).show()
+            }
+        }
+    }
+
+    private fun profileNameDialog(id: String? = null) {
+        val input = EditText(requireContext()).apply {
+            hint = "Profile name"
+            setSingleLine()
+            setText(RouteProfiles.all().firstOrNull { it.id == id }?.name.orEmpty())
+        }
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(if (id == null) "New routing profile" else "Rename profile")
+            .setView(input)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isNotEmpty()) profileAction {
+                    if (id == null) RouteProfiles.create(name) else RouteProfiles.rename(id, name)
+                }
+            }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun renderProfileHome() {
+        if (!::profileHome.isInitialized) return
+        showingRules = false
+        routeBackCallback.isEnabled = false
+        toolbar.subtitle = null
+        toolbar.title = "Routing profiles"
+        ruleListView.visibility = View.GONE
+        (profileHome.parent as View).visibility = View.VISIBLE
+        profileHome.removeAllViews()
+        profileHome.addView(MaterialButton(requireContext()).apply {
+            text = "+ New profile"
+            setOnClickListener { profileNameDialog() }
+        }, LinearLayout.LayoutParams(-1, dp(52)).apply { bottomMargin = dp(16) })
+        val selected = RouteProfiles.selectedId()
+        RouteProfiles.all().forEach { profile ->
+            val active = profile.id == selected
+            val card = MaterialCardView(requireContext()).apply {
+                radius = dp(18).toFloat()
+                setContentPadding(dp(18), dp(16), dp(18), dp(16))
+                isCheckable = true
+                isChecked = active
+            }
+            val column = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
+            column.addView(TextView(requireContext()).apply {
+                text = profile.name + if (active) "  ✓" else ""
+                textSize = 20f
+            })
+            column.addView(TextView(requireContext()).apply {
+                text = "${if (active) DataStore.routeFinal else profile.routeFinal} · ${if (active) ruleAdapter.ruleList.size else profile.rules.size} rules"
+                textSize = 13f
+            })
+            val actions = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END
+            }
+            fun addAction(label: String, action: () -> Unit) {
+                actions.addView(MaterialButton(requireContext()).apply {
+                    text = label
+                    textSize = 12f
+                    minWidth = 0
+                    minimumWidth = 0
+                    setPadding(dp(8), 0, dp(8), 0)
+                    setOnClickListener { action() }
+                }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(6) })
+            }
+            addAction(if (active) "Edit rules" else "Select") {
+                if (active) openRules() else profileAction { RouteProfiles.select(profile.id) }
+            }
+            addAction("Rename") { profileNameDialog(profile.id) }
+            if (profile.id != "default") addAction("Delete") {
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle("Delete ${profile.name}?")
+                    .setMessage("This routing profile and its rules will be deleted.")
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        profileAction { RouteProfiles.delete(profile.id) }
+                    }.setNegativeButton(android.R.string.cancel, null).show()
+            }
+            column.addView(actions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+            card.addView(column)
+            profileHome.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+        }
     }
 
     override fun onDestroy() {
@@ -120,7 +254,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
 
     override fun onMenuItemClick(item: MenuItem): Boolean {
         when (item.itemId) {
-            0x741231 -> startActivity(Intent(requireContext(), RouteProfilesActivity::class.java))
+            0x741231 -> renderProfileHome()
             R.id.action_new_route -> {
                 startActivity(Intent(context, RouteSettingsActivity::class.java))
             }

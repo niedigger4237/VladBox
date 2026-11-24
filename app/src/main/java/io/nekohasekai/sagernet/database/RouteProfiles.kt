@@ -46,6 +46,14 @@ object RouteProfiles {
         val profiles = all()
         val current = profiles.firstOrNull { it.id == selectedId() } ?: error("Current profile missing")
         val target = profiles.firstOrNull { it.id == id } ?: error("Profile missing")
+        if (id == "default") {
+            target.rules.forEach { rule ->
+                if (rule.name == "Analysis" &&
+                    rule.domains == "domain:appcenter.ms\ndomain:firebase.io\ndomain:crashlytics.com") {
+                    rule.domains = "appcenter.ms\nfirebase.io\ncrashlytics.com"
+                }
+            }
+        }
         current.rules = SagerDatabase.rulesDao.allRules()
         current.routeFinal = DataStore.routeFinal
         current.dnsMain = DataStore.dnsMain

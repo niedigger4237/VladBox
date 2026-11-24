@@ -192,7 +192,7 @@ object ProfileManager {
                 RuleEntity(name = "Ads", userOrder = 1, enabled = true,
                     domains = "geosite:category-ads-all", outbound = -2L),
                 RuleEntity(name = "Analysis", userOrder = 2, enabled = true,
-                    domains = "domain:appcenter.ms\ndomain:firebase.io\ndomain:crashlytics.com", outbound = -2L),
+                    domains = "appcenter.ms\nfirebase.io\ncrashlytics.com", outbound = -2L),
                 RuleEntity(name = "Direct IP", userOrder = 3, enabled = true,
                     ip = "geoip:ru\ngeoip:private", outbound = -1L),
                 RuleEntity(name = "Direct Domain", userOrder = 4, enabled = true,
@@ -203,6 +203,20 @@ object ProfileManager {
             SagerDatabase.rulesDao.insert(defaults)
             store.putBoolean("defaultRouteTemplateV1Installed", true)
         }
+    }
+
+    /** Update existing Default Analysis rules without resetting user customizations. */
+    fun migrateDefaultAnalysisDomains() {
+        if (RouteProfiles.selectedId() != "default") return
+        SagerDatabase.rulesDao.allRules()
+            .filter { it.name == "Analysis" }
+            .forEach { rule ->
+                val old = "domain:appcenter.ms\ndomain:firebase.io\ndomain:crashlytics.com"
+                if (rule.domains == old) {
+                    rule.domains = "appcenter.ms\nfirebase.io\ncrashlytics.com"
+                    SagerDatabase.rulesDao.updateRule(rule)
+                }
+            }
     }
 
     suspend fun getRules(): List<RuleEntity> {

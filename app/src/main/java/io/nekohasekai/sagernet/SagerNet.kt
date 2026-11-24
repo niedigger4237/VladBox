@@ -173,6 +173,7 @@ class SagerNet : Application(),
 
         if (isMainProcess) {
             ProfileManager.installDefaultRouteTemplate()
+            ProfileManager.migrateDefaultAnalysisDomains()
             Theme.apply(this)
             Theme.applyNightTheme()
             runOnDefaultDispatcher {
