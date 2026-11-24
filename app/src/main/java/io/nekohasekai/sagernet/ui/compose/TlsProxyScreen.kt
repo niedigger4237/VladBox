@@ -27,13 +27,13 @@ fun TlsProxyScreen(shadow: Boolean, onSave: () -> Unit, onClose: () -> Unit, men
             var expanded by remember { mutableStateOf(false) }
             TextButton(onClick = onSave, enabled = valid) { Text("Save") }
             Box {
-                IconButton(onClick = { expanded = true }) { Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_baseline_more_vert_24), "More options") }
+                IconButton(onClick = { expanded = true }) { Text("⋮") }
                 DropdownMenu(expanded, { expanded = false }) { menuItems.forEach { (label, action) -> DropdownMenuItem(text = { Text(label) }, onClick = { expanded = false; action() }) } }
             }
         })
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (section.isEmpty()) {
-                val sections = listOf("General" to "Server and authentication", "Security" to "TLS and certificates") + if (shadow) emptyList() else listOf("Sessions" to "Idle session management")
+                val sections = listOf("General" to "Server and authentication", "Security" to "TLS and certificates", "Connection" to "Dialer options") + if (shadow) emptyList() else listOf("Sessions" to "Idle session management")
                 items(sections.size) { i ->
                     val (label, detail) = sections[i]
                     Card(onClick = { section = label }, modifier = Modifier.fillMaxWidth()) {
@@ -62,6 +62,9 @@ fun TlsProxyScreen(shadow: Boolean, onSave: () -> Unit, onClose: () -> Unit, men
                             SimpleToggle("Allow insecure",store.getBoolean("allowInsecure",false)) { store.putBoolean("allowInsecure",it); revision++ }
                             SimpleField("uTLS fingerprint",read("utlsFingerprint")) { write("utlsFingerprint",it) }
                             if (!shadow) SimpleField("ECH configuration",read("echConfig")) { write("echConfig",it) }
+                        }
+                        "Connection" -> {
+                            VlessDialer(read("outboundDialer")) { write("outboundDialer",it) }
                         }
                         "Sessions" -> {
                             SimpleField("Idle session check interval",read("idleSessionCheckInterval")) { write("idleSessionCheckInterval",it) }
