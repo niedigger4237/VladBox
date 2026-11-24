@@ -1498,9 +1498,9 @@ class ConfigurationFragment @JvmOverloads constructor(
                 selectedView.visibility = if (selected) View.VISIBLE else View.INVISIBLE
                 val card = view.findViewById<com.google.android.material.card.MaterialCardView>(R.id.content)
                 val surface = com.google.android.material.color.MaterialColors.getColor(card, com.google.android.material.R.attr.colorSurface)
-                val container = com.google.android.material.color.MaterialColors.getColor(card, com.google.android.material.R.attr.colorPrimaryContainer)
-                card.setCardBackgroundColor(if (selected) container else surface)
-                card.findViewById<TextView>(R.id.profile_name).setTextColor(com.google.android.material.color.MaterialColors.getColor(card, if (selected) com.google.android.material.R.attr.colorOnPrimaryContainer else com.google.android.material.R.attr.colorOnSurface))
+                val primary = com.google.android.material.color.MaterialColors.getColor(card, androidx.appcompat.R.attr.colorPrimary)
+                card.setCardBackgroundColor(if (selected) androidx.core.graphics.ColorUtils.blendARGB(surface, primary, 0.20f) else surface)
+                card.findViewById<TextView>(R.id.profile_name).setTextColor(com.google.android.material.color.MaterialColors.getColor(card, com.google.android.material.R.attr.colorOnSurface))
             }
 
             fun bind(proxyEntity: ProxyEntity, trafficData: TrafficData? = null) {
