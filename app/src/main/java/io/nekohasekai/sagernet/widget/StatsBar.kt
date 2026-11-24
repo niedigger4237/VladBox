@@ -1,7 +1,9 @@
 package io.nekohasekai.sagernet.widget
 
 import android.annotation.SuppressLint
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.ViewModelProvider
+import io.nekohasekai.sagernet.ui.compose.ConnectionViewModel
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.ui.Modifier
@@ -15,7 +17,6 @@ import android.content.Context
 import android.text.format.Formatter
 import android.util.AttributeSet
 import android.view.View
-import android.widget.TextView
 import androidx.appcompat.widget.TooltipCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.whenStarted
@@ -33,14 +34,7 @@ class StatsBar @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null,
     defStyleAttr: Int = com.google.android.material.R.attr.materialCardViewStyle,
 ) : MaterialCardView(context, attrs, defStyleAttr) {
-    private lateinit var statusText: TextView
-    private lateinit var txText: TextView
-    private lateinit var rxText: TextView
-    private val statusState = mutableStateOf("")
-    private val modeState = mutableStateOf("")
-    private val txState = mutableStateOf("")
-    private val rxState = mutableStateOf("")
-    private val connectedState = mutableStateOf(false)
+    private val model by lazy { ViewModelProvider(context as MainActivity)[ConnectionViewModel::class.java] }
     private var composeInitialized = false
     var allowShow = true
 
@@ -54,13 +48,10 @@ class StatsBar @JvmOverloads constructor(
     }
 
     private fun refreshMode() {
-        modeState.value = DataStore.serviceMode.uppercase() + " Mode"
+        model.updateMode(DataStore.serviceMode.uppercase() + " Mode")
     }
 
     override fun setOnClickListener(l: OnClickListener?) {
-        statusText = findViewById(R.id.status)
-        txText = findViewById(R.id.tx)
-        rxText = findViewById(R.id.rx)
         super.setOnClickListener(l)
         if (!composeInitialized) {
             composeInitialized = true
@@ -68,15 +59,16 @@ class StatsBar @JvmOverloads constructor(
             val foreground = com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface)
             setCardBackgroundColor(androidx.core.graphics.ColorUtils.blendARGB(surface, foreground, 0.08f))
             findViewById<ComposeView>(R.id.stats_compose).setContent {
+                val ui = model.state.collectAsState().value
                 HubTheme {
                     Column(Modifier.padding(start = 4.dp, end = 8.dp)) {
-                        Text((if (connectedState.value) "●  " else "") + statusState.value,
+                        Text((if (ui.connected) "●  " else "") + ui.status,
                             fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(modeState.value, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(ui.mode, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text(rxState.value, fontSize = 12.sp, maxLines = 1, modifier = Modifier.weight(1f, false))
-                            Text(txState.value, fontSize = 12.sp, maxLines = 1, modifier = Modifier.weight(1f, false))
+                            Text(ui.rx, fontSize = 12.sp, maxLines = 1, modifier = Modifier.weight(1f, false))
+                            Text(ui.tx, fontSize = 12.sp, maxLines = 1, modifier = Modifier.weight(1f, false))
                         }
                     }
                 }
@@ -85,8 +77,7 @@ class StatsBar @JvmOverloads constructor(
     }
 
     private fun setStatus(text: CharSequence) {
-        statusText.text = text
-        statusState.value = text.toString()
+        model.updateStatus(text.toString())
         TooltipCompat.setTooltipText(this, text)
     }
 
@@ -98,16 +89,7 @@ class StatsBar @JvmOverloads constructor(
         }
         refreshMode()
         val connected = state == BaseService.State.Connected
-        connectedState.value = connected
-        statusText.setCompoundDrawablesRelativeWithIntrinsicBounds(
-            if (connected) android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
-                val size = (8 * resources.displayMetrics.density).toInt()
-                setSize(size, size)
-                setColor(if (androidx.core.graphics.ColorUtils.calculateLuminance(com.google.android.material.color.MaterialColors.getColor(this@StatsBar, com.google.android.material.R.attr.colorSurface)) < 0.5) android.graphics.Color.parseColor("#A5D5B1") else android.graphics.Color.parseColor("#386A49"))
-            } else null, null, null, null
-        )
-        statusText.compoundDrawablePadding = (6 * resources.displayMetrics.density).toInt()
+        model.updateConnected(connected)
         if (state == BaseService.State.Connected) {
             postWhenStarted {
                 if (allowShow) performShow()
@@ -132,18 +114,17 @@ class StatsBar @JvmOverloads constructor(
 
     @SuppressLint("SetTextI18n")
     fun updateSpeed(txRate: Long, rxRate: Long) {
-        txText.text = "▲  ${
+        val tx = "▲  ${
             context.getString(
                 R.string.speed, Formatter.formatFileSize(context, txRate)
             )
         }"
-        rxText.text = "▼  ${
+        val rx = "▼  ${
             context.getString(
                 R.string.speed, Formatter.formatFileSize(context, rxRate)
             )
         }"
-        txState.value = txText.text.toString()
-        rxState.value = rxText.text.toString()
+        model.updateSpeed(tx, rx)
     }
 
     fun testConnection() {
