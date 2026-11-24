@@ -272,7 +272,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
         Switch(value, change)
     }
 }
-@Composable private fun ProfileChoices(options: List<Pair<String,String>>, selected: String, change: (String)->Unit) {
+@Composable internal fun ProfileChoices(options: List<Pair<String,String>>, selected: String, change: (String)->Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         options.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
