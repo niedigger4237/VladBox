@@ -28,6 +28,8 @@ class TuicSettingsActivity : ProfileSettingsActivity<TuicBean>() {
 
     override fun TuicBean.init() {
         extra.writeToCacheAll(this)
+        DataStore.profileCacheStore.putString("outboundDialer", outboundDialer)
+        DataStore.profileCacheStore.putString("quicTlsOptions", quicTlsOptions)
         DataStore.profileName = name
         DataStore.serverAddress = serverAddress
         DataStore.serverPort = serverPort
@@ -45,6 +47,8 @@ class TuicSettingsActivity : ProfileSettingsActivity<TuicBean>() {
 
     override fun TuicBean.serialize() {
         extra.fromCacheAll(this)
+        outboundDialer = DataStore.profileCacheStore.getString("outboundDialer", "").orEmpty()
+        quicTlsOptions = DataStore.profileCacheStore.getString("quicTlsOptions", "").orEmpty()
         name = DataStore.profileName
         serverAddress = DataStore.serverAddress
         serverPort = DataStore.serverPort
