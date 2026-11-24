@@ -27,6 +27,26 @@ fun buildSingBoxOutboundAnyTLSBean(bean: AnyTLSBean): SingBoxOptions.Outbound_An
 
         tls = SingBoxOptions.OutboundTLSOptions().apply {
             enabled = true
+            val extra = org.json.JSONObject(bean.tlsExtras.ifBlank { "{}" })
+            val min = extra.optString("min_version")
+            val max = extra.optString("max_version")
+            val versions = listOf("1.0","1.1","1.2","1.3")
+            require(min.isBlank() || min in versions)
+            require(max.isBlank() || max in versions)
+            require(min.isBlank() || max.isBlank() || versions.indexOf(min) <= versions.indexOf(max))
+            for (key in listOf("min_version","max_version","handshake_timeout","certificate_path","client_certificate_path","client_key_path")) {
+                extra.optString(key).takeIf { it.isNotBlank() }?.let { _hack_config_map[key] = it }
+            }
+            for (key in listOf("certificate_public_key_sha256","curve_preferences","cipher_suites")) {
+                extra.optString(key).takeIf { it.isNotBlank() }?.let { _hack_config_map[key] = it.listByLineOrComma() }
+            }
+            for (key in listOf("client_certificate","client_key")) {
+                extra.optString(key).takeIf { it.isNotBlank() }?.let { _hack_config_map[key] = it.lines() }
+            }
+            require(bean.certificates.isBlank() || extra.optString("certificate_path").isBlank())
+            require(extra.optString("client_certificate").isBlank() || extra.optString("client_certificate_path").isBlank())
+            require(extra.optString("client_key").isBlank() || extra.optString("client_key_path").isBlank())
+            require(listOf("client_certificate","client_certificate_path").any { extra.optString(it).isNotBlank() } == listOf("client_key","client_key_path").any { extra.optString(it).isNotBlank() })
             server_name = bean.sni.blankAsNull()
             insecure = bean.allowInsecure || DataStore.globalAllowInsecure
             alpn = bean.alpn.blankAsNull()?.listByLineOrComma()
