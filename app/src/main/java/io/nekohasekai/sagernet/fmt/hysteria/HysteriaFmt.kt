@@ -278,6 +278,7 @@ fun buildSingBoxOutboundHysteriaBean(bean: HysteriaBean): SingBoxOptions.SingBox
         1 -> SingBoxOptions.Outbound_HysteriaOptions().apply {
             type = "hysteria"
             server = bean.serverAddress
+            io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(bean.outboundDialer, "", _hack_config_map)
             val port = bean.serverPorts.trim().toIntOrNull()
             require(port == null || port in 1..65535) { "Invalid server port" }
             if (port != null) {
@@ -312,12 +313,14 @@ fun buildSingBoxOutboundHysteriaBean(bean: HysteriaBean): SingBoxOptions.SingBox
                 }
                 insecure = bean.allowInsecure || DataStore.globalAllowInsecure
                 enabled = true
+                io.nekohasekai.sagernet.fmt.applyQuicTlsOptions(bean.quicTlsOptions, _hack_config_map)
             }
         }
 
         2 -> SingBoxOptions.Outbound_Hysteria2Options().apply {
             type = "hysteria2"
             server = bean.serverAddress
+            io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(bean.outboundDialer, "", _hack_config_map)
             val port = bean.serverPorts.trim().toIntOrNull()
             require(port == null || port in 1..65535) { "Invalid server port" }
             if (port != null) {
@@ -393,6 +396,7 @@ fun buildSingBoxOutboundHysteriaBean(bean: HysteriaBean): SingBoxOptions.SingBox
                 }
                 insecure = bean.allowInsecure || DataStore.globalAllowInsecure
                 enabled = true
+                io.nekohasekai.sagernet.fmt.applyQuicTlsOptions(bean.quicTlsOptions, _hack_config_map)
             }
         }
 
