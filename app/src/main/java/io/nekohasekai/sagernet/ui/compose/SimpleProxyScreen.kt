@@ -22,7 +22,8 @@ fun SimpleProxyScreen(shadowsocks: Boolean, onSave: () -> Unit, onClose: () -> U
     val port = remember(revision) { if (shadowsocks) store.getString("serverPort", "").orEmpty() else DataStore.serverPort.toString() }
     val method = remember(revision) { store.getString("method", "").orEmpty() }
     val password = remember(revision) { if (shadowsocks) store.getString("password", "").orEmpty() else DataStore.serverPassword }
-    val valid = address.isNotBlank() && port.toIntOrNull()?.let { it in 1..65535 } == true && (!shadowsocks || (method.isNotBlank() && (method == "none" || password.isNotBlank())))
+    val dialerValid = runCatching { io.nekohasekai.sagernet.fmt.v2ray.applyClientDialer(store.getString("outboundDialer","").orEmpty(), store.getString("outboundNetwork","").orEmpty(), mutableMapOf()) }.isSuccess
+    val valid = dialerValid && address.isNotBlank() && port.toIntOrNull()?.let { it in 1..65535 } == true && (!shadowsocks || (method.isNotBlank() && (method == "none" || password.isNotBlank())))
     val title = if (shadowsocks) "Shadowsocks" else when(version) { 0 -> "SOCKS4"; 1 -> "SOCKS4A"; else -> "SOCKS5" }
     fun write(key: String, value: String) { store.putString(key,value); revision++ }
     androidx.activity.compose.BackHandler(section.isNotEmpty()) { section = "" }
@@ -37,7 +38,7 @@ fun SimpleProxyScreen(shadowsocks: Boolean, onSave: () -> Unit, onClose: () -> U
         })
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (section.isEmpty()) {
-                val sections = listOf("General" to "Server and protocol", "Authentication" to if (shadowsocks) method else "Credentials", "Advanced" to if (shadowsocks) "Plugin and UDP" else "UDP options")
+                val sections = listOf("General" to "Server and protocol", "Authentication" to (if (shadowsocks) method else "Credentials"), "Advanced" to (if (shadowsocks) "Plugin and UDP" else "UDP options"), "Connection" to "Network and dialer")
                 items(sections.size) { i ->
                     val (label, detail) = sections[i]
                     Card(onClick = { section = label }, modifier = Modifier.fillMaxWidth()) {
@@ -76,6 +77,17 @@ fun SimpleProxyScreen(shadowsocks: Boolean, onSave: () -> Unit, onClose: () -> U
                         }
                     } else SimpleField(if (version == 2) "Username" else "User ID",DataStore.serverUsername) { DataStore.serverUsername = it; revision++ }
                     if (shadowsocks || version == 2) SimpleField("Password",password,true) { if (shadowsocks) write("password",it) else { DataStore.serverPassword = it; revision++ } }
+                }
+            }
+            if (section == "Connection") item {
+                SimpleSection("Connection") {
+                    if (shadowsocks || version == 2) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("" to "TCP + UDP", "tcp" to "TCP", "udp" to "UDP").forEach { (value,label) ->
+                            FilterChip(selected = store.getString("outboundNetwork","").orEmpty() == value, onClick = { write("outboundNetwork",value) }, label = { Text(label) })
+                        }
+                    } else Text("TCP only")
+                    VlessDialer(store.getString("outboundDialer","").orEmpty()) { write("outboundDialer",it) }
+                    if (!dialerValid) Text("Invalid connection options", color = MaterialTheme.colorScheme.error)
                 }
             }
             if (section == "Advanced") item {
