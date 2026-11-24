@@ -91,8 +91,8 @@ fun ProfileCard(
                                 onClick = { expanded = false; onShare() })
                             DropdownMenuItem(
                                 text = { Text(androidx.compose.ui.res.stringResource(R.string.delete)) },
-                                enabled = editEnabled,
-                                onClick = { expanded = false; onRemove?.invoke() })
+                                enabled = editEnabled && !selected,
+                                onClick = { expanded = false; if (!selected) onRemove?.invoke() })
                         }
                     }
                 }
