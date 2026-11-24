@@ -246,6 +246,9 @@ class ConfigurationFragment @JvmOverloads constructor(
 
         }
 
+        if (!select && !SagerNet.isTv) {
+            io.nekohasekai.sagernet.ui.compose.installProfileHeader(this, view)
+        }
         DataStore.profileCacheStore.registerChangeListener(this)
     }
 
