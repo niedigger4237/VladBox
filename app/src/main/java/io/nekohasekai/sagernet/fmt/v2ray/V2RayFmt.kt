@@ -697,8 +697,21 @@ fun buildSingBoxOutboundTLS(bean: StandardV2RayBean): OutboundTLSOptions? {
             if (bean.tlsFragmentFallbackDelay.isNotBlank()) fragment_fallback_delay = bean.tlsFragmentFallbackDelay
         }
         if (bean.tlsRecordFragment) record_fragment = true
+        val spoof = bean.tlsSpoof.trim()
+        val spoofMethod = bean.tlsSpoofMethod.trim()
+        if (spoof.isNotEmpty() || spoofMethod.isNotEmpty()) {
+            require(bean.realityPubKey.isBlank()) { "TLS spoof is unsupported with Reality" }
+            require(spoof.isNotEmpty() && !bean.tlsDisableSni) { "TLS spoof requires SNI and a spoof server name" }
+            require(!spoof.equals(bean.sni.ifBlank { bean.serverAddress }, ignoreCase = true)) { "TLS spoof must differ from server name" }
+            require(spoofMethod.isEmpty() || spoofMethod in listOf("wrong-sequence", "wrong-checksum", "wrong-ack", "wrong-md5", "wrong-timestamp")) { "Invalid TLS spoof method" }
+            _hack_config_map["spoof"] = spoof
+            if (spoofMethod.isNotEmpty()) _hack_config_map["spoof_method"] = spoofMethod
+        }
+        if (bean.tlsKernelTx) _hack_config_map["kernel_tx"] = true
+        if (bean.tlsKernelRx) _hack_config_map["kernel_rx"] = true
         var fp = bean.utlsFingerprint
         if (bean.realityPubKey.isNotBlank()) {
+            require(!bean.tlsDisableSni) { "Reality requires SNI" }
             reality = OutboundRealityOptions().apply {
                 enabled = true
                 public_key = bean.realityPubKey
