@@ -43,6 +43,8 @@
             app:fabCustomSize="64dp"
             app:maxImageSize="32dp"
             app:layout_anchor="@id/stats"
+            app:layout_anchorGravity="end|center_vertical"
+            android:layout_marginEnd="20dp"
             app:pressedTranslationZ="6dp"
             app:srcCompat="@drawable/ic_service_play" />
 
@@ -52,9 +54,16 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
             android:nextFocusUp="@+id/fab"
+            android:layout_marginHorizontal="12dp"
+            android:layout_marginBottom="8dp"
+            app:fabAlignmentMode="end"
+            app:fabCradleMargin="0dp"
+            app:fabCradleRoundedCornerRadius="0dp"
+            app:fabCradleVerticalOffset="0dp"
+            app:shapeAppearance="@style/ShapeAppearance.NieFigger.Large"
             app:backgroundTint="?attr/colorSurface"
             app:contentInsetStart="0dp"
-            app:hideOnScroll="true"
+            app:hideOnScroll="false"
             app:layout_scrollFlags="enterAlways|scroll">
 
             <LinearLayout
@@ -62,29 +71,10 @@
                 android:layout_height="wrap_content"
                 android:background="?android:attr/selectableItemBackground"
                 android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:id="@+id/tx"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_columnWeight="1"
-                    android:layout_gravity="fill_horizontal"
-                    android:ellipsize="marquee"
-                    android:singleLine="true"
-                    android:textColor="?android:attr/textColorPrimary"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/rx"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_columnWeight="1"
-                    android:layout_gravity="fill_horizontal"
-                    android:ellipsize="marquee"
-                    android:singleLine="true"
-                    android:textColor="?android:attr/textColorPrimary"
-                    android:textSize="14sp" />
+                android:paddingStart="16dp"
+                android:paddingEnd="88dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp">
 
                 <TextView
                     android:id="@+id/status"
@@ -97,6 +87,32 @@
                     android:textSize="16sp"
                     android:textStyle="bold"
                     tools:text="@string/connection_test_available" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                <TextView
+                    android:id="@+id/rx"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_gravity="fill_horizontal"
+                    android:ellipsize="marquee"
+                    android:singleLine="true"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textSize="14sp" />
+                <TextView
+                    android:id="@+id/tx"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_gravity="fill_horizontal"
+                    android:ellipsize="marquee"
+                    android:singleLine="true"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textSize="14sp" />
+                </LinearLayout>
 
             </LinearLayout>
 
