@@ -16,7 +16,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     var revision by remember { mutableStateOf(0) }
     fun read(key: String) = store.getString(key, "") ?: ""
     val transport = remember(revision) { read("type").ifBlank { "tcp" } }
-    val security = remember(revision) { read("security") }
+    val security = remember(revision) { read("security").ifBlank { "none" } }
     val mux = remember(revision) { store.getBoolean("enableMux", false) }
     fun write(key: String, value: String) { store.putString(key, value); revision++ }
     fun toggle(key: String, value: Boolean) { store.putBoolean(key, value); revision++ }
@@ -91,7 +91,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
         if (section == "Security") {
             item {
                 ProfileSection("Security") {
-                    ProfileChoices(listOf("" to "None", "tls" to "TLS", "reality" to "Reality"), if (reality) "reality" else security) {
+                    ProfileChoices(listOf("none" to "None", "tls" to "TLS", "reality" to "Reality"), if (reality) "reality" else security) {
                         reality = it == "reality"
                         write("security", if (reality) "tls" else it)
                         if (!reality) { write("realityPubKey",""); write("realityShortId",""); toggle("realityHybrid",false) }
@@ -244,11 +244,8 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
             "headers" to "Headers (JSON)",
             "x_padding_bytes" to "Padding bytes",
             "no_grpc_header" to "Disable gRPC header",
-            "no_sse_header" to "Disable SSE header",
             "sc_max_each_post_bytes" to "Max POST bytes",
             "sc_min_posts_interval_ms" to "Min POST interval (ms)",
-            "sc_max_buffered_posts" to "Max buffered POSTs",
-            "sc_stream_up_server_secs" to "Stream up server seconds",
             "x_padding_obfs_mode" to "Padding obfuscation",
             "x_padding_key" to "Padding key",
             "x_padding_header" to "Padding header",
@@ -264,11 +261,9 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
             "uplink_data_placement" to "Uplink data placement",
             "uplink_data_key" to "Uplink data key",
             "uplink_chunk_size" to "Uplink chunk size",
-            "server_max_header_bytes" to "Max header bytes",
             "domain_strategy" to "Domain strategy",
             "congestion_controller" to "Congestion controller",
             "cwnd" to "CWND",
-            "trusted_x_forwarded_for" to "Trusted X-Forwarded-For",
             "xmux" to "XMUX (JSON)",
             "download" to "Download settings (JSON)"
         )
