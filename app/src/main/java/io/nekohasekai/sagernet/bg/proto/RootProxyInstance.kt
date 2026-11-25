@@ -29,7 +29,7 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         if (!RootShell.isAvailable()) throw IllegalStateException("Root access was denied")
 
         val core = RootCore.resolve() ?: throw IllegalStateException("No sing-box core for root mode")
-        Logs.i("root core: ${core.label} (${core.path})")
+        Logs.i("root core: ${core.label} (${core.path}); source=${if (core.bundled) "bundled" else "external"}; sha256=${RootCore.fingerprint(core.path)}")
 
         val mode = when (DataStore.serviceMode) {
             Key.MODE_ROOT_TPROXY -> RootDaemon.Mode.TPROXY
