@@ -205,10 +205,26 @@ object RootDaemon {
                 it.asJsonObject.get("interface_name")?.asString == TUN_DEVICE
         }?.asJsonObject
 
-    private fun withTunDownstreams(json: String, names: List<String>): String {
+    private fun withTunDownstreams(json: String, snapshot: DownstreamSnapshot?): String {
         val root = com.google.gson.JsonParser.parseString(json).asJsonObject
         val inbound = managedTunInbound(root) ?: return json
+        val names = snapshot?.names.orEmpty()
         inbound.add("include_interface", strings(listOf("lo") + names))
+        if (names.isNotEmpty()) {
+            // Keep DHCP broadcast and the actual local downstream subnet out of the
+            // native TUN route table. Do not bypass all private ranges or replace SRS.
+            val existing = inbound.get("route_exclude_address")?.let { field ->
+                if (field.isJsonArray) field.asJsonArray.map { it.asString } else listOf(field.asString)
+            }.orEmpty()
+            val local = snapshot?.identity.orEmpty().mapNotNull {
+                RootTetherIdentity.ipv4Network(it.substringAfter(':').substringAfter(':'))
+            }
+            val ipv6 = inbound.getAsJsonArray("address")?.any { ':' in it.asString } == true
+            val added = listOf("255.255.255.255/32", "169.254.0.0/16", "224.0.0.0/24") +
+                local + if (ipv6) listOf("fe80::/10", "ff02::/16") else emptyList()
+            inbound.add("route_exclude_address", strings((existing + added).distinct()))
+            Logs.i("ROOT TUN: local tether route exclusions=${added.distinct()}")
+        }
         return gson.toJson(root)
     }
 
@@ -430,7 +446,7 @@ object RootDaemon {
             managedTunInbound(com.google.gson.JsonParser.parseString(singBoxConfig).asJsonObject) != null))
             resolveDownstreams(mode) else null
         val effectiveConfig = when {
-            managed && mode == Mode.TUN -> withTunDownstreams(singBoxConfig, dynamicDownstreams?.names.orEmpty())
+            managed && mode == Mode.TUN -> withTunDownstreams(singBoxConfig, dynamicDownstreams)
             flowToken != null -> withFlowMetadata(singBoxConfig, flowToken)
             else -> singBoxConfig
         }
