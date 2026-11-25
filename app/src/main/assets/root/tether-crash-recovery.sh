@@ -28,7 +28,7 @@ validate() {
     }
     NR==1 {
         if($1=="route" && NF==7 && ($2=="4" || $2=="6") && boot($3) && hex($4,12) &&
-            number($5) && $5>=17900 && $5<=17999 && number($6) && $6>=17900 && $6<=17998 && $6%2==0 && iface($7)) {
+            number($5) && length($5)==5 && $5>=17900 && $5<=17999 && number($6) && length($6)==5 && $6>=17900 && $6<=17998 && $6%2==0 && iface($7)) {
             type="route"; family=$2; up=$7; next
         }
         if($1=="guard" && NF==3 && substr($2,1,6)=="NFV_G_" && hex(substr($2,7),12) &&
@@ -64,7 +64,7 @@ read -r kind a b c d e f < "$record"
 
 # Every command is constructed from validated tokens and fixed operations.
 # Verify listing commands separately; a failed check is not proof of absence.
-detach() {
+detach() (
     tool=$1 table=$2 hook=$3 chain=$4
     "$tool" -w 3 -t "$table" -S "$hook" >/dev/null || return 1
     while "$tool" -w 3 -t "$table" -C "$hook" -j "$chain" 2>/dev/null; do
@@ -75,7 +75,7 @@ detach() {
     fi
     listing=$("$tool" -w 3 -t "$table" -S) || return 1
     if printf '%s\n' "$listing" | grep -F -- "$chain" >/dev/null; then return 1; fi
-}
+)
 
 if [ "$kind" = route ]; then
     family=$a boot=$b suffix=$c table=$d pref=$e up=$f
@@ -115,14 +115,14 @@ fi
 tag=$a before=$b
 # Caller must have successfully recovered both routing families before invoking
 # guard recovery. Otherwise forwarding protection must remain installed.
-remove_guard() {
+remove_guard() (
     tool=$1 hook=$2
     shift 2
     "$tool" -w 3 -S "$hook" >/dev/null || return 1
     while "$tool" -w 3 -C "$hook" "$@" 2>/dev/null; do
         "$tool" -w 3 -D "$hook" "$@" || return 1
     done
-}
+)
 while read -r row name extra; do
     [ "$row" = iface ] || continue
     for tool in iptables ip6tables; do
