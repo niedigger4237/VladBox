@@ -251,11 +251,6 @@ class BaseService {
         }
 
         fun killProcesses() {
-            data.proxy?.close()
-            wakeLock?.apply {
-                release()
-                wakeLock = null
-            }
             data.networkReconnectJob?.cancel()
             data.networkReconnectJob = null
             val listener = data.networkListenerKey
@@ -263,12 +258,17 @@ class BaseService {
             if (listener != null) runOnDefaultDispatcher {
                 DefaultNetworkListener.stop(listener)
             }
+            data.proxy?.close()
+            wakeLock?.apply {
+                release()
+                wakeLock = null
+            }
         }
 
         fun stopRunner(restart: Boolean = false, msg: String? = null) {
             if (data.state == State.Stopping) {
                 // A user stop or permission revocation must win over a pending reconnect.
-                if (!restart) data.restartAfterStop = false
+                if (!restart && msg == null) data.restartAfterStop = false
                 return
             }
             data.restartAfterStop = restart
