@@ -11,6 +11,13 @@ plugins {
 setupApp()
 
 android {
+    ndkVersion = "25.0.8775105"
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/warp_dpi/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
     defaultConfig {
         // Версия переопределяется только если переданы -PappVersionName / -PappVersionCode
         // (release workflow). Иначе остаются значения из nb4a.properties (задаются в setupApp()).
@@ -47,6 +54,7 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
 
     implementation(fileTree("libs"))
 
@@ -54,6 +62,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
 

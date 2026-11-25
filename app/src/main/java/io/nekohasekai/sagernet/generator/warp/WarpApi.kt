@@ -18,19 +18,20 @@ object WarpApi {
         data class CustomProxy(val host: String, val port: Int, val type: Proxy.Type) : Connection
     }
 
-    private val base = OkHttpClient.Builder()
+    internal const val HOST = "api.cloudflareclient.com"
+
+    internal fun clientBuilder() = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .callTimeout(30, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false)
         .followRedirects(false)
         .followSslRedirects(false)
-        .build()
+
+    private val base = clientBuilder().build()
 
     fun request(method: String, endpoint: String, body: JSONObject?, token: String?,
                 connection: Connection): JSONObject {
-        require(method in setOf("POST", "PATCH", "GET"))
-        require(endpoint.matches(Regex("reg(/[A-Za-z0-9_-]+)?")))
         val proxy = when (connection) {
             Connection.Direct -> Proxy.NO_PROXY
             Connection.LocalProxy -> Proxy(Proxy.Type.SOCKS,
@@ -42,15 +43,23 @@ object WarpApi {
             }
         }
         val client = base.newBuilder().proxy(proxy).build()
+        return client.newCall(buildRequest(method, endpoint, body, token)).execute().use(::readResponse)
+    }
+
+    internal fun buildRequest(method: String, endpoint: String, body: JSONObject?, token: String?): Request {
+        require(method in setOf("POST", "PATCH", "GET"))
+        require(endpoint.matches(Regex("reg(/[A-Za-z0-9_-]+)?")))
         val request = Request.Builder()
-            .url("https://api.cloudflareclient.com/v0i1909051800/$endpoint")
+            .url("https://$HOST/v0i1909051800/$endpoint")
             .header("User-Agent", "CloudflareWarp/1.0")
             .method(method, if (method == "GET") null else
                 (body?.toString() ?: "{}").toRequestBody("application/json".toMediaType()))
         if (!token.isNullOrEmpty()) request.header("Authorization", "Bearer $token")
-        return client.newCall(request.build()).execute().use { response ->
-            check(response.isSuccessful) { "Cloudflare API HTTP ${response.code}" }
-            JSONObject(response.body?.string() ?: error("Empty Cloudflare response"))
-        }
+        return request.build()
+    }
+
+    internal fun readResponse(response: okhttp3.Response): JSONObject {
+        check(response.isSuccessful) { "Cloudflare API HTTP ${response.code}" }
+        return JSONObject(response.body?.string() ?: error("Empty Cloudflare response"))
     }
 }

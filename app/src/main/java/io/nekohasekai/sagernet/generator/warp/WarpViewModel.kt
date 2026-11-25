@@ -10,18 +10,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 internal class WarpViewModel(application: Application) : AndroidViewModel(application) {
-    enum class Transport { DIRECT, LOCAL_PROXY }
+    enum class Transport { DIRECT, LOCAL_PROXY, BYEDPI }
     data class State(
         val settings: WarpGenerator.Settings = WarpGenerator.Settings(),
         val transport: Transport = Transport.DIRECT,
         val accountAddress: String? = null,
         val output: WarpConfExporter.Output? = null,
         val busy: Boolean = false,
+        val strategyProgress: String? = null,
         val error: String? = null
     )
     private val generator = WarpGenerator(application)
+    private val dpiTransport = WarpDpiTransport(application)
     val presets get() = generator.presets
     private val mutableState = MutableStateFlow(State())
     val state = mutableState.asStateFlow()
@@ -47,14 +50,16 @@ internal class WarpViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun cancel() {
-        revision++
         job?.cancel()
-        job = null
-        mutableState.value = mutableState.value.copy(busy = false)
+        if (mutableState.value.transport != Transport.BYEDPI) {
+            revision++
+            job = null
+            mutableState.value = mutableState.value.copy(busy = false)
+        }
     }
 
     fun resetAccount() {
-        cancel()
+        if (mutableState.value.busy) return
         account = null
         seed = null
         mutableState.value = mutableState.value.copy(accountAddress = null, output = null, error = null)
@@ -68,18 +73,22 @@ internal class WarpViewModel(application: Application) : AndroidViewModel(applic
         mutableState.value = snapshot.copy(busy = true, error = null, output = null)
         job = viewModelScope.launch {
             try {
-                val current = existing ?: withContext(Dispatchers.IO) {
-                    val connection = when (snapshot.transport) {
-                        Transport.DIRECT -> WarpApi.Connection.Direct
-                        Transport.LOCAL_PROXY -> WarpApi.Connection.LocalProxy
+                val current = existing ?: if (snapshot.transport == Transport.BYEDPI) {
+                    dpiTransport.register { index, count, strategy ->
+                        mutableState.update { state ->
+                            state.copy(strategyProgress = "ByeDPI strategy $index/$count · ${strategy.name}")
+                        }
                     }
+                } else withContext(Dispatchers.IO) {
+                    val connection = if (snapshot.transport == Transport.LOCAL_PROXY)
+                        WarpApi.Connection.LocalProxy else WarpApi.Connection.Direct
                     WarpRegistration.register { method, endpoint, body, token ->
                         WarpApi.request(method, endpoint, body, token, connection)
                     }
                 }
                 if (id != revision) return@launch
                 account = current
-                mutableState.value = mutableState.value.copy(accountAddress = current.ipv4)
+                mutableState.value = mutableState.value.copy(accountAddress = current.ipv4, strategyProgress = null)
                 val currentSeed = if (generate || previousSeed == null) presets.newSeed() else previousSeed
                 seed = currentSeed
                 val output = withContext(Dispatchers.Default) {
@@ -92,7 +101,7 @@ internal class WarpViewModel(application: Application) : AndroidViewModel(applic
                 if (id == revision) mutableState.value = mutableState.value.copy(
                     error = e.message ?: "WARP generation failed", output = null)
             } finally {
-                if (id == revision) mutableState.value = mutableState.value.copy(busy = false)
+                if (id == revision) mutableState.value = mutableState.value.copy(busy = false, strategyProgress = null)
             }
         }
     }

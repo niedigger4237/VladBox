@@ -2,12 +2,8 @@ package io.nekohasekai.sagernet.generator.warp
 
 import android.os.ParcelFileDescriptor
 import java.io.Closeable
+import java.io.IOException
 
-/**
- * Experimental JNI contract. Not connected to production registration.
- * Native code must restrict outbound connections to the WARP API,
- * own its worker lifecycle and never install process-wide signal handlers.
- */
 internal class NativeByeDpi private constructor(private var handle: Long) : Closeable {
     companion object {
         private val loaded by lazy {
@@ -15,16 +11,38 @@ internal class NativeByeDpi private constructor(private var handle: Long) : Clos
             true
         }
 
+        private fun ensureLoaded() {
+            try {
+                check(loaded)
+            } catch (e: UnsatisfiedLinkError) {
+                throw IllegalStateException("Native ByeDPI library unavailable", e)
+            }
+        }
+
+        fun validate(arguments: List<String>): String? {
+            ensureLoaded()
+            if (arguments.isEmpty()) return "Enter at least one argument."
+            return nativeValidate(arguments.toTypedArray())
+        }
+
         fun open(strategy: DpiStrategySelector.Strategy): NativeByeDpi {
-            check(loaded)
+            ensureLoaded()
             val handle = nativeStart(strategy.arguments.toTypedArray())
-            check(handle != 0L) { "Native ByeDPI initialization failed" }
+            if (handle == 0L) throw IOException("Native ByeDPI initialization failed")
             return NativeByeDpi(handle)
         }
 
+        @JvmStatic private external fun nativeValidate(arguments: Array<String>): String?
         @JvmStatic private external fun nativeStart(arguments: Array<String>): Long
         @JvmStatic private external fun nativeOpenWarpStream(handle: Long): Int
         @JvmStatic private external fun nativeStop(handle: Long)
+        @JvmStatic private external fun nativeSetReadTimeout(fd: Int, timeoutMillis: Int): Boolean
+
+        fun setReadTimeout(stream: ParcelFileDescriptor, timeoutMillis: Int) {
+            if (!nativeSetReadTimeout(stream.fd, timeoutMillis)) {
+                throw IOException("Unable to set private WARP stream timeout")
+            }
+        }
     }
 
     /** Returns an owned descriptor for a private connected stream, not a listener. */
@@ -32,7 +50,7 @@ internal class NativeByeDpi private constructor(private var handle: Long) : Clos
     fun openWarpStream(): ParcelFileDescriptor {
         check(handle != 0L) { "Native ByeDPI session closed" }
         val fd = nativeOpenWarpStream(handle)
-        check(fd >= 0) { "Unable to open WARP stream" }
+        if (fd < 0) throw IOException("Unable to open WARP stream")
         return ParcelFileDescriptor.adoptFd(fd)
     }
 

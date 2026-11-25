@@ -1,64 +1,46 @@
 package io.nekohasekai.sagernet.generator.warp
 
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.net.Proxy
+import java.io.IOException
 import java.util.concurrent.TimeUnit
-import android.os.SystemClock
 
-/** Engine adapter must restrict destinations and close its process on close(). */
-interface WarpDpiSession : java.io.Closeable {
-    val proxy: Proxy
-}
-
-object DpiStrategySelector {
-    data class Strategy(val id: String, val arguments: List<String>)
+internal object DpiStrategySelector {
+    data class Strategy(val id: String, val arguments: List<String>, val name: String = id)
     data class Match(val strategy: Strategy, val latencyMs: Long)
 
-    /** Blocking operation; run on IO. Session ownership never escapes this method. */
-    fun <T> withWorkingStrategy(
+    fun <Session : AutoCloseable, T> withWorkingStrategy(
         strategies: List<Strategy>,
         preferredId: String?,
-        open: (Strategy) -> WarpDpiSession,
-        cancelled: () -> Boolean,
+        open: (Strategy) -> Session,
+        checkCancelled: () -> Unit,
         progress: (Int, Int, Strategy) -> Unit,
-        use: (Match, WarpDpiSession) -> T
+        probe: (Session) -> Boolean,
+        use: (Match, Session) -> T
     ): T {
         val ordered = strategies.distinctBy { it.id }.sortedBy { it.id != preferredId }
         for ((index, strategy) in ordered.withIndex()) {
-            if (cancelled()) throw java.util.concurrent.CancellationException()
+            checkCancelled()
             progress(index + 1, ordered.size, strategy)
-            val session = try { open(strategy) } catch (e: java.io.IOException) { continue }
+            val session = try {
+                open(strategy)
+            } catch (_: IOException) {
+                continue
+            }
             session.use {
-                val latency = try { probe(it.proxy) } catch (e: java.io.IOException) { null }
-                if (cancelled()) throw java.util.concurrent.CancellationException()
-                if (latency != null) return use(Match(strategy, latency), it)
+                checkCancelled()
+                val start = System.nanoTime()
+                val working = try {
+                    probe(it)
+                } catch (_: IOException) {
+                    false
+                }
+                checkCancelled()
+                if (working) {
+                    val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
+                    return use(Match(strategy, elapsed), it)
+                }
             }
         }
-        error("No working ByeDPI strategy for Cloudflare API")
-    }
-
-    private fun probe(proxy: Proxy): Long? {
-        require(proxy.type() == Proxy.Type.SOCKS)
-        val client = OkHttpClient.Builder()
-            .proxy(proxy)
-            .callTimeout(6, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(false)
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .build()
-        val start = SystemClock.elapsedRealtime()
-        try {
-            val request = Request.Builder()
-                .url("https://api.cloudflareclient.com/v0i1909051800/reg")
-                .get().build()
-            return client.newCall(request).execute().use { response ->
-                if (response.code in 200..499 && response.code != 429)
-                    SystemClock.elapsedRealtime() - start else null
-            }
-        } finally {
-            client.connectionPool.evictAll()
-            client.dispatcher.executorService.shutdown()
-        }
+        checkCancelled()
+        throw IOException("No working ByeDPI strategy for Cloudflare WARP")
     }
 }

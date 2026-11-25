@@ -1,65 +1,140 @@
 package io.nekohasekai.sagernet.generator.warp
 
 import android.content.Context
-import org.json.JSONObject
-import java.net.InetSocketAddress
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import okhttp3.Call
+import okhttp3.ConnectionPool
+import okhttp3.Dns
+import okhttp3.OkHttpClient
+import java.net.InetAddress
 import java.net.Proxy
+import java.net.UnknownHostException
 import java.util.concurrent.CancellationException
+import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
-/** Internal transaction adapter. Production caller must supply an isolated engine. */
 internal class WarpDpiTransport(private val context: Context) {
-    fun <T> execute(
-        open: (DpiStrategySelector.Strategy) -> WarpDpiSession,
-        cancelled: () -> Boolean,
-        progress: (Int, Int, DpiStrategySelector.Strategy) -> Unit,
-        transaction: (ApiSession) -> T
-    ): T = DpiStrategySelector.withWorkingStrategy(
-        DpiStrategyCatalog.strategies,
-        DpiStrategyCatalog.preferred(context),
-        open, cancelled, progress
-    ) { match, session ->
-        val address = session.proxy.address() as? InetSocketAddress
-            ?: error("Invalid ByeDPI proxy address")
-        require(session.proxy.type() == Proxy.Type.SOCKS)
-        require(address.address?.isLoopbackAddress == true)
-        val api = ApiSession(
-            WarpApi.Connection.CustomProxy(address.hostString, address.port, Proxy.Type.SOCKS),
-            cancelled
-        )
-        try {
-            val result = transaction(api)
-            if (cancelled()) throw CancellationException()
-            DpiStrategyCatalog.remember(context, match)
-            result
-        } finally {
-            api.invalidate()
-        }
+    private companion object {
+        val registrationLock = Mutex()
     }
 
-    /** Registration entry point for a verified, isolated engine adapter only. */
-    fun register(
-        open: (DpiStrategySelector.Strategy) -> WarpDpiSession,
-        cancelled: () -> Boolean,
+    suspend fun register(
         progress: (Int, Int, DpiStrategySelector.Strategy) -> Unit
-    ): WarpRegistration.Account = execute(open, cancelled, progress) { api ->
-        WarpRegistration.register { method, endpoint, body, token ->
-            api.request(method, endpoint, body, token)
+    ): WarpRegistration.Account = registrationLock.withLock {
+        withContext(Dispatchers.IO) {
+            suspendCancellableCoroutine { continuation ->
+                val calls = RegistrationCalls()
+                continuation.invokeOnCancellation { calls.cancel() }
+                try {
+                    continuation.resume(register(calls, progress))
+                } catch (e: Exception) {
+                    continuation.resumeWithException(e)
+                }
+            }
         }
     }
 
-    internal class ApiSession(
-        private val connection: WarpApi.Connection,
-        private val cancelled: () -> Boolean
-    ) {
-        @Volatile private var active = true
+    private fun register(
+        calls: RegistrationCalls,
+        progress: (Int, Int, DpiStrategySelector.Strategy) -> Unit
+    ): WarpRegistration.Account {
+        val settings = DpiStrategyCatalog.settings(context)
+        return DpiStrategySelector.withWorkingStrategy(
+            DpiStrategyCatalog.available(context, settings),
+            DpiStrategyCatalog.preferred(context, settings),
+            { strategy ->
+                val engine = NativeByeDpi.open(strategy)
+                try {
+                    ApiSession(engine, calls, settings.timeout)
+                } catch (failure: Throwable) {
+                    engine.close()
+                    throw failure
+                }
+            },
+            calls::checkCancelled, progress,
+            ApiSession::probe
+        ) { match, api ->
+            val result = WarpRegistration.register { method, endpoint, body, token ->
+                val call = api.client.newCall(WarpApi.buildRequest(method, endpoint, body, token))
+                calls.execute(call, WarpApi::readResponse)
+            }
+            calls.checkCancelled()
+            if (settings.rememberSuccessful) DpiStrategyCatalog.remember(context, match)
+            result
+        }
+    }
 
-        @Synchronized fun request(method: String, endpoint: String,
-                    body: JSONObject? = null, token: String? = null): JSONObject {
-            check(active) { "WARP API session closed" }
-            if (cancelled()) throw CancellationException()
-            return WarpApi.request(method, endpoint, body, token, connection)
+    private class ApiSession(
+        private val engine: NativeByeDpi,
+        private val calls: RegistrationCalls,
+        private val probeTimeout: Int
+    ) : AutoCloseable {
+        val client: OkHttpClient = WarpApi.clientBuilder()
+            .proxy(Proxy.NO_PROXY)
+            .socketFactory(WarpDpiSocketFactory(engine))
+            .dns(Dns { host ->
+                if (host != WarpApi.HOST) throw UnknownHostException(host)
+                // OkHttp needs a route address. Native code resolves the only
+                // permitted upstream. This address is never used for TCP.
+                listOf(InetAddress.getByAddress(host, byteArrayOf(127, 0, 0, 1)))
+            })
+            .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
+            .build()
+
+        fun probe(): Boolean {
+            val seconds = probeTimeout.toLong()
+            val probeClient = client.newBuilder()
+                .connectTimeout(seconds, TimeUnit.SECONDS)
+                .readTimeout(seconds, TimeUnit.SECONDS)
+                .writeTimeout(seconds, TimeUnit.SECONDS)
+                .callTimeout(seconds, TimeUnit.SECONDS)
+                .build()
+            val call = probeClient.newCall(WarpApi.buildRequest("GET", "reg", null, null))
+            return calls.execute(call) { it.code in 200..499 && it.code != 429 }
         }
 
-        @Synchronized internal fun invalidate() { active = false }
+        override fun close() {
+            try {
+                client.connectionPool.evictAll()
+                client.dispatcher.executorService.shutdown()
+            } finally {
+                engine.close()
+            }
+        }
+    }
+
+    private class RegistrationCalls {
+        @Volatile private var cancelled = false
+        private var active: Call? = null
+
+        fun checkCancelled() {
+            if (cancelled) throw CancellationException()
+        }
+
+        fun cancel() {
+            val call = synchronized(this) {
+                cancelled = true
+                active
+            }
+            call?.cancel()
+        }
+
+        fun <T> execute(call: Call, read: (okhttp3.Response) -> T): T {
+            synchronized(this) {
+                checkCancelled()
+                active = call
+            }
+            try {
+                return call.execute().use(read)
+            } finally {
+                synchronized(this) { active = null }
+                checkCancelled()
+            }
+        }
     }
 }
