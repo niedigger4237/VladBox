@@ -132,7 +132,9 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
             dismissButton = { TextButton(onClick = { edit = false }) { Text("Cancel") } })
     } else if (edit || extra) {
         val port = pref.key in setOf("mixedPort", "socksPort", "rootTproxyPort", "bpfBridgePort")
+        val tunSubnet = pref.key == "tunIpv4Subnet" || pref.key == "tunIpv6Subnet"
         val valid = when {
+            tunSubnet -> io.nekohasekai.sagernet.bg.TunAddressPlan.validationError(draft, pref.key == "tunIpv6Subnet") == null
             extra && pref.key == "mtu" -> (draft.toIntOrNull() ?: 0) in 1000..10000
             extra && pref.key == "logLevel" -> (draft.toIntOrNull() ?: 0) > 0
             port -> (draft.toIntOrNull() ?: 0) in 1..65535
@@ -145,6 +147,10 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(draft, { draft = it }, isError = !valid, label = { Text(pref.title.toString()) })
+                    if (tunSubnet) {
+                        Text(stringResource(if (pref.key == "tunIpv6Subnet") R.string.tun_ipv6_subnet_hint else R.string.tun_ipv4_subnet_hint), style = MaterialTheme.typography.bodySmall)
+                        if (!valid) Text(stringResource(R.string.tun_subnet_invalid), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
                     if (pref.key == "connectionTestURL") OutlinedTextField(concurrent, { concurrent = it }, label = { Text("Concurrent tests") })
                 }
             },
