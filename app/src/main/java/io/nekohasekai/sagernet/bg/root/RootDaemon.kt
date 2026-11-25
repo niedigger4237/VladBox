@@ -190,14 +190,7 @@ object RootDaemon {
         val links = RootShell.run("ip -o link show && ip -4 -o addr show", timeoutMs = 5000)
         if (!links.ok) return if (requireReliable) null else DownstreamSnapshot(names, emptyList())
         // Include the ifindex and IPv4 gateway/prefix: Android may recreate ap0 using the same name.
-        val identity = links.out.lineSequence().mapNotNull { line ->
-            val match = Regex("""^\s*(\d+):\s+([A-Za-z0-9_.-]{1,15})(?:@[^\s:]+)?(?::|\s)""").find(line)
-                ?: return@mapNotNull null
-            val name = match.groupValues[2]
-            if (name !in names) return@mapNotNull null
-            val address = Regex("""\binet\s+(\d+\.\d+\.\d+\.\d+/\d+)""").find(line)?.groupValues?.get(1)
-            "${match.groupValues[1]}:$name:${address.orEmpty()}"
-        }.distinct().sorted().toList()
+        val identity = RootTetherIdentity.parse(names, links.out)
         if (requireReliable && (names - manual.toSet()).any { name -> identity.none { it.substringAfter(':').substringBefore(':') == name } }) return null
         return DownstreamSnapshot(names, identity)
     }
