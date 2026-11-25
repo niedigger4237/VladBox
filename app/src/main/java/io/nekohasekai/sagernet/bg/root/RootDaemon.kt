@@ -156,7 +156,7 @@ object RootDaemon {
     internal fun resolveDownstreams(mode: Mode, requireReliable: Boolean = false, ipv6: Boolean = false): DownstreamSnapshot? {
         // Boot-owned native sessions retain their selector-based configuration;
         // a saved global prefix must not bypass traffic after reboot/renumbering.
-        val trackV6 = ipv6 && (mode == Mode.TUN || (mode == Mode.TUN2SOCKS &&
+        val trackV6 = ipv6 && (mode == Mode.TUN || (mode in listOf(Mode.TUN2SOCKS, Mode.TPROXY) &&
             !DataStore.configurationStore.getBoolean("startOnBoot", false)))
         fun emptySnapshot() = DownstreamSnapshot(emptyList(), emptyList(), trackV6)
         val manual = if (mode == Mode.TUN) configuredTunInterfaces() else emptyList()
@@ -207,7 +207,7 @@ object RootDaemon {
             it.subnet.substringAfterLast('/').toIntOrNull()?.let { bits -> bits in 64..128 } == true
         } else emptyList()
         if (prefixes == null && requireReliable) return null
-        if (prefixes == null) Logs.w("ROOT TUN: cannot discover downstream IPv6 prefixes")
+        if (prefixes == null) Logs.w("ROOT ${mode.wire}: cannot discover downstream IPv6 prefixes")
         return DownstreamSnapshot(names, identity, trackV6, prefixes.orEmpty())
     }
 
@@ -310,9 +310,9 @@ object RootDaemon {
             add("proxyPrivateCidrs", strings(emptyList()))
             // as in AsteriskBOX: private/local ranges are never captured, otherwise hotspot clients lose DHCP/gateway
             // traffic (their Wi-Fi drops); TUN mode leaves it to sing-box auto_route
-            val localTetherV6 = if (mode == Mode.TUN2SOCKS && ipv6 && downstreams != null)
+            val localTetherV6 = if (mode in listOf(Mode.TUN2SOCKS, Mode.TPROXY) && ipv6 && downstreams != null)
                 downstreamIpv6 else emptyList()
-            if (localTetherV6.isNotEmpty()) Logs.i("ROOT TUN2SOCKS: local tether IPv6 exclusions=$localTetherV6")
+            if (localTetherV6.isNotEmpty()) Logs.i("ROOT ${mode.wire}: local tether IPv6 exclusions=$localTetherV6")
             add("bypassPrivateCidrs", strings(if (mode == Mode.TUN) emptyList() else
                 (DEFAULT_BYPASS_CIDRS.filter { ipv6 || ':' !in it } + localTetherV6).distinct()))
             add("appPolicy", JsonObject().apply {
