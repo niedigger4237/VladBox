@@ -22,8 +22,9 @@ internal fun settingVisible(key: String?, mode: String): Boolean = when (key) {
     "rootHevMultiQueue", "rootHevTcpFastOpen" -> mode == "root_tun2socks"
     "rootFlowMetadata" -> mode == "root_tun2socks" || mode == "root_bpf2socks"
     "rootEbpfMatcher" -> mode == "root_tproxy" || mode == "root_tun2socks"
-    "rootIgnoredInterfaces", "tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet", "tetherCustom" ->
-        mode.startsWith("root_")
+    "rootIgnoredInterfaces" -> mode.startsWith("root_")
+    "tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet", "tetherCustom" ->
+        mode == "vpn" || mode.startsWith("root_")
     "serviceControl", "startOnBoot", "rootCoreUpdate", "rootCoreImport", "rootCoreRollback", "rootDisableSystemIpv6" -> mode.startsWith("root_")
     "meteredNetwork", "appendHttpProxy" -> mode == "vpn"
     "tunImplementation", "mtu" -> mode == "vpn" || mode == "root_tun" || mode == "root_tun2socks"
