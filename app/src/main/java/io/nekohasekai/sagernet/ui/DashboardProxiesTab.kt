@@ -138,7 +138,7 @@ internal fun DashboardLiveProxies(connected: Boolean) {
             if (!busy) {
                 try { refresh(); error = null }
                 catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                catch (e: Exception) { error = "Local API unavailable" }
+                catch (e: Exception) { groups = emptyList(); error = "Local API unavailable" }
             }
             kotlinx.coroutines.delay(5000)
         }
@@ -149,7 +149,7 @@ internal fun DashboardLiveProxies(connected: Boolean) {
         scope.launch {
             try { block(); refresh(); error = null }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (e: Exception) { error = "Proxy operation failed" }
+            catch (e: Exception) { error = e.message?.takeIf { it.startsWith("Delay test failed for ") } ?: "Proxy operation failed" }
             finally { busy = false }
         }
     }
@@ -160,12 +160,17 @@ internal fun DashboardLiveProxies(connected: Boolean) {
         onTest = if (busy) null else { group ->
             action {
                 val nodes = groups.firstOrNull { it.name == group }?.nodes.orEmpty()
+                val failed = mutableListOf<String>()
                 for (node in nodes) {
                     try {
                         dashboardGet("proxies/" + android.net.Uri.encode(node.name) + "/delay?timeout=5000&url=" +
                             android.net.Uri.encode("https://www.gstatic.com/generate_204"))
                     } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                    catch (_: Exception) { /* Continue testing remaining nodes. */ }
+                    catch (_: Exception) { failed.add(node.name) }
+                }
+                if (failed.isNotEmpty()) {
+                    groups = groups.map { g -> g.copy(nodes = g.nodes.map { n -> if (n.name in failed) n.copy(delay = null) else n }) }
+                    error("Delay test failed for " + failed.size + " server(s)")
                 }
             }
         })
