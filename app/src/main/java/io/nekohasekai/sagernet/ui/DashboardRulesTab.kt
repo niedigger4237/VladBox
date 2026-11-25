@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 internal data class DashboardRule(val type: String, val payload: String, val target: String)
 
 @Composable
-internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = emptyList()) {
+internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = emptyList(), status: String? = null) {
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     val colors = MaterialTheme.colorScheme
@@ -41,7 +41,7 @@ internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = 
                     label = { Text("Search rules") })
             }
             if (filtered.isEmpty()) {
-                Text(if (!connected) "Service is not running" else if (rules.isEmpty()) "Rule data unavailable" else "No matching rules",
+                Text(if (!connected) "Service is not running" else if (rules.isEmpty()) status ?: "No routing rules returned" else "No matching rules",
                     Modifier.padding(vertical = 12.dp), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
             filtered.forEach { rule ->
@@ -92,4 +92,31 @@ private fun RuleTypeIcon(type: String) {
             }
         }
     }
+}
+
+
+@Composable
+internal fun DashboardLiveRules(connected: Boolean) {
+    var rules by remember(connected) { mutableStateOf(emptyList<DashboardRule>()) }
+    var status by remember(connected) { mutableStateOf<String?>("Loading…") }
+    LaunchedEffect(connected) {
+        if (!connected) return@LaunchedEffect
+        while (true) {
+            try {
+                val array = dashboardGet("rules").getJSONArray("rules")
+                rules = (0 until array.length()).mapNotNull { index ->
+                    val item = array.optJSONObject(index) ?: return@mapNotNull null
+                    DashboardRule(item.optString("type"), item.optString("payload"), item.optString("proxy"))
+                }
+                status = null
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                rules = emptyList()
+                status = "Rules unavailable from local API"
+            }
+            kotlinx.coroutines.delay(5000)
+        }
+    }
+    DashboardRulesTab(connected, rules, status)
 }
