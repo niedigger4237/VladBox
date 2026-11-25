@@ -21,10 +21,10 @@ internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = 
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     val colors = MaterialTheme.colorScheme
-    val filtered = rules.filter { "${it.type} ${it.payload} ${it.target}".contains(query, ignoreCase = true) }
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
+    val filtered = rules.filter { "${ruleLabel(it)} ${it.type} ${it.payload} ${it.target}".contains(query, ignoreCase = true) }
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant.copy(alpha = .45f))) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Routing rules" + if (rules.isNotEmpty()) " (${rules.size})" else "",
                     Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
@@ -45,14 +45,14 @@ internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = 
                     Modifier.padding(vertical = 12.dp), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
             filtered.forEach { rule ->
-                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp),
                     colors = CardDefaults.outlinedCardColors(containerColor = colors.surfaceVariant.copy(alpha = .35f))) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        RuleTypeIcon(rule.type)
+                    Row(Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        RuleTypeIcon(ruleLabel(rule))
                         Column(Modifier.weight(1f)) {
-                            Text(rule.type, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(rule.payload.ifBlank { "*" }, style = MaterialTheme.typography.bodySmall,
+                            Text(ruleLabel(rule), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(rule.payload.ifBlank { if (ruleLabel(rule) == "Final") "All remaining traffic" else "—" }, style = MaterialTheme.typography.bodySmall,
                                 color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Text("→", color = colors.onSurfaceVariant)
@@ -61,8 +61,10 @@ internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = 
                             "block", "reject" -> colors.error
                             else -> colors.primary
                         }
-                        Text(rule.target, Modifier.widthIn(max = 100.dp), color = targetColor,
-                            style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Surface(shape = RoundedCornerShape(20.dp), color = targetColor.copy(alpha = .15f)) {
+                            Text(rule.target.ifBlank { "—" }, Modifier.padding(horizontal = 7.dp, vertical = 3.dp).widthIn(max = 100.dp), color = targetColor,
+                                style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }
@@ -119,4 +121,31 @@ internal fun DashboardLiveRules(connected: Boolean) {
         }
     }
     DashboardRulesTab(connected, rules, status)
+}
+
+private fun ruleLabel(rule: DashboardRule): String {
+    val type = rule.type.lowercase(java.util.Locale.ROOT).replace("-", "").replace("_", "")
+    val payload = rule.payload.lowercase(java.util.Locale.ROOT)
+    return when (type) {
+        "match", "final" -> "Final"
+        "domain" -> "Domain"
+        "domainsuffix" -> "Domain suffix"
+        "domainkeyword" -> "Domain keyword"
+        "domainregex" -> "Domain regex"
+        "ipcidr", "ipcidr6" -> "IP CIDR"
+        "geoip" -> "GeoIP"
+        "geosite" -> "Geosite"
+        "ruleset" -> "Rule set"
+        "default" -> when {
+            payload.startsWith("rule_set=") || payload.startsWith("rule_set:") -> "Rule set"
+            payload.startsWith("domain_suffix=") || payload.startsWith("domain_suffix:") -> "Domain suffix"
+            payload.startsWith("domain_keyword=") || payload.startsWith("domain_keyword:") -> "Domain keyword"
+            payload.startsWith("domain_regex=") || payload.startsWith("domain_regex:") -> "Domain regex"
+            payload.startsWith("domain=") || payload.startsWith("domain:") -> "Domain"
+            payload.startsWith("ip_cidr=") || payload.startsWith("ip_cidr:") -> "IP CIDR"
+            payload.startsWith("process_name=") || payload.startsWith("package_name=") -> "Application"
+            else -> "Routing rule"
+        }
+        else -> rule.type.ifBlank { "Routing rule" }
+    }
 }
