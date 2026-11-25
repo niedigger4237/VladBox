@@ -98,12 +98,14 @@ class VpnService : BaseVpnService(),
             .setMtu(DataStore.mtu)
         val ipv6Mode = DataStore.ipv6Mode
 
-        // address
-        builder.addAddress(PRIVATE_VLAN4_CLIENT, 30)
+        // Use the exact immutable plan from the core config for this VPN session.
+        val plan = data.proxy!!.config.tunAddressPlan ?: TunAddressPlan.legacy()
+        Logs.i("VPN TUN address: ${plan.cidr4}, IPv6=${if (ipv6Mode != IPv6Mode.DISABLE) plan.cidr6 else "disabled"}")
+        builder.addAddress(plan.ipv4, plan.ipv4Prefix)
         if (ipv6Mode != IPv6Mode.DISABLE) {
-            builder.addAddress(PRIVATE_VLAN6_CLIENT, 126)
+            builder.addAddress(plan.ipv6, plan.ipv6Prefix)
         }
-        builder.addDnsServer(PRIVATE_VLAN4_ROUTER)
+        builder.addDnsServer(plan.dns4)
 
         // route
         if (DataStore.bypassLan) {
@@ -111,7 +113,7 @@ class VpnService : BaseVpnService(),
                 val subnet = Subnet.fromString(it)!!
                 builder.addRoute(subnet.address.hostAddress!!, subnet.prefixSize)
             }
-            builder.addRoute(PRIVATE_VLAN4_ROUTER, 32)
+            builder.addRoute(plan.dns4, 32)
             builder.addRoute(FAKEDNS_VLAN4_CLIENT, 15)
             // https://issuetracker.google.com/issues/149636790
             if (ipv6Mode != IPv6Mode.DISABLE) {
@@ -200,7 +202,7 @@ class VpnService : BaseVpnService(),
         if (Build.VERSION.SDK_INT >= 29) builder.setMetered(metered)
         conn = builder.establish() ?: throw NullConnectionException()
         // hotspot / USB / Bluetooth tethering through the VPN (root)
-        io.nekohasekai.sagernet.bg.root.TetherVpn.start()
+        io.nekohasekai.sagernet.bg.root.TetherVpn.start(plan)
 
         return conn!!.fd
     }
