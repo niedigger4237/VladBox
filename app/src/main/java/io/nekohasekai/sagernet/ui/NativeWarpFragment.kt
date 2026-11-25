@@ -28,7 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class NativeWarpFragment : ToolbarFragment() {
+open class NativeWarpFragment : ToolbarFragment() {
     private val model by lazy { ViewModelProvider(this)[WarpViewModel::class.java] }
     private var pendingText: String? = null
     private val save = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
