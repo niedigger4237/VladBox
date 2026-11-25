@@ -2,7 +2,7 @@ diff --git a/protocol/socks/flow.go b/protocol/socks/flow.go
 new file mode 100644
 --- /dev/null
 +++ b/protocol/socks/flow.go
-@@ -0,0 +1,168 @@
+@@ -0,0 +1,226 @@
 +// Copyright 2026, Asterisk4Magisk contributors
 +// SPDX-License-Identifier: LGPL-3.0
 +
@@ -11,6 +11,7 @@ new file mode 100644
 +import (
 +	"context"
 +	"net"
++	"sync"
 +	"sync/atomic"
 +	"time"
 +
@@ -33,6 +34,9 @@ new file mode 100644
 +	logger   log.ContextLogger
 +	listener *listener.Listener
 +	nat      *udpnat.Service
++	udpMu sync.Mutex
++	relays *flowmeta.RelayTable
++	closing bool
 +	token    string
 +	tcpAccepted atomic.Bool
 +	tcpRejected atomic.Bool
@@ -43,6 +47,7 @@ new file mode 100644
 +type flowPacketInfo struct {
 +	header flowmeta.Header
 +	relay  M.Socksaddr
++	session *flowmeta.RelaySession
 +}
 +
 +func newFlowInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.SocksInboundOptions, token string) (adapter.Inbound, error) {
@@ -57,6 +62,7 @@ new file mode 100644
 +		token:   token,
 +	}
 +	i.nat = udpnat.New(i, i.prepare, time.Minute, false)
++	i.relays = flowmeta.NewRelayTable(1024, time.Minute)
 +	i.listener = listener.New(listener.Options{
 +		Context:           ctx,
 +		Logger:            logger,
@@ -77,13 +83,22 @@ new file mode 100644
 +	}
 +	scope.Add(i.listener.Close)
 +	scope.Add(func() error {
++		i.udpMu.Lock()
++		defer i.udpMu.Unlock()
++		i.closing = true
++		i.relays.Clear()
 +		i.nat.Purge()
 +		return nil
 +	})
 +	return nil
 +}
 +
-+func (i *flowInbound) InterfaceUpdated(context.Context) { i.nat.Purge() }
++func (i *flowInbound) InterfaceUpdated(context.Context) {
++	i.udpMu.Lock()
++	defer i.udpMu.Unlock()
++	i.relays.Clear()
++	i.nat.Purge()
++}
 +
 +func (i *flowInbound) metadata(h flowmeta.Header) adapter.InboundContext {
 +	m := adapter.InboundContext{
@@ -133,10 +148,25 @@ new file mode 100644
 +	if i.udpAccepted.CompareAndSwap(false, true) {
 +		i.logger.Info("flow metadata UDP header authenticated")
 +	}
-+	i.nat.NewPacket([][]byte{buffer.Bytes()[n:]}, M.SocksaddrFromNet(h.Addr(true)), M.SocksaddrFromNet(h.Addr(false)), flowPacketInfo{h, source})
++	i.udpMu.Lock()
++	defer i.udpMu.Unlock()
++	if i.closing {
++		return
++	}
++	// Each HEV/BPF UDP socket owns its own relay. Never route a new relay
++	// through an earlier association for the same original client tuple.
++	session := i.relays.Get(source.AddrPort(), h.Source, h.UID, time.Now())
++	if session == nil {
++		return
++	}
++	i.nat.NewPacket([][]byte{buffer.Bytes()[n:]}, M.SocksaddrFromNetIP(session.Key), M.SocksaddrFromNet(h.Addr(false)), flowPacketInfo{h, source, session})
 +}
 +
 +func (i *flowInbound) NewPacketBatch(buffers []*buf.Buffer, sources []M.Socksaddr) {
++	if len(buffers) != len(sources) {
++		buf.ReleaseMulti(buffers)
++		return
++	}
 +	for n, b := range buffers {
 +		i.NewPacket(b, sources[n])
 +		b.Release()
@@ -150,7 +180,32 @@ new file mode 100644
 +
 +func (i *flowInbound) NewPacketConnectionEx(ctx context.Context, conn N.PacketConn, source, destination M.Socksaddr, onClose N.CloseHandlerFunc) {
 +	h, _ := flowmeta.HeaderFromContext(ctx)
++	// The generated address is only a private NAT cache key; expose the real
++	// original client address to routing and outbound handlers.
++	if native, ok := conn.(udpnat.Conn); ok {
++		conn = &flowLocalConn{Conn: native, local: h.Addr(true)}
++	}
 +	i.router.RoutePacketConnectionEx(ctx, conn, i.metadata(h), onClose)
++}
++
++type flowLocalConn struct {
++	udpnat.Conn
++	local net.Addr
++}
++
++func (c *flowLocalConn) LocalAddr() net.Addr { return c.local }
++func (c *flowLocalConn) Upstream() any { return c.Conn }
++func (c *flowLocalConn) CreatePacketBatchReadWaiter() (N.PacketBatchReadWaiter, bool) {
++	if creator, ok := c.Conn.(N.PacketBatchReadWaitCreator); ok {
++		return creator.CreatePacketBatchReadWaiter()
++	}
++	return nil, false
++}
++func (c *flowLocalConn) CreatePacketBatchWriter() (N.PacketBatchWriter, bool) {
++	if creator, ok := c.Conn.(N.PacketBatchWriteCreator); ok {
++		return creator.CreatePacketBatchWriter()
++	}
++	return nil, false
 +}
 +
 +type flowPacketWriter struct {
@@ -160,6 +215,9 @@ new file mode 100644
 +
 +func (w *flowPacketWriter) WritePacket(buffer *buf.Buffer, source M.Socksaddr) error {
 +	defer buffer.Release()
++	if !w.i.relays.Valid(w.info.session, time.Now()) {
++		return net.ErrClosed
++	}
 +	output := buf.NewSize(flowmeta.MaxHeader + buffer.Len())
 +	n, err := w.info.header.Reverse(source.AddrPort()).MarshalTo(output.Extend(flowmeta.MaxHeader), w.i.token)
 +	if err != nil {
