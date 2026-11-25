@@ -557,7 +557,7 @@
     <string name="socks_port_sum">Отдельный SOCKS5-вход для root-помощников</string>
     <string name="bpf_bridge_port">Порт моста BPF2SOCKS</string>
     <string name="cat_tethering">Тетеринг (Root)</string>
-    <string name="vpn_tether_ipv4_warning">Раздача обычного VPN требует ROOT и пока поддерживает только IPv4. IPv6-трафик может идти в обход VPN.</string>
+    <string name="vpn_tether_ipv4_warning">Раздача VPN через ROOT: для IPv6 требуется подходящая клиентская подсеть и поддержка NAT66. Иначе IPv6 блокируется на обнаруженных интерфейсах раздачи. Проверьте защиту от утечек на устройстве.</string>
     <string name="root_access_checking">Проверка доступа ROOT…</string>
     <string name="root_access_unknown">Доступ ROOT не подтверждён. Откройте настройки повторно для проверки.</string>
     <string name="tether_wifi">Точка доступа Wi-Fi</string>
