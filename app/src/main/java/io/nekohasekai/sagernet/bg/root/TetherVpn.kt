@@ -157,8 +157,8 @@ object TetherVpn {
             val net = network(d.ip, d.prefix)
             s += "ip -4 route add $net dev ${d.name} scope link table ${r.table}"
             s += "ip -4 rule add pref ${r.pref - 1} iif ${r.up} to $net lookup ${r.table}"
-            s += "$filter -A ${r.forward} -i ${d.name} -o ${r.up} -j ACCEPT"
-            s += "$filter -A ${r.forward} -i ${r.up} -o ${d.name} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
+            s += "$filter -A ${r.forward} -i ${d.name} -s $net -o ${r.up} -j ACCEPT"
+            s += "$filter -A ${r.forward} -i ${r.up} -o ${d.name} -d $net -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
             s += "$nat -A ${r.postrouting} -s $net -o ${r.up} -j MASQUERADE"
             for (proto in listOf("udp", "tcp")) {
                 s += "$nat -A ${r.prerouting} -i ${d.name} -p $proto --dport 53 -j DNAT --to-destination ${r.dns}:53"
@@ -233,6 +233,12 @@ object TetherVpn {
             val state = if (shortState.ok && shortState.out.contains("TetheredState")) shortState
                 else RootShell.run("dumpsys tethering", timeoutMs = 5000)
             if (!state.ok) { clearLocked(); return }
+            // A different dumpsys format is not proof that previously protected clients disconnected.
+            if (!Regex("""(?:TetheredState|AvailableState|UnavailableState|LocalHotspotState|Tether state:)""", RegexOption.IGNORE_CASE).containsMatchIn(state.out)) {
+                clearLocked()
+                Logs.w("VPN tether: unrecognized Android tethering snapshot; keeping existing guards")
+                return
+            }
             val active = state.out.lineSequence().mapNotNull {
                 Regex("""^\s*([A-Za-z0-9_.-]{1,15})\s+-\s+TetheredState\s+-\s+lastError\s*=\s*0\s*$""").matchEntire(it)?.groupValues?.get(1)
             }.toSet()
@@ -254,7 +260,7 @@ object TetherVpn {
             val ordered = downs.sortedBy { it.name }
             val v6Ready = ipv6 && cm.allNetworks.any { network ->
                 val link = cm.getLinkProperties(network)
-                link?.interfaceName == up && link.linkAddresses.any {
+                link != null && link.interfaceName == up && link.linkAddresses.any {
                     it.address == java.net.InetAddress.getByName(plan.ipv6)
                 }
             }
