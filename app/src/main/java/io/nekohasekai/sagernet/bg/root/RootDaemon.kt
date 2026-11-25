@@ -154,7 +154,10 @@ object RootDaemon {
 
     // Android reports active downstreams explicitly; never guess from all wlan* devices.
     internal fun resolveDownstreams(mode: Mode, requireReliable: Boolean = false, ipv6: Boolean = false): DownstreamSnapshot? {
-        val trackV6 = mode == Mode.TUN && ipv6
+        // Boot-owned native sessions retain their selector-based configuration;
+        // a saved global prefix must not bypass traffic after reboot/renumbering.
+        val trackV6 = ipv6 && (mode == Mode.TUN || (mode == Mode.TUN2SOCKS &&
+            !DataStore.configurationStore.getBoolean("startOnBoot", false)))
         fun emptySnapshot() = DownstreamSnapshot(emptyList(), emptyList(), trackV6)
         val manual = if (mode == Mode.TUN) configuredTunInterfaces() else emptyList()
         val selectors = tetherSelectors().toMutableList()
@@ -199,7 +202,10 @@ object RootDaemon {
         // Include the ifindex and IPv4 gateway/prefix: Android may recreate ap0 using the same name.
         val identity = RootTetherIdentity.parse(names, links.out)
         if (requireReliable && (names - manual.toSet()).any { name -> identity.none { it.substringAfter(':').substringBefore(':') == name } }) return null
-        val prefixes = if (trackV6) TetherIpv6.discover(names.toSet()) else emptyList()
+        val prefixes = if (trackV6) TetherIpv6.discover(names.toSet())?.filter {
+            // Only on-link subnets, never a broad upstream/global aggregate.
+            it.subnet.substringAfterLast('/').toIntOrNull()?.let { bits -> bits in 64..128 } == true
+        } else emptyList()
         if (prefixes == null && requireReliable) return null
         if (prefixes == null) Logs.w("ROOT TUN: cannot discover downstream IPv6 prefixes")
         return DownstreamSnapshot(names, identity, trackV6, prefixes.orEmpty())
@@ -270,7 +276,7 @@ object RootDaemon {
         return names.filter { exactInterface.matches(it) && it !in internalInterfaces }.distinct()
     }
 
-    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String, flowToken: String? = null, matcher: Boolean = false, downstreams: List<String>? = null): String {
+    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String, flowToken: String? = null, matcher: Boolean = false, downstreams: List<String>? = null, downstreamIpv6: List<String> = emptyList()): String {
         val root = JsonObject()
         root.addProperty("schemaVersion", SCHEMA)
         root.addProperty("owner", OWNER)
@@ -304,7 +310,11 @@ object RootDaemon {
             add("proxyPrivateCidrs", strings(emptyList()))
             // as in AsteriskBOX: private/local ranges are never captured, otherwise hotspot clients lose DHCP/gateway
             // traffic (their Wi-Fi drops); TUN mode leaves it to sing-box auto_route
-            add("bypassPrivateCidrs", strings(if (mode == Mode.TUN) emptyList() else DEFAULT_BYPASS_CIDRS.filter { ipv6 || ':' !in it }))
+            val localTetherV6 = if (mode == Mode.TUN2SOCKS && ipv6 && downstreams != null)
+                downstreamIpv6 else emptyList()
+            if (localTetherV6.isNotEmpty()) Logs.i("ROOT TUN2SOCKS: local tether IPv6 exclusions=$localTetherV6")
+            add("bypassPrivateCidrs", strings(if (mode == Mode.TUN) emptyList() else
+                (DEFAULT_BYPASS_CIDRS.filter { ipv6 || ':' !in it } + localTetherV6).distinct()))
             add("appPolicy", JsonObject().apply {
                 addProperty(
                     "mode",
@@ -559,7 +569,8 @@ object RootDaemon {
         val daemonDownstreams = if (mode != Mode.TUN &&
             DataStore.configurationStore.getBoolean("startOnBoot", false)) null else dynamicDownstreams?.names
         val dcfg = File(stage, "asteriskd.json").apply {
-            writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, daemonDownstreams))
+            writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, daemonDownstreams,
+                dynamicDownstreams?.ipv6Prefixes.orEmpty().map { it.subnet }))
         }
         mark("generate configs")
         try {
