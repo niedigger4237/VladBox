@@ -200,6 +200,17 @@ object RootDaemon {
 
     internal fun isRunning(): Boolean = PHASE.find(status())?.groupValues?.get(1) == "running"
 
+    // Use the same lock as shutdown so a late watchdog cannot reinstall rules
+    // after the session has been invalidated. Identity distinguishes restarts
+    // whose downstream names and addresses happen to be unchanged.
+    @Synchronized
+    internal fun reconcileTunForwarding(snapshot: DownstreamSnapshot) {
+        if (appliedDownstreams !== snapshot) return
+        if (!RootTunForwarding.ensure(snapshot.names)) {
+            Logs.w("ROOT TUN forwarding: reconciliation pending")
+        }
+    }
+
     private fun managedTunInbound(root: JsonObject): JsonObject? = root.getAsJsonArray("inbounds")?.firstOrNull {
             it.isJsonObject && it.asJsonObject.get("type")?.asString == "tun" &&
                 it.asJsonObject.get("interface_name")?.asString == TUN_DEVICE
@@ -642,6 +653,7 @@ object RootDaemon {
      * Do not kill an arbitrary asteriskd by process name: that skips cleanup and can strand
      * TC/BPF hooks or Android offload settings.
      */
+    @Synchronized
     private fun shutdownVerified(): Boolean {
         appliedDownstreams = null
         stopTunDiagnostics()
