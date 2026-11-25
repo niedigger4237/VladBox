@@ -14,7 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-internal data class DashboardProxyNode(val name: String, val delay: Int? = null, val countryCode: String? = null)
+internal data class DashboardProxyNode(val name: String, val delay: Int? = null, val countryCode: String? = null, val displayName: String = name, val protocol: String? = null)
 internal data class DashboardProxyGroup(val name: String, val type: String, val selected: String, val nodes: List<DashboardProxyNode>)
 
 @Composable
@@ -79,9 +79,11 @@ internal fun DashboardProxiesTab(
                                         if (active) drawCircle(colors.primary, radius = size.minDimension / 4)
                                     }
                                     val flag = proxyFlag(node.countryCode)
-                                    if (flag.isNotEmpty() && !node.name.startsWith(flag)) Text(flag)
-                                    Text(node.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (flag.isNotEmpty() && !node.displayName.startsWith(flag)) Text(flag)
+                                    Column(Modifier.weight(1f)) {
+                                        Text(node.displayName, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        node.protocol?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant) }
+                                    }
                                     ProxyDelay(node.delay)
                                 }
                             }
@@ -123,6 +125,10 @@ internal fun DashboardLiveProxies(connected: Boolean) {
     var busy by remember(connected) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     suspend fun refresh() {
+        val profile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val id = io.nekohasekai.sagernet.database.DataStore.currentProfile
+            if (id > 0) io.nekohasekai.sagernet.database.SagerDatabase.proxyDao.getById(id) else null
+        }
         val proxies = dashboardGet("proxies").getJSONObject("proxies")
         groups = proxies.keys().asSequence().mapNotNull { name ->
             val item = proxies.optJSONObject(name) ?: return@mapNotNull null
@@ -131,7 +137,10 @@ internal fun DashboardLiveProxies(connected: Boolean) {
                 val tag = all.getString(index)
                 val history = proxies.optJSONObject(tag)?.optJSONArray("history")
                 val delay = history?.optJSONObject(history.length() - 1)?.optInt("delay")?.takeIf { it > 0 }
-                DashboardProxyNode(tag, measured[tag] ?: delay)
+                val isMain = tag == io.nekohasekai.sagernet.fmt.TAG_PROXY
+                val label = if (isMain) profile?.displayName()?.takeIf { it.isNotBlank() } else null
+                val protocol = if (isMain) profile?.displayType() else proxies.optJSONObject(tag)?.optString("type")?.takeIf { it.isNotBlank() }
+                DashboardProxyNode(tag, measured[tag] ?: delay, displayName = label ?: tag, protocol = protocol)
             }
             DashboardProxyGroup(name, item.optString("type"), item.optString("now"), nodes)
         }.toList()
