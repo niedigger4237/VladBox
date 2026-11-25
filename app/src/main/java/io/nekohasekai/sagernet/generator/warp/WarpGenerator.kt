@@ -20,9 +20,11 @@ internal class WarpGenerator(context: Context) {
         val noJunk: Boolean = false,
         val excludeLan: Boolean = false,
         val sites: Set<String> = emptySet(),
-        val awg3: Map<String, String> = emptyMap(),
-        val randomTrailers: Boolean = false,
-        val disableCookies: Boolean = false,
+        val awg3Enabled: Boolean = false,
+        val awg31Enabled: Boolean = false,
+        val awg3: Map<String, String> = mapOf("ContentPaddingAddition" to "27-97", "MaxHandshakeAttempts" to "18-26", "KeepaliveTimeout" to "9-16", "RejectAfterTime" to "171-196", "RekeyAfterTime" to "116-131", "RekeyTimeout" to "6-9"),
+        val randomTrailers: Boolean = true,
+        val disableCookies: Boolean = true,
         val wireSockIp: String = "QUIC",
         val wireSockIb: String = "Chrome"
     )
@@ -36,8 +38,8 @@ internal class WarpGenerator(context: Context) {
             dns = presets.dns.first { it.id == s.dnsId }.addresses,
             allowedIps = presets.allowedIps(s.ipv6, s.excludeLan, s.sites),
             ipv6 = s.ipv6, mtu = s.mtu, keepalive = s.keepalive,
-            noJunk = s.noJunk, awg3 = s.awg3,
-            randomTrailers = s.randomTrailers, disableCookies = s.disableCookies
+            noJunk = s.noJunk, awg3 = if (s.awg3Enabled) s.awg3 else emptyMap(),
+            randomTrailers = s.awg31Enabled && s.randomTrailers, disableCookies = s.awg31Enabled && s.disableCookies
         )
         return when (s.format) {
             Format.AWG -> {
