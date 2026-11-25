@@ -46,7 +46,7 @@ object RootDaemon {
         // Isolated probe directory; never remove a supervisor-owned BPF object.
         val result = RootShell.run(
             "d=$(mktemp -d /sys/fs/bpf/niefigger_probe_XXXXXX) || exit 1; " +
-                "trap 'rmdir \\"\$d\\" 2>/dev/null' EXIT; " +
+                "trap 'rmdir \$d 2>/dev/null' EXIT; " +
                 "${RootShell.q(matcherBinary)} --probe --json --bpf-dir \"\$d\" --ipv6 ${if (ipv6) 1 else 0}",
             timeoutMs = 8_000
         )
