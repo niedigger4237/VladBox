@@ -656,7 +656,9 @@
     <string name="socks_port">SOCKS5 port (tun2socks / bpf2socks)</string>
     <string name="socks_port_sum">Dedicated SOCKS5 inbound used by the root helpers</string>
     <string name="bpf_bridge_port">BPF2SOCKS bridge port</string>
-    <string name="cat_tethering">Tethering (root; VPN: IPv4 only)</string>
+    <string name="cat_tethering">Tethering (Root)</string>
+    <string name="root_access_checking">Checking root access…</string>
+    <string name="root_access_unknown">Root access not verified. Reopen settings to retry.</string>
     <string name="tether_wifi">Wi-Fi hotspot</string>
     <string name="tether_bluetooth">Bluetooth tethering</string>
     <string name="tether_usb">USB tethering</string>
