@@ -1,6 +1,8 @@
 package io.nekohasekai.sagernet.generator.warp
 
 import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
 
 internal object DpiStrategyCatalog {
     private fun preset(id: String, args: String) =
@@ -30,11 +32,51 @@ internal object DpiStrategyCatalog {
     private fun prefs(context: Context) =
         context.getSharedPreferences("warp_dpi", Context.MODE_PRIVATE)
 
+    data class Custom(val id: String, val name: String, val args: String, val enabled: Boolean = true)
+    data class Settings(val timeout: Int = 6, val custom: List<Custom> = emptyList())
+
+    fun arguments(raw: String): List<String>? {
+        val tokens = raw.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (tokens.isEmpty() || tokens.size > 16) return null
+        val options = setOf("--split", "--disorder", "--tlsrec", "--oob", "--disoob", "--fake", "--ttl")
+        val flags = setOf("--md5sig", "--auto=torst", "--auto=ssl_err")
+        var i = 0
+        while (i < tokens.size) {
+            val token = tokens[i++]
+            if (token in flags) continue
+            if (token !in options || i == tokens.size || !tokens[i++].matches(Regex("[0-9+\\-s]+"))) return null
+        }
+        return tokens
+    }
+
+    fun settings(context: Context): Settings {
+        val p = prefs(context)
+        val custom = runCatching {
+            val array = JSONArray(p.getString("custom", "[]") ?: "[]")
+            (0 until array.length()).mapNotNull { i ->
+                val item = array.getJSONObject(i)
+                val args = item.getString("args")
+                if (arguments(args) == null) null else Custom(item.getString("id"), item.getString("name"), args, item.optBoolean("enabled", true))
+            }
+        }.getOrDefault(emptyList())
+        return Settings(p.getInt("timeout", 6).coerceIn(1, 120), custom)
+    }
+
+    fun save(context: Context, settings: Settings) {
+        require(settings.timeout in 1..120 && settings.custom.all { arguments(it.args) != null })
+        val array = JSONArray()
+        settings.custom.forEach { array.put(JSONObject().put("id", it.id).put("name", it.name).put("args", it.args).put("enabled", it.enabled)) }
+        prefs(context).edit().putInt("timeout", settings.timeout).putString("custom", array.toString()).apply()
+    }
+
+    fun available(settings: Settings) = strategies + settings.custom.filter { it.enabled }.mapNotNull {
+        arguments(it.args)?.let { args -> DpiStrategySelector.Strategy(it.id, args) }
+    }
+
     fun preferred(context: Context): String? =
-        prefs(context).getString("strategy", null)?.takeIf { id -> strategies.any { it.id == id } }
+        prefs(context).getString("strategy", null)?.takeIf { id -> available(settings(context)).any { it.id == id } }
 
     fun remember(context: Context, match: DpiStrategySelector.Match) {
-        require(strategies.any { it == match.strategy })
         prefs(context).edit().putString("strategy", match.strategy.id).apply()
     }
 }
