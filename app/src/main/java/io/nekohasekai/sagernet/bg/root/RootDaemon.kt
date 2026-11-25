@@ -367,7 +367,6 @@ object RootDaemon {
     private fun startTunDiagnostics(snapshot: DownstreamSnapshot, ipv6: Boolean) {
         stopTunDiagnostics()
         val names = snapshot.names.filter { exactInterface.matches(it) && it !in internalInterfaces }
-        if (names.isEmpty()) return
         tunDiagnostics = Thread({
             val self = Thread.currentThread()
             fun active() = !self.isInterrupted && tunDiagnostics === self
@@ -384,9 +383,15 @@ object RootDaemon {
                 if (result.err.isNotBlank()) Logs.w("ROOT TUN diagnostic [$label] ${result.err.take(500)}")
             }
             try {
-                Thread.sleep(2000L)
                 if (!active()) return@Thread
                 Logs.i("ROOT TUN diagnostic: begin downstream=$names")
+                fun hotspotState(label: String) {
+                    capture("$label links", "ip -o link show | sed -E 's/([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}/[MAC]/g'")
+                    capture("$label addresses", "ip -4 -o addr show")
+                    capture("$label tether", "dumpsys tethering | grep -iE 'TetheredState|AvailableState|UnavailableState|LocalHotspotState|Tether state:|offload.*(started|stopped|enabled|disabled)' | head -n 60")
+                    capture("$label Wi-Fi events", "logcat -d -t 1500 -v brief -s SoftApManager WifiNative IpServer DhcpServer DhcpClient 2>/dev/null | grep -iE 'state|fail|disconnect|connect|DHCP|interface|lease' | sed -E 's/([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}/[MAC]/g' | grep -ivE 'ssid|password|passphrase|credential|preSharedKey' | tail -n 40")
+                }
+                hotspotState("initial")
                 capture("forwarding", "echo ip_forward; cat /proc/sys/net/ipv4/ip_forward; echo rp_filter; cat /proc/sys/net/ipv4/conf/all/rp_filter; echo tether_offload_disabled; settings get global tether_offload_disabled")
                 capture("IPv4 rules", "ip -4 rule show")
                 capture("IPv4 routes", "ip -4 route show table all")
@@ -413,6 +418,7 @@ object RootDaemon {
                     }
                     if (index == 0) Thread.sleep(5000L)
                 }
+                hotspotState("after traffic")
                 if (active()) Logs.i("ROOT TUN diagnostic: complete")
             } catch (_: InterruptedException) {
                 // Normal service shutdown.
@@ -582,7 +588,7 @@ object RootDaemon {
                 mark("wait for readiness")
                 appliedDownstreams = dynamicDownstreams
                 startLogForward(mode)
-                if (mode == Mode.TUN && dynamicDownstreams != null) startTunDiagnostics(dynamicDownstreams, ipv6)
+                if (mode == Mode.TUN && managed) startTunDiagnostics(dynamicDownstreams ?: DownstreamSnapshot(emptyList(), emptyList()), ipv6)
                 return null
             }
             if (phase == "failed") break
