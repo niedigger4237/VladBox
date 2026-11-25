@@ -80,7 +80,7 @@ class DashboardFragment : ToolbarFragment() {
                                 Surface(modifier = Modifier.weight(1f).clickable { tab = index }, shape = RoundedCornerShape(18.dp),
                                     color = if (tab == index) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent) {
                                     Column(Modifier.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(listOf("⌂", "⇄", "▱", "☷")[index], style = MaterialTheme.typography.titleLarge)
+                                        DashboardTabIcon(index)
                                         Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
                                     }
                                 }
@@ -112,7 +112,11 @@ class DashboardFragment : ToolbarFragment() {
                                         val samples = history.toList()
                                         val peak = maxOf(1L, samples.maxOfOrNull { maxOf(it.first, it.second) } ?: 0L)
                                         Text(String.format(java.util.Locale.getDefault(), "%.1f Mbps", peak * 8.0 / 1000000), style = MaterialTheme.typography.labelSmall)
-                                        Canvas(Modifier.fillMaxWidth().height(120.dp)) {
+                                        Row(Modifier.fillMaxWidth()) {
+                                            Column(Modifier.width(54.dp).height(120.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                                for (i in 4 downTo 0) Text(String.format(java.util.Locale.getDefault(), "%.1f", peak * 8.0 / 1000000 * i / 4), style = MaterialTheme.typography.labelSmall)
+                                            }
+                                            Canvas(Modifier.weight(1f).height(120.dp)) {
                                             for (i in 0..4) {
                                                 val y = size.height * i / 4
                                                 drawLine(grid, Offset(0f,y), Offset(size.width,y))
@@ -124,10 +128,26 @@ class DashboardFragment : ToolbarFragment() {
                                                     val x = size.width * (60 - samples.size + index) / 59f
                                                     val value = if (series == 0) pair.first else pair.second
                                                     val y = size.height * (1f - value.toFloat() / peak)
-                                                    if (index == 0) path.moveTo(x,y) else path.lineTo(x,y)
+                                                    if (index == 0) path.moveTo(x,y) else {
+                                                        val prev = samples[index - 1]
+                                                        val px = size.width * (59 - samples.size + index) / 59f
+                                                        val py = size.height * (1f - (if (series == 0) prev.first else prev.second).toFloat() / peak)
+                                                        val mid = (px + x) / 2
+                                                        path.cubicTo(mid, py, mid, y, x, y)
+                                                    }
+                                                }
+                                                if (samples.size > 1) {
+                                                    val area = Path().apply {
+                                                        addPath(path)
+                                                        lineTo(size.width, size.height)
+                                                        lineTo(size.width * (60 - samples.size) / 59f, size.height)
+                                                        close()
+                                                    }
+                                                    drawPath(area, brush = androidx.compose.ui.graphics.Brush.verticalGradient(listOf(tint.copy(alpha = .32f), tint.copy(alpha = .03f))))
                                                 }
                                                 drawPath(path, tint, style = Stroke(width = 2.dp.toPx()))
                                             }
+                                        }
                                         }
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                                             Text("● Download", color = primary)
@@ -179,6 +199,36 @@ private fun DashboardMetric(label: String, value: String, modifier: Modifier) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value.trimStart('▲', '▼', ' ').ifBlank { "0 B/s" }, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+private fun DashboardTabIcon(index: Int) {
+    val tint = LocalContentColor.current
+    Canvas(Modifier.size(24.dp)) {
+        val s = size.width / 24f
+        fun line(x: Float, y: Float, x2: Float, y2: Float) =
+            drawLine(tint, Offset(x*s,y*s), Offset(x2*s,y2*s), 1.8.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        when (index) {
+            0 -> {
+                line(3f,11f,12f,3f); line(12f,3f,21f,11f)
+                line(6f,9f,6f,21f); line(18f,9f,18f,21f)
+                line(6f,21f,10f,21f); line(14f,21f,18f,21f)
+                line(10f,21f,10f,15f); line(10f,15f,14f,15f); line(14f,15f,14f,21f)
+            }
+            1 -> {
+                line(4f,7f,20f,7f); line(16f,3f,20f,7f); line(20f,7f,16f,11f)
+                line(20f,17f,4f,17f); line(8f,13f,4f,17f); line(4f,17f,8f,21f)
+            }
+            2 -> {
+                line(3f,8f,12f,3f); line(12f,3f,21f,8f); line(21f,8f,12f,13f); line(12f,13f,3f,8f)
+                line(3f,12f,12f,17f); line(12f,17f,21f,12f)
+                line(3f,16f,12f,21f); line(12f,21f,21f,16f)
+            }
+            else -> for (y in listOf(5f,12f,19f)) {
+                drawCircle(tint, 1.2f*s, Offset(4f*s,y*s)); line(9f,y,21f,y)
+            }
         }
     }
 }
