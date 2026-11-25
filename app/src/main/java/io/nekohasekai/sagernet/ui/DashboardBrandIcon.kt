@@ -16,6 +16,11 @@ import kotlinx.coroutines.withContext
 import com.caverock.androidsvg.SVG
 
 private val serviceDomains = listOf(
+    "xbox" to listOf("xbox.com", "xboxlive.com"),
+    "minecraft" to listOf("minecraft.net", "mojang.com"),
+    "roblox" to listOf("roblox.com", "rbxcdn.com"),
+    "apple-music" to listOf("music.apple.com"),
+    "youtube-music" to listOf("music.youtube.com"),
     "deepseek" to listOf("deepseek.com"),
     "grok" to listOf("grok.com", "x.ai"),
     "perplexity" to listOf("perplexity.ai"),
