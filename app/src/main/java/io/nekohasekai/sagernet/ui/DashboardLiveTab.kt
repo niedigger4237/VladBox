@@ -55,12 +55,23 @@ private fun dashboardRoot(path: String, method: String, body: JSONObject?): JSON
     val q = io.nekohasekai.sagernet.bg.root.RootShell::q
     val url = q("http://127.0.0.1:9090/" + path)
     val payload = body?.let { " -H " + q("Content-Type: application/json") + " --data-binary " + q(it.toString()) }.orEmpty()
-    val command = "curl -fsS --max-time 10 -H " + q("Authorization: Bearer " + io.nekohasekai.sagernet.bg.proto.ClashApiSecret.value) + " -X " + method + payload + " " + url
+    val token = io.nekohasekai.sagernet.bg.proto.ClashApiSecret.value
+    val data = body?.toString().orEmpty()
+    val request = method + " /" + path + " HTTP/1.0\r\nHost: 127.0.0.1\r\nAuthorization: Bearer " + token +
+        "\r\nConnection: close\r\n" +
+        (if (body != null) "Content-Type: application/json\r\nContent-Length: " + data.toByteArray(Charsets.UTF_8).size + "\r\n" else "") +
+        "\r\n" + data
+    val command = "if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 10 -i -H " +
+        q("Authorization: Bearer " + token) + " -X " + method + payload + " " + url +
+        "; else printf '%s' " + q(request) + " | nc -w 10 127.0.0.1 9090; fi"
     val process = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start()
     try {
         val response = process.inputStream.bufferedReader().use { it.readText() }
         check(process.waitFor() == 0) { "Root API request failed" }
-        return if (response.isBlank()) JSONObject() else JSONObject(response)
+        val status = response.lineSequence().firstOrNull()?.split(" ")?.getOrNull(1)?.toIntOrNull()
+        check(status != null && status in 200..299) { "Root API HTTP error" }
+        val content = response.substringAfter("\r\n\r\n", response.substringAfter("\n\n", ""))
+        return if (content.isBlank()) JSONObject() else JSONObject(content)
     } finally {
         process.destroy()
     }
