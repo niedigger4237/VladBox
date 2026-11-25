@@ -4,6 +4,7 @@ import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.root.RootCore
 import io.nekohasekai.sagernet.bg.root.RootDaemon
 import io.nekohasekai.sagernet.bg.root.RootShell
+import io.nekohasekai.sagernet.bg.root.RootTunNetworkMonitor
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.Key
@@ -20,6 +21,7 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
     ProxyInstance(profile, service) {
 
     private var started = false
+    private var tunNetworkMonitor: RootTunNetworkMonitor? = null
 
     override suspend fun loadConfig() {
         // no in-process core: `box` stays uninitialised
@@ -73,11 +75,27 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         rootScope = scope
         rootLooper = service?.let { RootTrafficLooper(it.data, scope) }
         rootLooper?.start()
+        val initial = RootDaemon.appliedTunDownstreams
+        if (started && initial != null && DataStore.serviceMode == Key.MODE_ROOT_TUN &&
+            RootDaemon.hasTunTethering()) {
+            tunNetworkMonitor = RootTunNetworkMonitor(initial) {
+                val owner = service
+                if (owner != null && owner.data.proxy === this && started &&
+                    owner.data.state == BaseService.State.Connected &&
+                    DataStore.serviceMode == Key.MODE_ROOT_TUN) {
+                    // Preserve the normal cleanup/startup ordering, including the external daemon.
+                    owner.stopRunner(restart = true)
+                    true
+                } else false
+            }.also { it.start() }
+        }
     }
 
     fun urlTest(url: String, timeoutMs: Int): Int = RootClashApi.urlTest(url, timeoutMs)
 
     override fun close() {
+        tunNetworkMonitor?.close()
+        tunNetworkMonitor = null
         rootLooper?.stop()
         rootLooper = null
         rootScope?.coroutineContext?.get(kotlinx.coroutines.Job)?.cancel()
