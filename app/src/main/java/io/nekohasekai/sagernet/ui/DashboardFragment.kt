@@ -63,7 +63,7 @@ class DashboardFragment : ToolbarFragment() {
                             delay(1000)
                         }
                     }
-                    Column(Modifier.fillMaxSize()) {
+                    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
                         Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { activity.displayFragmentWithId(R.id.nav_configuration) }) {
                                 Canvas(Modifier.size(24.dp)) {
@@ -78,8 +78,8 @@ class DashboardFragment : ToolbarFragment() {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             listOf("Overview", "Connections", "Proxies", "Rules").forEachIndexed { index, label ->
                                 Surface(modifier = Modifier.weight(1f).clickable { tab = index }, shape = RoundedCornerShape(18.dp),
-                                    color = if (tab == index) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface) {
-                                    Column(Modifier.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    color = if (tab == index) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent) {
+                                    Column(Modifier.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text(listOf("⌂", "⇄", "▱", "☷")[index], style = MaterialTheme.typography.titleLarge)
                                         Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
                                     }
@@ -89,7 +89,7 @@ class DashboardFragment : ToolbarFragment() {
                         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             if (tab == 0) {
                                 val green = Color(0xFF81D99A)
-                                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
+                                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
                                     colors = CardDefaults.outlinedCardColors(containerColor = if (connected) green.copy(alpha = .14f) else MaterialTheme.colorScheme.surfaceVariant),
                                     border = BorderStroke(1.dp, if (connected) green.copy(alpha = .6f) else MaterialTheme.colorScheme.outlineVariant)) {
                                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -104,7 +104,7 @@ class DashboardFragment : ToolbarFragment() {
                                     DashboardMetric("↓  Download", ui.rx, Modifier.weight(1f))
                                     DashboardMetric("↑  Upload", ui.tx, Modifier.weight(1f))
                                 }
-                                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f))) {
                                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                         Text("Traffic (last 60 s)", style = MaterialTheme.typography.titleMedium)
                                         val primary = MaterialTheme.colorScheme.primary
@@ -146,7 +146,7 @@ class DashboardFragment : ToolbarFragment() {
                                     }
                                 }
                                 val ratio = (used.toFloat() / limit.coerceAtLeast(1)).coerceIn(0f,1f)
-                                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f))) {
                                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             Text("App Java heap", style = MaterialTheme.typography.titleMedium)
@@ -175,8 +175,8 @@ class DashboardFragment : ToolbarFragment() {
 
 @Composable
 private fun DashboardMetric(label: String, value: String, modifier: Modifier) {
-    OutlinedCard(modifier, shape = RoundedCornerShape(20.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    OutlinedCard(modifier, shape = RoundedCornerShape(12.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f))) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value.trimStart('▲', '▼', ' ').ifBlank { "0 B/s" }, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
         }
