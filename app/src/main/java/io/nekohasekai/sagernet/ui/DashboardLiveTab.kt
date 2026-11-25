@@ -18,6 +18,18 @@ import java.net.Proxy
 internal suspend fun dashboardGet(path: String): JSONObject = dashboardRequest(path)
 
 internal suspend fun dashboardRequest(path: String, method: String = "GET", body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
+    val rootMode = io.nekohasekai.sagernet.database.DataStore.serviceMode in listOf(
+        io.nekohasekai.sagernet.Key.MODE_ROOT_TUN, io.nekohasekai.sagernet.Key.MODE_ROOT_TPROXY,
+        io.nekohasekai.sagernet.Key.MODE_ROOT_TUN2SOCKS, io.nekohasekai.sagernet.Key.MODE_ROOT_BPF2SOCKS)
+    try {
+        dashboardDirect(path, method, body)
+    } catch (e: java.io.IOException) {
+        if (!rootMode) throw e
+        dashboardRoot(path, method, body)
+    }
+}
+
+private fun dashboardDirect(path: String, method: String, body: JSONObject?): JSONObject {
     val connection = URL("http://127.0.0.1:9090/" + path).openConnection(Proxy.NO_PROXY) as HttpURLConnection
     try {
         connection.connectTimeout = 1500
@@ -31,9 +43,25 @@ internal suspend fun dashboardRequest(path: String, method: String = "GET", body
         connection.instanceFollowRedirects = false
         check(connection.responseCode in 200..299) { "HTTP " + connection.responseCode }
         val response = connection.inputStream.bufferedReader().use { it.readText() }
-        if (response.isBlank()) JSONObject() else JSONObject(response)
+        return if (response.isBlank()) JSONObject() else JSONObject(response)
     } finally {
         connection.disconnect()
+    }
+}
+
+private fun dashboardRoot(path: String, method: String, body: JSONObject?): JSONObject {
+    require(method in listOf("GET", "PUT"))
+    val q = io.nekohasekai.sagernet.bg.root.RootShell::q
+    val url = q("http://127.0.0.1:9090/" + path)
+    val payload = body?.let { " -H " + q("Content-Type: application/json") + " --data-binary " + q(it.toString()) }.orEmpty()
+    val command = "curl -fsS --max-time 10 -X " + method + payload + " " + url
+    val process = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start()
+    try {
+        val response = process.inputStream.bufferedReader().use { it.readText() }
+        check(process.waitFor() == 0) { "Root API request failed" }
+        return if (response.isBlank()) JSONObject() else JSONObject(response)
+    } finally {
+        process.destroy()
     }
 }
 
