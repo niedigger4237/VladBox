@@ -19,15 +19,20 @@ object RootBoot {
         if (DataStore.configurationStore.getBoolean("startOnBoot", false) && f.parent == libDir) File(BIN, f.name) else f
 
     /** copies the executables (called on every start while the option is on) */
-    fun stage() {
-        if (!DataStore.configurationStore.getBoolean("startOnBoot", false)) return
+    fun stage(): String? {
+        if (!DataStore.configurationStore.getBoolean("startOnBoot", false)) return null
         val names = listOf("libasteriskd.so", "libhevtun.so", "libbpf2socks.so", "libbpf-matcher.so", "libsingbox.so")
-        val cmds = mutableListOf("mkdir -p ${RootShell.q(BIN)}")
+        val cmds = mutableListOf("set -e", "mkdir -p ${RootShell.q(BIN)}")
         for (n in names) {
             val src = File(libDir, n)
-            if (src.exists()) cmds += "cp -f ${RootShell.q(src)} ${RootShell.q("$BIN/$n")} && chmod 755 ${RootShell.q("$BIN/$n")}"
+            if (!src.isFile) continue
+            val target = RootShell.q("$BIN/$n")
+            val temp = RootShell.q("$BIN/.$n.new")
+            // Never overwrite a running executable in place; preserve the old file if copying fails.
+            cmds += "if ! cmp -s ${RootShell.q(src)} $target; then rm -f $temp; cp ${RootShell.q(src)} $temp; chmod 755 $temp; mv -f $temp $target; else chmod 755 $target; fi"
         }
-        RootShell.run(*cmds.toTypedArray())
+        val result = RootShell.run(*cmds.toTypedArray(), timeoutMs = 60_000)
+        return if (result.ok) null else result.err.ifBlank { "Cannot stage ROOT executables" }
     }
 
     private fun script(): String = """#!/system/bin/sh
@@ -44,20 +49,29 @@ nohup "${'$'}BASE/bin/libasteriskd.so" boot --config "${'$'}BASE/run/asteriskd.j
     fun apply(enable: Boolean): String? {
         if (!RootShell.isAvailable()) return "root is not available"
         // stage() / exec() read the flag from the store, which is not updated yet when the switch is toggled
+        val previous = DataStore.configurationStore.getBoolean("startOnBoot", false)
         DataStore.configurationStore.putBoolean("startOnBoot", enable)
         if (!enable) {
-            RootShell.run("rm -f ${RootShell.q(SCRIPT)}")
+            val result = RootShell.run("rm -f ${RootShell.q(SCRIPT)}")
+            if (!result.ok) {
+                DataStore.configurationStore.putBoolean("startOnBoot", previous)
+                return result.err.ifBlank { "Cannot remove boot script" }
+            }
             return null
         }
-        stage()
+        stage()?.let {
+            DataStore.configurationStore.putBoolean("startOnBoot", previous)
+            return it
+        }
         val tmp = File(SagerNet.application.noBackupFilesDir, "niefigger-hub.sh").apply { writeText(script()) }
         try {
             val r = RootShell.run(
+                "set -e",
                 "mkdir -p /data/adb/service.d",
                 "cp -f ${RootShell.q(tmp)} ${RootShell.q(SCRIPT)}",
                 "chmod 755 ${RootShell.q(SCRIPT)}",
                 // an existing config still points into the app's lib dir: redirect it to the copies
-                "[ -f ${RootShell.q(RootDaemon.daemonConfigPath)} ] && sed -i 's#${libDir}/#${BIN}/#g' ${RootShell.q(RootDaemon.daemonConfigPath)}; true",
+                "if [ -f ${RootShell.q(RootDaemon.daemonConfigPath)} ]; then sed -i 's#${libDir}/#${BIN}/#g' ${RootShell.q(RootDaemon.daemonConfigPath)}; fi",
             )
             return if (r.ok) null else r.err.ifBlank { "cannot write $SCRIPT" }
         } finally {

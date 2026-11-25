@@ -43,6 +43,10 @@ object RootDaemon {
 
     private fun matcherAvailable(mode: Mode, ipv6: Boolean): Boolean {
         if (!DataStore.rootEbpfMatcher || mode !in listOf(Mode.TPROXY, Mode.TUN2SOCKS)) return false
+        if (!File(libDir, "libbpf-matcher.so").isFile) {
+            Logs.w("ROOT eBPF matcher: not packaged; using iptables")
+            return false
+        }
         // Isolated probe directory; never remove a supervisor-owned BPF object.
         val result = RootShell.run(
             "d=$(mktemp -d /sys/fs/bpf/niefigger_probe_XXXXXX) || exit 1; " +
@@ -341,11 +345,12 @@ object RootDaemon {
             Logs.i("ROOT daemon startup: $stage ${now - lastMark} ms (total ${now - startedAt} ms)")
             lastMark = now
         }
-        if (!binary.exists()) return "libasteriskd.so is not part of this build"
-        if (mode == Mode.TUN2SOCKS && !hevBinary.exists()) return "libhevtun.so (hev-socks5-tunnel) is not part of this build"
-        if (mode == Mode.BPF2SOCKS && !bpfBinary.exists()) return "libbpf2socks.so is not part of this build"
+        // Validate APK files, not copies under /data/adb which the app UID cannot stat.
+        if (!File(libDir, "libasteriskd.so").isFile) return "libasteriskd.so is not part of this build"
+        if (mode == Mode.TUN2SOCKS && !File(libDir, "libhevtun.so").isFile) return "libhevtun.so (hev-socks5-tunnel) is not part of this build"
+        if (mode == Mode.BPF2SOCKS && !File(libDir, "libbpf2socks.so").isFile) return "libbpf2socks.so is not part of this build"
 
-        RootBoot.stage()
+        RootBoot.stage()?.let { return it }
         mark("boot staging")
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
         val useFlow = managed && core.bundled && DataStore.rootFlowMetadata &&
@@ -361,12 +366,19 @@ object RootDaemon {
         mark("generate configs")
         try {
             val prep = RootShell.run(
+                "set -e",
+                "umask 077",
                 "mkdir -p ${RootShell.q(logDir)}",
                 "rm -f ${RootShell.q(coreLogPath)} ${RootShell.q(logPath)} ${RootShell.q("$logDir/error.log")}",
                 "rm -f ${RootShell.q(runDir)}/geoip.db ${RootShell.q(runDir)}/geosite.db",
-                "cp -f ${RootShell.q(cfg)} ${RootShell.q(configPath)} && chmod 600 ${RootShell.q(configPath)}",
-                "cp -f ${RootShell.q(dcfg)} ${RootShell.q(daemonConfigPath)} && chmod 600 ${RootShell.q(daemonConfigPath)}",
-                "chmod 755 ${RootShell.q(binary)} ${RootShell.q(hevBinary)} ${RootShell.q(bpfBinary)} ${RootShell.q(matcherBinary)} 2>/dev/null; true",
+                "cp -f ${RootShell.q(cfg)} ${RootShell.q("$configPath.new")} && chmod 600 ${RootShell.q("$configPath.new")} && mv -f ${RootShell.q("$configPath.new")} ${RootShell.q(configPath)} || exit 1",
+                "cp -f ${RootShell.q(dcfg)} ${RootShell.q("$daemonConfigPath.new")} && chmod 600 ${RootShell.q("$daemonConfigPath.new")} && mv -f ${RootShell.q("$daemonConfigPath.new")} ${RootShell.q(daemonConfigPath)} || exit 1",
+                "test -x ${RootShell.q(binary)}",
+                when (mode) {
+                    Mode.TUN2SOCKS -> "test -x ${RootShell.q(hevBinary)}"
+                    Mode.BPF2SOCKS -> "test -x ${RootShell.q(bpfBinary)}"
+                    else -> "true"
+                },
             )
             if (!prep.ok) return prep.err.ifBlank { "cannot prepare $runDir" }
         } finally {
