@@ -37,6 +37,11 @@ class BootReceiver : BroadcastReceiver() {
             else -> Build.VERSION.SDK_INT < 24 || SagerNet.user.isUserUnlocked
         } && DataStore.selectedProxy > 0
 
-        if (doStart) SagerNet.startService()
+        // Native service.d owns ROOT boot when explicitly enabled. Do not
+        // race it with the ordinary Android foreground-service auto-start.
+        val nativeRootBoot = DataStore.configurationStore.getBoolean("startOnBoot", false) &&
+            DataStore.serviceMode in listOf(Key.MODE_ROOT_TUN, Key.MODE_ROOT_TUN2SOCKS,
+                Key.MODE_ROOT_TPROXY, Key.MODE_ROOT_BPF2SOCKS)
+        if (doStart && !nativeRootBoot) SagerNet.startService()
     }
 }

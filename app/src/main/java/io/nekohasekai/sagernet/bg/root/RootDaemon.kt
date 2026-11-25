@@ -659,9 +659,9 @@ object RootDaemon {
                     ).asJsonObject.apply {
                         addProperty("coreConfigPath", RootBoot.bootCoreConfigPath)
                     }
-                    RootBoot.publish(withLogFile(bootCore), gson.toJson(bootDaemon))?.let {
-                        Logs.w("ROOT boot: snapshot not published: $it")
-                    }
+                    val bootError = runCatching { RootBoot.publish(withLogFile(bootCore), gson.toJson(bootDaemon)) }
+                        .getOrElse { it.message ?: "boot snapshot write failed" }
+                    bootError?.let { Logs.w("ROOT boot: snapshot not published: $it") }
                     if (managed && mode == Mode.TUN)
                         Logs.i("ROOT boot: managed TUN snapshot is phone-only; dynamic native tethering pending")
                 }

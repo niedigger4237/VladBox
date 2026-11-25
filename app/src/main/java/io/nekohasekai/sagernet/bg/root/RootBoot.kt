@@ -23,10 +23,11 @@ object RootBoot {
         if (DataStore.configurationStore.getBoolean("startOnBoot", false) && f.parent == libDir) File(BIN, f.name) else f
 
     /** copies the executables (called on every start while the option is on) */
+    @Synchronized
     fun stage(): String? {
         if (!DataStore.configurationStore.getBoolean("startOnBoot", false)) return null
         val names = listOf("libasteriskd.so", "libhevtun.so", "libbpf2socks.so", "libbpf-matcher.so", "libsingbox.so")
-        val cmds = mutableListOf("set -e", "umask 077", "mkdir -p ${RootShell.q(BIN)} ${RootShell.q(BOOT)}", "chmod 700 ${RootShell.q(BOOT)}")
+        val cmds = mutableListOf("set -e", "umask 077", "mkdir -p ${RootShell.q(BIN)} ${RootShell.q(BOOT)}", "chmod 700 ${RootShell.q(BOOT)}", "rm -f ${RootShell.q(ready)}")
         for (n in names) {
             val src = File(libDir, n)
             if (!src.isFile) continue
@@ -48,6 +49,10 @@ until [ "${'$'}(getprop sys.boot_completed)" = "1" ]; do sleep 2; done
 sleep 5
 [ -f "${'$'}BASE/boot/ready" ] && [ -f "${'$'}BASE/boot/asteriskd.json" ] && [ -f "${'$'}BASE/boot/config.json" ] || exit 0
 mkdir -p "${'$'}BASE/run/logs" || exit 1
+# A manual connection may already have started during boot.
+STATUS="${'$'}("${'$'}BASE/bin/libasteriskd.so" status 2>&1)"
+printf '%s\n' "${'$'}STATUS" | grep -Eq '"code"[[:space:]]*:[[:space:]]*"not_running"' || exit 0
+[ -f "${'$'}BASE/boot/ready" ] || exit 0
 nohup "${'$'}BASE/bin/libasteriskd.so" boot --config "${'$'}BASE/boot/asteriskd.json" </dev/null >"${'$'}BASE/run/logs/boot.out" 2>&1 &
 """
 

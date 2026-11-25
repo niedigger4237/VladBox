@@ -669,7 +669,7 @@
     <string name="service_control">Service control</string>
     <string name="service_control_sum">Start / stop automatically by Wi-Fi, schedule or lock screen (root)</string>
     <string name="start_on_boot">Start on boot</string>
-    <string name="start_on_boot_sum">Installs a service.d script that starts the root service at boot</string>
+    <string name="start_on_boot_sum">Installs a service.d script for ROOT startup. Reconnect once after enabling to save a verified boot configuration.</string>
     <string name="sc_enable">Enable service control</string>
     <string name="sc_enable_sum">Master switch. The supervisor keeps running in the background and applies the rules below</string>
     <string name="sc_schedule">Schedule</string>
