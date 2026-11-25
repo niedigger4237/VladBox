@@ -648,6 +648,23 @@ object RootDaemon {
                     shutdown()
                     return "ROOT tether: cannot verify IPv6 forwarding guard"
                 }
+                if (DataStore.configurationStore.getBoolean("startOnBoot", false)) {
+                    // Keep boot files independent of the live JSON. A managed ROOT TUN
+                    // boots with lo only until native downstream reconciliation is available.
+                    val bootCore = if (managed && mode == Mode.TUN)
+                        withTunDownstreams(singBoxConfig, null) else effectiveConfig
+                    val bootDaemon = com.google.gson.JsonParser.parseString(
+                        buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort,
+                            ipv6, bootCore, flowToken, useMatcher)
+                    ).asJsonObject.apply {
+                        addProperty("coreConfigPath", RootBoot.bootCoreConfigPath)
+                    }
+                    RootBoot.publish(withLogFile(bootCore), gson.toJson(bootDaemon))?.let {
+                        Logs.w("ROOT boot: snapshot not published: $it")
+                    }
+                    if (managed && mode == Mode.TUN)
+                        Logs.i("ROOT boot: managed TUN snapshot is phone-only; dynamic native tethering pending")
+                }
                 appliedDownstreams = dynamicDownstreams
                 startLogForward(mode)
                 if (mode == Mode.TUN && managed) startTunDiagnostics(dynamicDownstreams ?: DownstreamSnapshot(emptyList(), emptyList()), ipv6)
@@ -717,7 +734,7 @@ object RootDaemon {
             return false
         }
         val owned = RootShell.run(
-            "tr '\\000' '\\n' </proc/$pid/cmdline | grep -Fx -- ${RootShell.q(daemonConfigPath)} >/dev/null",
+            "tr '\\000' '\\n' </proc/$pid/cmdline | grep -Fx -e ${RootShell.q(daemonConfigPath)} -e ${RootShell.q(RootBoot.bootConfigPath)} >/dev/null",
             timeoutMs = 3000
         )
         if (!owned.ok) {

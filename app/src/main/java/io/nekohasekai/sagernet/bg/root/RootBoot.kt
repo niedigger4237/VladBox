@@ -12,6 +12,10 @@ import java.io.File
 object RootBoot {
     private const val SCRIPT = "/data/adb/service.d/niefigger-hub.sh"
     private val BIN get() = "${RootCore.BASE}/bin"
+    private val BOOT get() = "${RootCore.BASE}/boot"
+    internal val bootConfigPath get() = "$BOOT/asteriskd.json"
+    internal val bootCoreConfigPath get() = "$BOOT/config.json"
+    private val ready get() = "$BOOT/ready"
     private val libDir get() = SagerNet.application.applicationInfo.nativeLibraryDir
 
     /** a file from the app's lib dir, or its persistent copy when start-on-boot is on */
@@ -22,7 +26,7 @@ object RootBoot {
     fun stage(): String? {
         if (!DataStore.configurationStore.getBoolean("startOnBoot", false)) return null
         val names = listOf("libasteriskd.so", "libhevtun.so", "libbpf2socks.so", "libbpf-matcher.so", "libsingbox.so")
-        val cmds = mutableListOf("set -e", "mkdir -p ${RootShell.q(BIN)}")
+        val cmds = mutableListOf("set -e", "umask 077", "mkdir -p ${RootShell.q(BIN)} ${RootShell.q(BOOT)}", "chmod 700 ${RootShell.q(BOOT)}")
         for (n in names) {
             val src = File(libDir, n)
             if (!src.isFile) continue
@@ -32,7 +36,8 @@ object RootBoot {
             cmds += "if ! cmp -s ${RootShell.q(src)} $target; then rm -f $temp; cp ${RootShell.q(src)} $temp; chmod 755 $temp; mv -f $temp $target; else chmod 755 $target; fi"
         }
         val result = RootShell.run(*cmds.toTypedArray(), timeoutMs = 60_000)
-        return if (result.ok) null else result.err.ifBlank { "Cannot stage ROOT executables" }
+        if (!result.ok) return result.err.ifBlank { "Cannot stage ROOT executables" }
+        return installScript()
     }
 
     private fun script(): String = """#!/system/bin/sh
@@ -40,42 +45,77 @@ object RootBoot {
 BASE=${RootCore.BASE}
 until [ "${'$'}(getprop sys.boot_completed)" = "1" ]; do sleep 2; done
 sleep 5
-[ -f "${'$'}BASE/run/asteriskd.json" ] || exit 0
+[ -f "${'
 mkdir -p "${'$'}BASE/run/logs"
-nohup "${'$'}BASE/bin/libasteriskd.so" boot --config "${'$'}BASE/run/asteriskd.json" </dev/null >"${'$'}BASE/run/logs/boot.out" 2>&1 &
+nohup "${' </dev/null >"${'$'}BASE/run/logs/boot.out" 2>&1 &
 """
 
-    /** @return null on success, otherwise a readable error */
+    private fun installScript(): String? {
+        val tmp = File.createTempFile("niefigger-boot-", ".sh", SagerNet.application.noBackupFilesDir)
+        return try {
+            tmp.writeText(script())
+            val r = RootShell.run(
+                "set -e", "umask 077", "mkdir -p /data/adb/service.d",
+                "cp -f ${RootShell.q(tmp)} ${RootShell.q(SCRIPT + ".new")}",
+                "chmod 755 ${RootShell.q(SCRIPT + ".new")}",
+                "mv -f ${RootShell.q(SCRIPT + ".new")} ${RootShell.q(SCRIPT)}",
+            )
+            if (r.ok) null else r.err.ifBlank { "Cannot install ROOT boot script" }
+        } finally {
+            tmp.delete()
+        }
+    }
+
+    /** Publish only after the interactive daemon has passed readiness. A missing
+     * marker prevents the boot script from consuming an incomplete pair. */
+    @Synchronized
+    internal fun publish(coreJson: String, daemonJson: String): String? {
+        if (!DataStore.configurationStore.getBoolean("startOnBoot", false)) return null
+        val core = File.createTempFile("boot-core-", ".json", SagerNet.application.noBackupFilesDir)
+        val daemon = File.createTempFile("boot-daemon-", ".json", SagerNet.application.noBackupFilesDir)
+        return try {
+            core.writeText(coreJson)
+            daemon.writeText(daemonJson)
+            val result = RootShell.run(
+                "set -e", "umask 077",
+                "mkdir -p ${RootShell.q(BOOT)} && chmod 700 ${RootShell.q(BOOT)}",
+                "rm -f ${RootShell.q(ready)}",
+                "cp ${RootShell.q(core)} ${RootShell.q(bootCoreConfigPath + ".new")}",
+                "cp ${RootShell.q(daemon)} ${RootShell.q(bootConfigPath + ".new")}",
+                "chmod 600 ${RootShell.q(bootCoreConfigPath + ".new")} ${RootShell.q(bootConfigPath + ".new")}",
+                "mv -f ${RootShell.q(bootCoreConfigPath + ".new")} ${RootShell.q(bootCoreConfigPath)}",
+                "mv -f ${RootShell.q(bootConfigPath + ".new")} ${RootShell.q(bootConfigPath)}",
+                "touch ${RootShell.q(ready)}",
+            )
+            if (result.ok) null else result.err.ifBlank { "Cannot publish ROOT boot config" }
+        } finally {
+            core.delete()
+            daemon.delete()
+        }
+    }
+
+    /** Enabling arms only a subsequently verified session, not stale JSON. */
+    @Synchronized
     fun apply(enable: Boolean): String? {
         if (!RootShell.isAvailable()) return "root is not available"
-        // stage() / exec() read the flag from the store, which is not updated yet when the switch is toggled
         val previous = DataStore.configurationStore.getBoolean("startOnBoot", false)
         DataStore.configurationStore.putBoolean("startOnBoot", enable)
         if (!enable) {
-            val result = RootShell.run("rm -f ${RootShell.q(SCRIPT)}")
+            val result = RootShell.run("set -e", "rm -f ${RootShell.q(ready)} ${RootShell.q(SCRIPT)} ${RootShell.q(SCRIPT + ".new")}")
             if (!result.ok) {
                 DataStore.configurationStore.putBoolean("startOnBoot", previous)
                 return result.err.ifBlank { "Cannot remove boot script" }
             }
             return null
         }
-        stage()?.let {
+        // Reconnecting after enabling publishes a fresh config pair.
+        val disarm = RootShell.run("rm -f ${RootShell.q(ready)}")
+        if (!disarm.ok) {
             DataStore.configurationStore.putBoolean("startOnBoot", previous)
-            return it
+            return disarm.err.ifBlank { "Cannot disarm previous boot snapshot" }
         }
-        val tmp = File(SagerNet.application.noBackupFilesDir, "niefigger-hub.sh").apply { writeText(script()) }
-        try {
-            val r = RootShell.run(
-                "set -e",
-                "mkdir -p /data/adb/service.d",
-                "cp -f ${RootShell.q(tmp)} ${RootShell.q(SCRIPT)}",
-                "chmod 755 ${RootShell.q(SCRIPT)}",
-                // an existing config still points into the app's lib dir: redirect it to the copies
-                "if [ -f ${RootShell.q(RootDaemon.daemonConfigPath)} ]; then sed -i 's#${libDir}/#${BIN}/#g' ${RootShell.q(RootDaemon.daemonConfigPath)}; fi",
-            )
-            return if (r.ok) null else r.err.ifBlank { "cannot write $SCRIPT" }
-        } finally {
-            tmp.delete()
-        }
+        val error = stage()
+        if (error != null) DataStore.configurationStore.putBoolean("startOnBoot", previous)
+        return error
     }
 }
