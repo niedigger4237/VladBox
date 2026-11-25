@@ -32,11 +32,7 @@ internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = 
                 Text("Routing rules" + if (rules.isNotEmpty()) " (${rules.size})" else "",
                     Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 IconButton(onClick = { onSearchChange(!searchOpen) }) {
-                    val tint = colors.onSurface
-                    Canvas(Modifier.size(22.dp)) {
-                        drawCircle(tint, radius = size.width * .28f, center = Offset(size.width * .4f, size.height * .4f), style = Stroke(2.dp.toPx()))
-                        drawLine(tint, Offset(size.width * .61f, size.height * .61f), Offset(size.width * .87f, size.height * .87f), 2.dp.toPx())
-                    }
+                    Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_search), contentDescription = "Search rules")
                 }
             }
             if (searchOpen) {
@@ -58,7 +54,7 @@ internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = 
                             Text(rule.payload.ifBlank { if (ruleLabel(rule) == "Final") "All remaining traffic" else "—" }, style = MaterialTheme.typography.bodySmall,
                                 color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        Text("→", color = colors.onSurfaceVariant)
+                        Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_arrow_forward), contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.onSurfaceVariant)
                         val targetColor = when (rule.target.lowercase(java.util.Locale.ROOT)) {
                             "direct", "bypass", "route(bypass)", "route(direct)" -> Color(0xFF81D99A)
                             "block", "reject" -> colors.error
@@ -91,20 +87,7 @@ private fun RuleTypeIcon(type: String) {
     } else if (normalized == "MATCH" || normalized == "FINAL") {
         Text("{}", Modifier.width(24.dp), color = tint, style = MaterialTheme.typography.titleMedium)
     } else {
-        Canvas(Modifier.size(24.dp)) {
-            val stroke = 1.5.dp.toPx()
-            if (normalized.contains("CIDR") || normalized.startsWith("IP")) {
-                drawRoundRect(tint, topLeft = Offset(size.width * .1f, size.height * .22f),
-                    size = androidx.compose.ui.geometry.Size(size.width * .8f, size.height * .56f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()), style = Stroke(stroke))
-                for (i in 0..2) drawCircle(tint, stroke, Offset(size.width * (.3f + i * .2f), size.height * .5f))
-            } else {
-                drawCircle(tint, radius = size.width * .42f, style = Stroke(stroke))
-                drawOval(tint, topLeft = Offset(size.width * .29f, size.height * .08f),
-                    size = androidx.compose.ui.geometry.Size(size.width * .42f, size.height * .84f), style = Stroke(stroke))
-                drawLine(tint, Offset(size.width * .09f, size.height * .5f), Offset(size.width * .91f, size.height * .5f), stroke)
-            }
-        }
+        Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_public), contentDescription = null, modifier = Modifier.size(24.dp), tint = tint)
     }
 }
 

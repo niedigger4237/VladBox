@@ -79,14 +79,10 @@ class DashboardFragment : ToolbarFragment() {
                             Spacer(Modifier.width(8.dp))
                             Text("Dashboard", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                             IconButton(onClick = { if (tab != 1 && tab != 3) { tab = 1; searchOpen = true } else searchOpen = !searchOpen }) {
-                                Canvas(Modifier.size(22.dp)) {
-                                    val tint = androidx.compose.ui.graphics.Color.Gray
-                                    drawCircle(tint, radius = size.width * .28f, center = Offset(size.width * .4f, size.height * .4f), style = Stroke(2.dp.toPx()))
-                                    drawLine(tint, Offset(size.width * .61f, size.height * .61f), Offset(size.width * .87f, size.height * .87f), 2.dp.toPx())
-                                }
+                                Icon(painterResource(R.drawable.ic_dash_symbol_search), contentDescription = "Search dashboard", tint = MaterialTheme.colorScheme.onSurface)
                             }
                             Box {
-                                IconButton(onClick = { menuOpen = true }) { Text("⋮", style = MaterialTheme.typography.headlineSmall) }
+                                IconButton(onClick = { menuOpen = true }) { Icon(painterResource(R.drawable.ic_dash_symbol_more_vert), contentDescription = "Dashboard menu") }
                                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                                     listOf("Overview", "Connections", "Proxies", "Rules").forEachIndexed { index, label ->
                                         DropdownMenuItem(text = { Text(label) }, onClick = { tab = index; searchOpen = false; menuOpen = false })
@@ -205,7 +201,7 @@ private fun DashboardMetric(label: String, value: String, modifier: Modifier) {
     OutlinedCard(modifier, shape = RoundedCornerShape(12.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f)), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f))) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                DashboardOverviewIcon(if (label == "Download") 0 else 1, if (label == "Download") Color(0xFF81D99A) else MaterialTheme.colorScheme.primary)
+                Icon(painterResource(if (label == "Download") R.drawable.ic_dash_symbol_download else R.drawable.ic_dash_symbol_upload), contentDescription = null, modifier = Modifier.size(22.dp), tint = if (label == "Download") Color(0xFF81D99A) else MaterialTheme.colorScheme.primary)
                 Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
             }
             Text(value.trimStart('▲', '▼', ' ').ifBlank { "0 B/s" }, style = MaterialTheme.typography.titleLarge, color = if (label.contains("Download")) Color(0xFF81D99A) else MaterialTheme.colorScheme.primary)
@@ -215,32 +211,13 @@ private fun DashboardMetric(label: String, value: String, modifier: Modifier) {
 
 @Composable
 private fun DashboardTabIcon(index: Int) {
-    val tint = LocalContentColor.current
-    Canvas(Modifier.size(24.dp)) {
-        val s = size.width / 24f
-        fun line(x: Float, y: Float, x2: Float, y2: Float) =
-            drawLine(tint, Offset(x*s,y*s), Offset(x2*s,y2*s), 1.8.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
-        when (index) {
-            0 -> {
-                line(3f,11f,12f,3f); line(12f,3f,21f,11f)
-                line(6f,9f,6f,21f); line(18f,9f,18f,21f)
-                line(6f,21f,10f,21f); line(14f,21f,18f,21f)
-                line(10f,21f,10f,15f); line(10f,15f,14f,15f); line(14f,15f,14f,21f)
-            }
-            1 -> {
-                line(4f,7f,20f,7f); line(16f,3f,20f,7f); line(20f,7f,16f,11f)
-                line(20f,17f,4f,17f); line(8f,13f,4f,17f); line(4f,17f,8f,21f)
-            }
-            2 -> {
-                line(3f,8f,12f,3f); line(12f,3f,21f,8f); line(21f,8f,12f,13f); line(12f,13f,3f,8f)
-                line(3f,12f,12f,17f); line(12f,17f,21f,12f)
-                line(3f,16f,12f,21f); line(12f,21f,21f,16f)
-            }
-            else -> for (y in listOf(5f,12f,19f)) {
-                drawCircle(tint, 1.2f*s, Offset(4f*s,y*s)); line(9f,y,21f,y)
-            }
-        }
+    val icon = when (index) {
+        0 -> R.drawable.ic_dash_symbol_home
+        1 -> R.drawable.ic_dash_symbol_swap_horiz
+        2 -> R.drawable.ic_dash_symbol_layers
+        else -> R.drawable.ic_dash_symbol_format_list_bulleted
     }
+    Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(24.dp))
 }
 
 @Composable

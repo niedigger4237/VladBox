@@ -36,10 +36,10 @@ internal fun DashboardProxiesTab(
                 Row(Modifier.padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_lan), contentDescription = null, modifier = Modifier.size(20.dp), tint = colors.primary)
+                            Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_public), contentDescription = null, modifier = Modifier.size(20.dp), tint = colors.primary)
                             Text(group?.name ?: "No proxy groups", style = MaterialTheme.typography.titleSmall)
                         }
-                        Text(group?.let { if (it.type.equals("URLTest", true)) "Automatic server selection" else "Proxy group" }
+                        Text(group?.let { when { it.type.equals("URLTest", true) -> "Automatic server selection"; it.type.equals("Fallback", true) -> "Automatic failover"; else -> "Proxy group" } }
                             ?: if (connected) "Proxy data unavailable" else "Service is not running",
                             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                     }
@@ -61,7 +61,7 @@ internal fun DashboardProxiesTab(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(group?.let { "Servers (" + it.name + ")" } ?: "Servers", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 IconButton(onClick = { group?.let { onTest?.invoke(it.name) } }, enabled = connected && group != null && onTest != null) {
-                    Text("↻", style = MaterialTheme.typography.headlineSmall)
+                    Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_refresh), contentDescription = "Test server latency")
                 }
             }
             if (group == null || group.nodes.isEmpty()) {
@@ -110,8 +110,10 @@ private fun ProxyDelay(delay: Int?, showLightning: Boolean = false) {
         else -> MaterialTheme.colorScheme.error
     }
     Surface(color = tint.copy(alpha = .18f), shape = RoundedCornerShape(20.dp)) {
-        Text(if (delay != null && delay > 0) (if (showLightning) "ϟ " else "") + "$delay ms" else "—", Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-            color = tint, style = MaterialTheme.typography.labelMedium)
+        Row(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (showLightning && delay != null && delay > 0) Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_bolt), contentDescription = null, modifier = Modifier.size(14.dp), tint = tint)
+            Text(if (delay != null && delay > 0) "$delay ms" else "—", color = tint, style = MaterialTheme.typography.labelMedium)
+        }
     }
 }
 
@@ -145,7 +147,10 @@ internal fun DashboardLiveProxies(connected: Boolean) {
                 val isMain = tag == io.nekohasekai.sagernet.fmt.TAG_PROXY
                 val label = if (isMain) profile?.displayName()?.takeIf { it.isNotBlank() } else null
                 val protocol = if (isMain) profile?.displayType() else proxies.optJSONObject(tag)?.optString("type")?.takeIf { it.isNotBlank() }
-                DashboardProxyNode(tag, measured[tag] ?: delay, displayName = label ?: tag, protocol = protocol)
+                val nodeData = proxies.optJSONObject(tag)
+                val country = sequenceOf(nodeData?.optString("countryCode"), nodeData?.optString("country"))
+                    .filterNotNull().map { it.uppercase(java.util.Locale.ROOT) }.firstOrNull { it in java.util.Locale.getISOCountries() }
+                DashboardProxyNode(tag, measured[tag] ?: delay, countryCode = country, displayName = label ?: tag, protocol = protocol)
             }
             DashboardProxyGroup(name, item.optString("type"), item.optString("now"), nodes)
         }.toList()

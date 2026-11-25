@@ -228,7 +228,7 @@ internal fun DashboardLiveTab(tab: Int, connected: Boolean, searching: Boolean =
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Surface(Modifier.size(32.dp), shape = androidx.compose.foundation.shape.CircleShape, color = colors.secondaryContainer) {
-                            Box(contentAlignment = androidx.compose.ui.Alignment.Center) { DashboardBrandIcon(item.title) { DashboardServiceIcon("") } }
+                            Box(contentAlignment = androidx.compose.ui.Alignment.Center) { DashboardBrandIcon(item.title) { Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_public), contentDescription = null, modifier = Modifier.size(22.dp), tint = colors.onSecondaryContainer) } }
                         }
                         Column(Modifier.weight(1f)) {
                             Text(item.title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
@@ -245,7 +245,7 @@ internal fun DashboardLiveTab(tab: Int, connected: Boolean, searching: Boolean =
                                 Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = tint,
                                 style = MaterialTheme.typography.labelSmall, maxLines = 1)
                         }
-                        IconButton(onClick = { selected = item }, modifier = Modifier.size(32.dp)) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
+                        IconButton(onClick = { selected = item }, modifier = Modifier.size(32.dp)) { Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_more_vert), contentDescription = "Connection details") }
                     }
                 }
             }
@@ -262,40 +262,3 @@ private fun dashboardBytes(bytes: Long): String {
         String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[index])
 }
 
-@Composable
-private fun DashboardServiceIcon(host: String) {
-    val domain = host.lowercase(java.util.Locale.ROOT).trimEnd('.')
-    fun matches(vararg domains: String) = domains.any { domain == it || domain.endsWith("." + it) }
-    val kind = when {
-        matches("youtube.com", "youtu.be", "googlevideo.com", "ytimg.com") -> 1
-        matches("google.com", "googleapis.com", "gstatic.com", "googleusercontent.com") -> 2
-        matches("telegram.org", "t.me", "telegram.me") -> 3
-        matches("discord.com", "discord.gg", "discordapp.com", "discordapp.net") -> 4
-        matches("github.com", "githubusercontent.com", "githubassets.com") -> 5
-        matches("spotify.com", "scdn.co", "spotifycdn.com") -> 6
-        matches("cloudflare.com", "cloudflare-dns.com", "cloudflare.net") -> 7
-        else -> 0
-    }
-    val tint = MaterialTheme.colorScheme.onSecondaryContainer
-    androidx.compose.foundation.Canvas(Modifier.size(20.dp)) {
-        val s = size.width / 24f
-        val stroke = 1.6.dp.toPx()
-        fun pt(x: Float,y: Float) = androidx.compose.ui.geometry.Offset(x*s,y*s)
-        fun line(x: Float,y: Float,a: Float,b: Float) = drawLine(tint,pt(x,y),pt(a,b),stroke,cap=androidx.compose.ui.graphics.StrokeCap.Round)
-        fun outline() = androidx.compose.ui.graphics.drawscope.Stroke(stroke)
-        when(kind) {
-            1 -> {
-                drawRoundRect(tint,pt(2f,5f),androidx.compose.ui.geometry.Size(20*s,14*s),androidx.compose.ui.geometry.CornerRadius(4*s),style=outline())
-                val p = androidx.compose.ui.graphics.Path().apply { moveTo(10*s,8*s); lineTo(16*s,12*s); lineTo(10*s,16*s); close() }
-                drawPath(p,tint)
-            }
-            2 -> { drawArc(tint,40f,285f,false,pt(3f,3f),androidx.compose.ui.geometry.Size(18*s,18*s),style=outline()); line(12f,12f,21f,12f); line(21f,12f,21f,15f) }
-            3 -> { line(2f,10f,22f,3f); line(22f,3f,17f,21f); line(17f,21f,10f,15f); line(10f,15f,22f,3f); line(2f,10f,10f,15f) }
-            4 -> { drawRoundRect(tint,pt(3f,6f),androidx.compose.ui.geometry.Size(18*s,12*s),androidx.compose.ui.geometry.CornerRadius(5*s),style=outline()); drawCircle(tint,1.5f*s,pt(9f,12f)); drawCircle(tint,1.5f*s,pt(15f,12f)); line(6f,18f,4f,20f); line(18f,18f,20f,20f) }
-            5 -> { drawCircle(tint,9*s,pt(12f,12f),style=outline()); line(8f,8f,7f,5f); line(16f,8f,17f,5f); drawRoundRect(tint,pt(7f,8f),androidx.compose.ui.geometry.Size(10*s,8*s),androidx.compose.ui.geometry.CornerRadius(3*s)); line(12f,16f,12f,21f) }
-            6 -> { drawCircle(tint,10*s,pt(12f,12f),style=outline()); drawArc(tint,205f,125f,false,pt(5f,9f),androidx.compose.ui.geometry.Size(14f*s,7f*s),style=outline()); drawArc(tint,205f,125f,false,pt(6f,12f),androidx.compose.ui.geometry.Size(12f*s,7f*s),style=outline()); drawArc(tint,205f,125f,false,pt(7f,15f),androidx.compose.ui.geometry.Size(10f*s,7f*s),style=outline()) }
-            7 -> { drawArc(tint,180f,180f,false,pt(5f,4f),androidx.compose.ui.geometry.Size(14*s,14*s),style=outline()); line(5f,11f,2f,15f); line(2f,15f,4f,18f); line(4f,18f,22f,18f); line(22f,18f,22f,14f); line(22f,14f,19f,11f) }
-            else -> { drawCircle(tint,10*s,pt(12f,12f),style=outline()); drawOval(tint,pt(7f,2f),androidx.compose.ui.geometry.Size(10*s,20*s),style=outline()); line(2f,12f,22f,12f) }
-        }
-    }
-}
