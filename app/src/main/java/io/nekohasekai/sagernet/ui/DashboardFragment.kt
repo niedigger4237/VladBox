@@ -302,38 +302,11 @@ private fun dashboardRootPss(): Long? {
     val quoted = io.nekohasekai.sagernet.bg.root.RootShell.q(config)
     val script = """
         for p in /proc/[0-9]*; do
-            [ -r "${'p/cmdline" ] || continue
-            exe=@(readlink "@p/exe" 2>/dev/null) || continue
-            case "@exe" in */sing-box|*/libsingbox.so) ;; *) continue ;; esac
-            tr '\000' '\n' < "@p/cmdline" | grep -Fx -- $quoted >/dev/null || continue
-            awk '/^Pss:/ {print @2; exit}' "@p/smaps_rollup" 2>/dev/null
-        done
-}p/cmdline" ] || continue
-            exe=${'(readlink "@p/exe" 2>/dev/null) || continue
-            case "@exe" in */sing-box|*/libsingbox.so) ;; *) continue ;; esac
-            tr '\000' '\n' < "@p/cmdline" | grep -Fx -- $quoted >/dev/null || continue
-            awk '/^Pss:/ {print @2; exit}' "@p/smaps_rollup" 2>/dev/null
-        done
-}(readlink "${'p/exe" 2>/dev/null) || continue
-            case "@exe" in */sing-box|*/libsingbox.so) ;; *) continue ;; esac
-            tr '\000' '\n' < "@p/cmdline" | grep -Fx -- $quoted >/dev/null || continue
-            awk '/^Pss:/ {print @2; exit}' "@p/smaps_rollup" 2>/dev/null
-        done
-}p/exe" 2>/dev/null) || continue
-            case "${'exe" in */sing-box|*/libsingbox.so) ;; *) continue ;; esac
-            tr '\000' '\n' < "@p/cmdline" | grep -Fx -- $quoted >/dev/null || continue
-            awk '/^Pss:/ {print @2; exit}' "@p/smaps_rollup" 2>/dev/null
-        done
-}exe" in */sing-box|*/libsingbox.so) ;; *) continue ;; esac
-            tr '\000' '\n' < "${'p/cmdline" | grep -Fx -- $quoted >/dev/null || continue
-            awk '/^Pss:/ {print @2; exit}' "@p/smaps_rollup" 2>/dev/null
-        done
-}p/cmdline" | grep -Fx -- $quoted >/dev/null || continue
-            awk '/^Pss:/ {print ${'2; exit}' "@p/smaps_rollup" 2>/dev/null
-        done
-}2; exit}' "${'p/smaps_rollup" 2>/dev/null
-        done
-}p/smaps_rollup" 2>/dev/null
+            [ -r "${'$'}p/cmdline" ] || continue
+            exe=${'$'}(readlink "${'$'}p/exe" 2>/dev/null) || continue
+            case "${'$'}exe" in */sing-box|*/libsingbox.so) ;; *) continue ;; esac
+            tr '\000' '\n' < "${'$'}p/cmdline" | grep -Fx -- $quoted >/dev/null || continue
+            awk '/^Pss:/ {print ${'$'}2; exit}' "${'$'}p/smaps_rollup" 2>/dev/null
         done
     """.trimIndent()
     val result = io.nekohasekai.sagernet.bg.root.RootShell.run(script, timeoutMs = 3000)
