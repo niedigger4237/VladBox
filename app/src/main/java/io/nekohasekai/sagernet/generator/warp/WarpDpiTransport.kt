@@ -36,6 +36,17 @@ internal class WarpDpiTransport(private val context: Context) {
         }
     }
 
+    /** Registration entry point for a verified, isolated engine adapter only. */
+    fun register(
+        open: (DpiStrategySelector.Strategy) -> WarpDpiSession,
+        cancelled: () -> Boolean,
+        progress: (Int, Int, DpiStrategySelector.Strategy) -> Unit
+    ): WarpRegistration.Account = execute(open, cancelled, progress) { api ->
+        WarpRegistration.register { method, endpoint, body, token ->
+            api.request(method, endpoint, body, token)
+        }
+    }
+
     internal class ApiSession(
         private val connection: WarpApi.Connection,
         private val cancelled: () -> Boolean
