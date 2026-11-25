@@ -202,6 +202,38 @@ object TetherVpn {
         return true
     }
 
+    /** Check hooks and owned routing entries before treating an unchanged snapshot as healthy. */
+    private fun routingHealthy(r: RuleSet): Boolean {
+        fun family(tool: String, ip: String, forward: String, pre: String, post: String, names: List<String>): Boolean {
+            val snapshot = RootShell.run(
+                "set -e",
+                "$tool -w 3 -t filter -S FORWARD",
+                "$tool -w 3 -t nat -S PREROUTING",
+                "$tool -w 3 -t nat -S POSTROUTING",
+                "$ip rule show",
+                "$ip route show table ${r.table}",
+                timeoutMs = 10000
+            )
+            if (!snapshot.ok) return false
+            val lines = snapshot.out.lineSequence().map { it.trim() }.toList()
+            // An earlier guard (for example after netd resets iptables) would drop VPN traffic too.
+            val first = lines.firstOrNull { it.startsWith("-A FORWARD ") }
+            if (first != "-A FORWARD -j $forward" ||
+                "-A PREROUTING -j $pre" !in lines || "-A POSTROUTING -j $post" !in lines) return false
+            if (lines.none { it == "default dev ${r.up}" || it.startsWith("default dev ${r.up} ") }) return false
+            return names.all { name ->
+                lines.any { line ->
+                    line.substringBefore(':').trim().toIntOrNull() == r.pref &&
+                        Regex("""\biif\s+${Regex.escape(name)}\s+lookup\s+${r.table}\b""").containsMatchIn(line)
+                }
+            }
+        }
+        if (!family("iptables", "ip -4", r.forward, r.prerouting, r.postrouting, r.down.map { it.name })) return false
+        return installed6?.let { v6 ->
+            family("ip6tables", "ip -6", v6.forward, v6.prerouting, v6.postrouting, v6.down.map { it.name }.distinct())
+        } ?: true
+    }
+
     private fun apply(plan: TunAddressPlan, token: Long, ipv6: Boolean) {
         try {
             if (token != generation) return
@@ -253,7 +285,7 @@ object TetherVpn {
                     sel.any { c -> if (c.endsWith("+")) name.startsWith(c.dropLast(1)) else name == c }
             }.toSet()
             if (token != generation) return
-            if (!guard.sync(names)) {
+            if (!guard.sync(names, retainExisting = true)) {
                 clearLocked()
                 Logs.w("VPN tether: leak guard could not be installed; no new routing rules")
                 return
@@ -278,10 +310,13 @@ object TetherVpn {
                 Logs.i("VPN tether discovery: $sig")
             }
             if (token != generation) return
-            if (ordered.isEmpty()) { clearLocked(); return }
+            if (ordered.isEmpty()) { if (clearLocked()) guard.sync(names); return }
             val current = installed
-            if (installedReady && current != null && current.up == up && current.down == ordered && current.dns == plan.dns4 && current.down6 == down6 && current.dns6 == dns6) return
-            if (!clearLocked()) return
+            if (installedReady && current != null && current.up == up && current.down == ordered && current.dns == plan.dns4 && current.down6 == down6 && current.dns6 == dns6 && routingHealthy(current)) {
+                guard.sync(names)
+                return
+            }
+            if (!clearLocked() || !guard.sync(names)) return
             val next = allocate(up, ordered, plan.dns4, down6, dns6)
             if (next == null) {
                 Logs.w("VPN tether: unable to reserve routing resources")
