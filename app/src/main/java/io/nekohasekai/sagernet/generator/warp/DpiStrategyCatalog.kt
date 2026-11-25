@@ -2,7 +2,7 @@ package io.nekohasekai.sagernet.generator.warp
 
 import android.content.Context
 
-object DpiStrategyCatalog {
+internal object DpiStrategyCatalog {
     private fun preset(id: String, args: String) =
         DpiStrategySelector.Strategy(id, args.split(' ').filter { it.isNotEmpty() })
 

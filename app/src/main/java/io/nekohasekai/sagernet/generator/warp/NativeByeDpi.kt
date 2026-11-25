@@ -2,12 +2,8 @@ package io.nekohasekai.sagernet.generator.warp
 
 import android.os.ParcelFileDescriptor
 import java.io.Closeable
+import java.io.IOException
 
-/**
- * Experimental JNI contract. Not connected to production registration.
- * Native code must restrict outbound connections to the WARP API,
- * own its worker lifecycle and never install process-wide signal handlers.
- */
 internal class NativeByeDpi private constructor(private var handle: Long) : Closeable {
     companion object {
         private val loaded by lazy {
@@ -16,9 +12,13 @@ internal class NativeByeDpi private constructor(private var handle: Long) : Clos
         }
 
         fun open(strategy: DpiStrategySelector.Strategy): NativeByeDpi {
-            check(loaded)
+            try {
+                check(loaded)
+            } catch (e: UnsatisfiedLinkError) {
+                throw IllegalStateException("Native ByeDPI library unavailable", e)
+            }
             val handle = nativeStart(strategy.arguments.toTypedArray())
-            check(handle != 0L) { "Native ByeDPI initialization failed" }
+            if (handle == 0L) throw IOException("Native ByeDPI initialization failed")
             return NativeByeDpi(handle)
         }
 
@@ -32,7 +32,7 @@ internal class NativeByeDpi private constructor(private var handle: Long) : Clos
     fun openWarpStream(): ParcelFileDescriptor {
         check(handle != 0L) { "Native ByeDPI session closed" }
         val fd = nativeOpenWarpStream(handle)
-        check(fd >= 0) { "Unable to open WARP stream" }
+        if (fd < 0) throw IOException("Unable to open WARP stream")
         return ParcelFileDescriptor.adoptFd(fd)
     }
 

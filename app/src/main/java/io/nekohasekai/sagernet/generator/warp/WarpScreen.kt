@@ -130,8 +130,10 @@ internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
         }
         WarpCard("API connection") {
             WarpChoice("Transport", WarpViewModel.Transport.values().toList(), state.transport, enabled,
-                model::transport)
-            Text("ByeDPI integration pending", style = MaterialTheme.typography.bodySmall)
+                model::transport) {
+                if (it == WarpViewModel.Transport.BYEDPI) "ByeDPI (automatic)" else it.toString()
+            }
+            state.strategyProgress?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
         if (state.busy) {
             LinearProgressIndicator(Modifier.fillMaxWidth())

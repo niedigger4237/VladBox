@@ -45,3 +45,7 @@
 -dontwarn org.openjsse.javax.net.ssl.SSLSocket
 -dontwarn org.openjsse.net.ssl.OpenJSSE
 -dontwarn java.beans.PropertyVetoException
+
+-keepclasseswithmembernames class io.nekohasekai.sagernet.generator.warp.NativeByeDpi {
+    native <methods>;
+}
