@@ -15,14 +15,23 @@ import java.net.URL
 import java.net.HttpURLConnection
 import java.net.Proxy
 
-internal suspend fun dashboardGet(path: String): JSONObject = withContext(Dispatchers.IO) {
+internal suspend fun dashboardGet(path: String): JSONObject = dashboardRequest(path)
+
+internal suspend fun dashboardRequest(path: String, method: String = "GET", body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
     val connection = URL("http://127.0.0.1:9090/" + path).openConnection(Proxy.NO_PROXY) as HttpURLConnection
     try {
         connection.connectTimeout = 1500
-        connection.readTimeout = 2000
+        connection.readTimeout = 8000
+        connection.requestMethod = method
+        if (body != null) {
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        }
         connection.instanceFollowRedirects = false
-        check(connection.responseCode == 200) { "HTTP " + connection.responseCode }
-        JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        check(connection.responseCode in 200..299) { "HTTP " + connection.responseCode }
+        val response = connection.inputStream.bufferedReader().use { it.readText() }
+        if (response.isBlank()) JSONObject() else JSONObject(response)
     } finally {
         connection.disconnect()
     }
