@@ -146,7 +146,7 @@ object RootDaemon {
     }
 
     // Android reports the active downstreams explicitly; never guess from all wlan* devices.
-    private fun resolveTunDownstreams(): List<String> {
+    internal fun resolveTunDownstreams(requireReliable: Boolean = false): List<String>? {
         val manual = configuredTunInterfaces()
         val selectors = tetherSelectors().toMutableList()
         if (DataStore.tetherWifi) selectors += listOf("swlan+", "wifi+")
@@ -161,9 +161,16 @@ object RootDaemon {
         val routes = RootShell.run("ip -4 route show table all && ip -6 route show table all", timeoutMs = 5000)
         if (!routes.ok) {
             Logs.w("ROOT TUN: cannot verify upstream interfaces; skipping all downstreams for this start")
-            return emptyList()
+            return if (requireReliable) null else emptyList()
         }
         val state = Regex("""^\s*([A-Za-z0-9_.-]{1,15})\s+-\s+TetheredState\s+-\s+lastError\s*=\s*0\s*$""")
+        if (requireReliable) {
+            if (!dump.ok) return null
+            val recognizable = Regex("""(?:TetheredState|AvailableState|UnavailableState|LocalHotspotState|Tether state:)""", RegexOption.IGNORE_CASE)
+            if (!recognizable.containsMatchIn(dump.out)) return null
+            // Never mistake an unsupported active-interface line for a disconnect.
+            if (dump.out.lineSequence().any { " - TetheredState" in it && "lastError = 0" in it && !state.matches(it) }) return null
+        }
         val active = if (dump.ok) dump.out.lineSequence()
             .mapNotNull { state.matchEntire(it)?.groupValues?.get(1) }.distinct().toList() else emptyList()
         val upstream = routes.out.lineSequence().filter { it.trimStart().startsWith("default ") }
@@ -176,8 +183,15 @@ object RootDaemon {
         Logs.i("ROOT TUN downstream: active=$active selected=$result upstream=$upstream dumpOk=${dump.ok} routesOk=${routes.ok}")
         if (!dump.ok) Logs.w("ROOT TUN: Android tethering state unavailable; only verified manual downstreams can be used")
         if (selectors.isNotEmpty() && result.isEmpty()) Logs.w("ROOT TUN: no matching active downstream; enable tethering before connecting or enter an exact interface name")
-        return result
+        return result.sorted()
     }
+
+    internal fun hasTunTethering(): Boolean = configuredTunInterfaces().isNotEmpty() || tetherSelectors().isNotEmpty()
+
+    @Volatile internal var appliedTunDownstreams: List<String>? = null
+        private set
+
+    internal fun isRunning(): Boolean = PHASE.find(status())?.groupValues?.get(1) == "running"
 
     private fun withTunDownstreams(json: String): String {
         val root = com.google.gson.JsonParser.parseString(json).asJsonObject
@@ -185,7 +199,7 @@ object RootDaemon {
             it.isJsonObject && it.asJsonObject.get("type")?.asString == "tun" &&
                 it.asJsonObject.get("interface_name")?.asString == TUN_DEVICE
         }?.asJsonObject ?: return json
-        inbound.add("include_interface", strings(listOf("lo") + resolveTunDownstreams()))
+        inbound.add("include_interface", strings(listOf("lo") + resolveTunDownstreams().orEmpty()))
         return gson.toJson(root)
     }
 
@@ -460,6 +474,7 @@ object RootDaemon {
             val phase = PHASE.find(st)?.groupValues?.get(1)
             if (phase == "running") {
                 mark("wait for readiness")
+                appliedTunDownstreams = if (managed && mode == Mode.TUN) tunInterfacesFromConfig(effectiveConfig).sorted() else null
                 startLogForward()
                 return null
             }
@@ -498,6 +513,7 @@ object RootDaemon {
 
     /** Ends the cycle and the supervisor; it removes its own rules/routes/devices first. */
     fun shutdown() {
+        appliedTunDownstreams = null
         stopLogForward()
         RootShell.run("${RootShell.q(binary)} shutdown >/dev/null 2>&1; true", timeoutMs = 20_000)
         // belt and braces: a wedged supervisor must not keep the rules
