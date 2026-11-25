@@ -1,6 +1,13 @@
 package io.nekohasekai.sagernet.generator.proton
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -39,10 +46,21 @@ internal fun ProtonScreen(
     LaunchedEffect(sources) { result = null; error = null }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ProtonCard("Source configuration") {
+        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
+                Icon(Icons.Filled.Security, null, Modifier.padding(14.dp).size(28.dp), tint = MaterialTheme.colorScheme.primary)
+            }
+            Column(Modifier.weight(1f)) {
+                Text("Proton VPN Converter", style = MaterialTheme.typography.headlineSmall)
+                Text("Convert Proton WireGuard configurations", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        val hasResult = result?.outputs?.isNotEmpty() == true
+        if (!hasResult) {
+        ProtonCard("Source configuration", Icons.Filled.FolderOpen) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = onPick, enabled = !busy, modifier = Modifier.weight(1f)) { Text("Select files") }
-                OutlinedButton(onClick = { paste = true }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("Paste text") }
+                FilledTonalButton(onClick = onPick, enabled = !busy, modifier = Modifier.weight(1f)) { Icon(Icons.Filled.FolderOpen, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Select files") }
+                OutlinedButton(onClick = { paste = true }, enabled = !busy, modifier = Modifier.weight(1f)) { Icon(Icons.Filled.ContentPaste, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Paste text") }
             }
             if (sources.isEmpty()) Text("No configuration files selected", style = MaterialTheme.typography.bodySmall)
             sources.forEachIndexed { index, source ->
@@ -52,8 +70,7 @@ internal fun ProtonScreen(
                 }
             }
         }
-        ProtonCard("Config format") {
-            ProtonChoice("Format", Conf.Format.values().toList(), s.format, !busy, { change(presets.selectFormat(s, it)) }) {
+        ProtonChoice("Config Format", Conf.Format.values().toList(), s.format, !busy, { change(presets.selectFormat(s, it)) }) {
                 when (it) {
                     Conf.Format.AWG -> "AmneziaWG (.conf)"
                     Conf.Format.WIRESOCK -> "WireSock (.conf)"
@@ -61,13 +78,8 @@ internal fun ProtonScreen(
                     Conf.Format.XRAY -> "Xray (.json)"
                 }
             }
-        }
-        ProtonCard("Endpoint") {
-            ProtonChoice("Port", Conf.ports, s.port, !busy, { change(s.copy(port = it)) })
-        }
-        ProtonCard("Advanced settings") {
-            TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced settings" else "Show advanced settings") }
-        }
+        ProtonChoice("Endpoint", Conf.ports, s.port, !busy, { change(s.copy(port = it)) }) { "Port: $it" }
+        ProtonTile("Advanced settings", if (advanced) "Hide advanced settings" else "Show advanced settings", Icons.Filled.Tune, !busy, advanced) { advanced = !advanced }
         if (advanced) {
             ProtonCard("Junk packets") {
                 ProtonChoice("Preset", Conf.Junk.values().toList(), s.junk, !busy, { change(s.copy(junk = it)) }) {
@@ -122,7 +134,7 @@ internal fun ProtonScreen(
                     ProtonToggle("Exclude LAN", s.splitAllowedIps != null, !busy) { change(presets.excludeLan(s, it)) }
             }
         }
-        Button(enabled = !busy && sources.isNotEmpty(), modifier = Modifier.fillMaxWidth(), onClick = {
+        Button(enabled = !busy && sources.isNotEmpty(), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), onClick = {
             busy = true; result = null; error = null
             scope.launch {
                 try { result = withContext(Dispatchers.Default) { ProtonStructuredExporter.convert(sources, s) } }
@@ -130,12 +142,25 @@ internal fun ProtonScreen(
                 catch (e: Exception) { error = e.message ?: "Conversion failed" }
                 finally { busy = false }
             }
-        }) { Text("Convert configuration") }
+        }) { Icon(Icons.Filled.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Convert Configuration") }
+        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+            Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Info, null)
+                Text("Select or paste Proton WireGuard files and choose the output format.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         result?.let { batch ->
             batch.errors.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
             if (batch.outputs.isNotEmpty()) {
+                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.CheckCircle, null, Modifier.size(30.dp))
+                        Column { Text("Configuration generated", style = MaterialTheme.typography.titleMedium); Text(if (batch.errors.isEmpty()) "Ready to use" else "Some files failed") }
+                    }
+                }
                 ProtonCard("Generated configurations (${batch.outputs.size})") {
                     if (batch.outputs.size > 1) {
                         Row {
@@ -150,10 +175,10 @@ internal fun ProtonScreen(
                                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), softWrap = false)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilledTonalButton(onClick = { onCopy(output.text) }) { Text("Copy") }
-                            FilledTonalButton(onClick = { onSave(listOf(output)) }) { Text("Save") }
+                            FilledTonalButton(onClick = { onCopy(output.text) }) { Icon(Icons.Filled.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Copy") }
+                            FilledTonalButton(onClick = { onSave(listOf(output)) }) { Icon(Icons.Filled.FileDownload, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Save") }
                             if (s.format == Conf.Format.AWG || s.format == Conf.Format.WIRESOCK)
-                                FilledTonalButton(onClick = { onImport(output.text) }) { Text("Import") }
+                                FilledTonalButton(onClick = { onImport(output.text) }) { Icon(Icons.Filled.Input, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Import") }
                         }
                     }
                 }
@@ -161,7 +186,7 @@ internal fun ProtonScreen(
         }
         OutlinedButton(enabled = !busy, modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-            onClick = { onSources(emptyList()); result = null; error = null }) { Text("Reset configuration") }
+            onClick = { onSources(emptyList()); result = null; error = null }) { Icon(Icons.Filled.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Reset Configuration") }
     }
     if (paste) ProtonTextDialog("Paste configuration", "WireGuard configuration", true, { paste = false }) { value ->
         onSources(sources + ProtonParser.Source("pasted_${sources.size + 1}.conf", value)); paste = false
@@ -178,10 +203,13 @@ internal fun ProtonScreen(
     }
 }
 
-@Composable private fun ProtonCard(title: String, content: @Composable ColumnScope.() -> Unit) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
+@Composable private fun ProtonCard(title: String, icon: ImageVector? = null, content: @Composable ColumnScope.() -> Unit) {
+    OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                icon?.let { Icon(it, null, tint = MaterialTheme.colorScheme.primary) }
+                Text(title, style = MaterialTheme.typography.titleMedium)
+            }
             content()
         }
     }
@@ -202,7 +230,7 @@ internal fun ProtonScreen(
 @Composable private fun <T> ProtonChoice(label: String, options: List<T>, value: T, enabled: Boolean, change: (T) -> Unit, display: (T) -> String = { it.toString() }) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text("$label: ${display(value)}") }
+        ProtonTile(label, display(value), if (label == "Endpoint") Icons.Filled.Dns else Icons.Filled.Description, enabled, expanded) { expanded = true }
         DropdownMenu(expanded, { expanded = false }) {
             options.forEach { option -> DropdownMenuItem(text = { Text(display(option)) }, onClick = { expanded = false; change(option) }) }
         }
@@ -214,4 +242,17 @@ internal fun ProtonScreen(
         OutlinedTextField(value, { value = it }, Modifier.fillMaxWidth(), label = { Text(label) }, singleLine = !multiline, minLines = if (multiline) 5 else 1, maxLines = if (multiline) 10 else 1)
     }, confirmButton = { TextButton(onClick = { submit(value.trim()) }, enabled = value.isNotBlank()) { Text("Confirm") } },
         dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
+}
+
+@Composable private fun ProtonTile(title: String, subtitle: String, icon: ImageVector, enabled: Boolean, expanded: Boolean, onClick: () -> Unit) {
+    OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(icon, null, Modifier.size(26.dp), tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, null)
+        }
+    }
 }
