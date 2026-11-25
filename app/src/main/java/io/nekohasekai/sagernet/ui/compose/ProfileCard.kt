@@ -37,7 +37,8 @@ fun ProfileCard(
     onShare: (() -> Unit)? = null,
     onRemove: (() -> Unit)? = null,
     canShare: Boolean = true,
-    menuKey: Long = 0L
+    menuKey: Long = 0L,
+    testing: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
     Card(
@@ -65,12 +66,18 @@ fun ProfileCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(protocol, Modifier.background(colors.secondaryContainer, RoundedCornerShape(10.dp))
                     .padding(horizontal = 9.dp, vertical = 4.dp), fontSize = 12.sp, color = colors.onSecondaryContainer)
-                if (status.isNotEmpty()) {
+                if (testing) {
+                    Spacer(Modifier.width(8.dp))
+                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp, color = colors.primary)
+                        Text(androidx.compose.ui.res.stringResource(R.string.connection_test_testing), fontSize = 12.sp, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                } else if (status.isNotEmpty()) {
                     Spacer(Modifier.width(8.dp))
                     Text(status, Modifier.weight(1f).then(if (onStatus != null) Modifier.clickable(onClick = onStatus) else Modifier),
                         fontSize = 12.sp, color = statusColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                if (status.isEmpty()) Spacer(Modifier.weight(1f))
+                if (!testing && status.isEmpty()) Spacer(Modifier.weight(1f))
                 if (actionsVisible) {
                     IconButton(onClick = onEdit, enabled = editEnabled, modifier = Modifier.size(44.dp)) {
                         Icon(painterResource(R.drawable.ic_image_edit), androidx.compose.ui.res.stringResource(R.string.edit), Modifier.size(22.dp), tint = if (editEnabled) colors.onSurface else colors.onSurfaceVariant.copy(alpha = 0.38f))

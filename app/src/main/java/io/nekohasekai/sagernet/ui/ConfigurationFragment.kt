@@ -29,6 +29,11 @@ import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.core.view.size
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.preference.PreferenceDataStore
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -128,6 +133,10 @@ class ConfigurationFragment @JvmOverloads constructor(
     interface SelectCallback {
         fun returnProfile(profileId: Long)
     }
+
+    internal val urlTestPending = MutableStateFlow<Set<Long>>(emptySet())
+    internal val urlTestRunning = MutableStateFlow(false)
+    private var urlTestJob: Job? = null
 
     lateinit var adapter: GroupPagerAdapter
     private var tabLayout: TabLayout? = null
@@ -510,6 +519,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
 
             R.id.action_connection_test_clear_results -> {
+                if (DataStore.runningTest) return true
                 runOnDefaultDispatcher {
                     val profiles = SagerDatabase.proxyDao.getByGroup(DataStore.currentGroupId())
                     val toClear = mutableListOf<ProxyEntity>()
@@ -528,6 +538,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
 
             R.id.action_connection_test_delete_unavailable -> {
+                if (DataStore.runningTest) return true
                 runOnDefaultDispatcher {
                     val profiles = SagerDatabase.proxyDao.getByGroup(DataStore.currentGroupId())
                     val toClear = mutableListOf<ProxyEntity>()
@@ -866,77 +877,73 @@ class ConfigurationFragment @JvmOverloads constructor(
         }
     }
 
-    @OptIn(DelicateCoroutinesApi::class)
+    // URL tests update profile cards in place instead of opening TestDialog.
     fun urlTest() {
-        if (DataStore.runningTest) return else DataStore.runningTest = true
-        val test = TestDialog()
-        val dialog = test.builder.show()
-        val testJobs = mutableListOf<Job>()
-        val group = DataStore.currentGroup()
-
-        val mainJob = runOnDefaultDispatcher {
-            val profilesList = SagerDatabase.proxyDao.getByGroup(group.id)
-            test.proxyN = profilesList.size
-            val profiles = ConcurrentLinkedQueue(profilesList)
-            repeat(DataStore.connectionTestConcurrent) {
-                testJobs.add(launch(Dispatchers.IO) {
-                    val urlTest = UrlTest() // note: this is NOT in bg process
-                    while (isActive) {
-                        val profile = profiles.poll() ?: break
-                        profile.status = 0
-
-                        try {
-                            val result = urlTest.doTest(profile)
-                            profile.status = 1
-                            profile.ping = result
-                        } catch (e: PluginManager.PluginNotFoundException) {
-                            profile.status = 2
-                            profile.error = e.readableMessage
-                        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                            profile.status = 3
-                            profile.error = getString(R.string.connection_test_timeout)
-                        } catch (e: kotlinx.coroutines.CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            profile.status = 3
-                            profile.error = e.readableMessage
-                        }
-
-                        test.update(profile)
-                    }
-                })
-            }
-
-            testJobs.joinAll()
-
-            runOnMainDispatcher {
-                test.cancel()
-            }
+        if (urlTestJob?.isActive == true) {
+            urlTestJob?.cancel()
+            return
         }
-        test.cancel = {
-            test.dialogStatus.set(2)
-            dialog.dismiss()
-            runOnDefaultDispatcher {
-                mainJob.cancel()
-                testJobs.forEach { it.cancel() }
-                test.results.forEach {
-                    try {
-                        ProfileManager.updateProfile(it)
-                    } catch (e: Exception) {
-                        Logs.w(e)
+        if (DataStore.runningTest) return
+        val groupId = DataStore.currentGroupId()
+        urlTestJob = viewLifecycleOwner.lifecycleScope.launch {
+            if (DataStore.runningTest) return@launch
+            DataStore.runningTest = true
+            urlTestRunning.value = true
+            try {
+                val profiles = withContext(Dispatchers.IO) {
+                    SagerDatabase.proxyDao.getByGroup(groupId)
+                }
+                urlTestPending.value = profiles.map { it.id }.toSet()
+                val queue = ConcurrentLinkedQueue(profiles)
+                coroutineScope {
+                    repeat(DataStore.connectionTestConcurrent.coerceAtLeast(1).coerceAtMost(profiles.size)) {
+                        launch {
+                            val tester = UrlTest()
+                            while (isActive) {
+                                val profile = queue.poll() ?: break
+                                try {
+                                    val result = withContext(Dispatchers.IO) {
+                                        try {
+                                            Triple(1, tester.doTest(profile), null)
+                                        } catch (e: PluginManager.PluginNotFoundException) {
+                                            Triple(2, 0, e.readableMessage)
+                                        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                                            Triple(2, 0, app.getString(R.string.connection_test_timeout))
+                                        } catch (e: kotlinx.coroutines.CancellationException) {
+                                            throw e
+                                        } catch (e: java.net.SocketTimeoutException) {
+                                            Triple(2, 0, app.getString(R.string.connection_test_timeout))
+                                        } catch (e: Exception) {
+                                            Triple(3, 0, e.readableMessage)
+                                        }
+                                    }
+                                    ensureActive()
+                                    withContext(Dispatchers.IO) {
+                                        val (status, ping, error) = result
+                                        if (SagerDatabase.proxyDao.updateTestResult(profile.id, groupId, status, ping, error) > 0) {
+                                            ProfileManager.postUpdate(profile.id)
+                                        }
+                                    }
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    Logs.w(e)
+                                } finally {
+                                    urlTestPending.value = urlTestPending.value - profile.id
+                                }
+                            }
+                        }
                     }
                 }
-                GroupManager.postReload(DataStore.currentGroupId())
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Logs.w(e)
+            } finally {
+                urlTestPending.value = emptySet()
+                urlTestRunning.value = false
                 DataStore.runningTest = false
             }
-        }
-        test.minimize = {
-            test.dialogStatus.set(1)
-            test.notification = ConnectionTestNotification(
-                dialog.context,
-                "[${group.displayName()}] ${getString(R.string.connection_test)}"
-            )
-            dialog.hide()
         }
     }
 
@@ -1400,16 +1407,16 @@ class ConfigurationFragment @JvmOverloads constructor(
 
             override suspend fun onUpdated(profile: ProxyEntity, noTraffic: Boolean) {
                 if (profile.groupId != proxyGroup.id) return
-                val index = configurationIdList.indexOf(profile.id)
-                if (index < 0) return
                 configurationListView.post {
+                    val index = configurationIdList.indexOf(profile.id)
+                    val oldProfile = configurationList[profile.id]
+                    configurationList[profile.id] = profile
+                    if (index < 0) return@post
                     if (::undoManager.isInitialized) {
                         undoManager.flush()
                     }
-                    configurationList[profile.id] = profile
                     notifyItemChanged(index)
                     //
-                    val oldProfile = configurationList[profile.id]
                     if (noTraffic && oldProfile != null) {
                         runOnDefaultDispatcher {
                             onUpdated(
@@ -1526,6 +1533,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             init {
                 composeView.setContent {
                     val state = cardState.collectAsState().value
+                    val pending = (parentFragment as? ConfigurationFragment)?.urlTestPending?.collectAsState()?.value.orEmpty()
                     if (state != null) {
                         io.nekohasekai.sagernet.ui.compose.HubTheme {
                             io.nekohasekai.sagernet.ui.compose.ProfileCard(
@@ -1538,6 +1546,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                                 onRemove = { removeAction() },
                                 traffic = state.traffic, actionsVisible = !select,
                                 editEnabled = state.editEnabled,
+                                testing = state.id in pending,
                                 statusColor = when (state.statusCode) {
                                     1 -> if (androidx.compose.foundation.isSystemInDarkTheme()) androidx.compose.ui.graphics.Color(0xFFA5D6A7) else androidx.compose.ui.graphics.Color(0xFF276738)
                                     2, 3 -> androidx.compose.material3.MaterialTheme.colorScheme.error

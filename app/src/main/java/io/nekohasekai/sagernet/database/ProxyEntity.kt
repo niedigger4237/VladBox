@@ -562,6 +562,9 @@ data class ProxyEntity(
         @Delete
         fun deleteProxy(proxies: List<ProxyEntity>): Int
 
+        @Query("UPDATE proxy_entities SET status = :status, ping = :ping, error = :error WHERE id = :profileId AND groupId = :groupId")
+        fun updateTestResult(profileId: Long, groupId: Long, status: Int, ping: Int, error: String?): Int
+
         @Update
         fun updateProxy(proxy: ProxyEntity): Int
 

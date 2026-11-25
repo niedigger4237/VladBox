@@ -143,6 +143,7 @@ private fun HeaderMenu(menu: List<ProfileMenuEntry>, icon: Int, description: Str
     var expanded by remember { mutableStateOf(false) }
     var current by remember { mutableStateOf(menu) }
     var order by remember { mutableStateOf(fragment.currentProfileOrder()) }
+    val testing by fragment.urlTestRunning.collectAsState()
     Box {
         IconButton(onClick = { current = menu; order = fragment.currentProfileOrder(); expanded = true }) { Icon(painterResource(icon), description) }
         DropdownMenu(expanded, { expanded = false }) {
@@ -153,7 +154,9 @@ private fun HeaderMenu(menu: List<ProfileMenuEntry>, icon: Int, description: Str
                     R.id.action_order_by_delay -> order == io.nekohasekai.sagernet.GroupOrder.BY_DELAY
                     else -> false
                 }
-                DropdownMenuItem(text = { Text((if (checked) "✓  " else "") + (item.literal ?: stringResource(item.title))) }, onClick = {
+                val label = if (testing && item.id == R.id.action_connection_url_test) stringResource(android.R.string.cancel) + " URLTest" else (item.literal ?: stringResource(item.title))
+                val enabled = !testing || item.id !in setOf(R.id.action_connection_tcp_ping, R.id.action_connection_test_clear_results, R.id.action_connection_test_delete_unavailable)
+                DropdownMenuItem(text = { Text((if (checked) "✓  " else "") + label) }, enabled = enabled, onClick = {
                     if (item.children.isNotEmpty()) current = item.children
                     else { expanded = false; fragment.onProfileAction(item.id) }
                 })
