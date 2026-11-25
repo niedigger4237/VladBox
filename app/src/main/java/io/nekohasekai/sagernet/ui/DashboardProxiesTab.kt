@@ -28,12 +28,12 @@ internal fun DashboardProxiesTab(
     var expanded by remember { mutableStateOf(false) }
     val group = groups.firstOrNull { it.name == selectedGroup } ?: groups.firstOrNull()
     val colors = MaterialTheme.colorScheme
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant.copy(alpha = .45f))) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Proxy groups", style = MaterialTheme.typography.titleMedium)
-            OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), colors = CardDefaults.outlinedCardColors(containerColor = colors.surfaceVariant.copy(alpha = .35f))) {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("🌐  " + (group?.name ?: "No proxy groups"), style = MaterialTheme.typography.titleSmall)
                         Text(group?.let { if (it.type.equals("URLTest", true)) "Automatic server selection" else it.type }
@@ -66,15 +66,18 @@ internal fun DashboardProxiesTab(
                     Column {
                         group.nodes.forEachIndexed { index, node ->
                             val active = node.name == group.selected
-                            Surface(color = if (active) colors.secondaryContainer else colors.surface,
+                            Surface(color = if (active) colors.secondaryContainer else Color.Transparent,
                                 shape = RoundedCornerShape(10.dp),
                                 border = if (active) BorderStroke(1.dp, colors.primary.copy(alpha = .5f)) else null) {
-                                Row(Modifier.fillMaxWidth().heightIn(min = 42.dp)
+                                Row(Modifier.fillMaxWidth().heightIn(min = 32.dp)
                                     .selectable(selected = active, enabled = connected && onSelect != null && group.type.equals("Selector", true),
                                         role = Role.RadioButton, onClick = { onSelect?.invoke(group.name, node.name) })
                                     .padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    RadioButton(selected = active, onClick = null)
+                                    androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
+                                        drawCircle(if (active) colors.primary else colors.outline, radius = size.minDimension / 2 - 1.dp.toPx(), style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx()))
+                                        if (active) drawCircle(colors.primary, radius = size.minDimension / 4)
+                                    }
                                     val flag = proxyFlag(node.countryCode)
                                     if (flag.isNotEmpty() && !node.name.startsWith(flag)) Text(flag)
                                     Text(node.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
@@ -100,7 +103,7 @@ private fun ProxyDelay(delay: Int?) {
         else -> MaterialTheme.colorScheme.error
     }
     Surface(color = tint.copy(alpha = .18f), shape = RoundedCornerShape(20.dp)) {
-        Text(if (delay != null && delay > 0) "$delay ms" else "—", Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+        Text(if (delay != null && delay > 0) "$delay ms" else "—", Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
             color = tint, style = MaterialTheme.typography.labelMedium)
     }
 }
