@@ -3,6 +3,7 @@
 
 #include "hev-flow-metadata.h"
 #include "hev-logger.h"
+#include "hev-config-const.h"
 #include <hev-socks5-udp.h>
 #include "hev-socks5-session-tcp.h"
 #include "hev-socks5-tunnel.h"
@@ -44,6 +45,7 @@ void hev_flow_run(HevSocks5Session *self) {
             sent += res;
         }
     } else {
+        hev_socks5_set_timeout(HEV_SOCKS5(self), hev_config_get_misc_connect_timeout());
         struct sockaddr_in6 address = {0};
         HevSocks5Addr dst;
         HevSocks5ClientClass *klass = HEV_OBJECT_GET_CLASS(client);
@@ -71,11 +73,19 @@ void hev_flow_run(HevSocks5Session *self) {
 int hev_flow_sendmmsg(HevSocks5SessionUDP *self, HevSocks5UDPMsg *msgv, unsigned int count,
     HevTaskIOYielder yielder) {
     unsigned int i;
+    if (!self->pcb || !msgv || count == 0 || count > UDP_SEND_BATCH) {
+        errno = EINVAL;
+        return -1;
+    }
     struct mmsghdr messages[count];
     struct iovec iov[count * 2];
     uint8_t headers[count][FLOW_METADATA_MAX_HEADER];
     memset(messages, 0, sizeof(messages));
     for (i = 0; i < count; i++) {
+        if (!msgv[i].addr || !msgv[i].buf) {
+            errno = EINVAL;
+            return -1;
+        }
         size_t n = hev_flow_header(
             headers[i], &self->pcb->remote_ip, self->pcb->remote_port, msgv[i].addr, 1);
         if (!n) {
@@ -97,6 +107,10 @@ int hev_flow_sendmmsg(HevSocks5SessionUDP *self, HevSocks5UDPMsg *msgv, unsigned
 int hev_flow_recvmmsg(HevSocks5SessionUDP *self, HevSocks5UDPMsg *msgv, unsigned int count) {
     int i;
     int res;
+    if (!self->pcb || !msgv || count == 0 || count > 16) {
+        errno = EINVAL;
+        return -1;
+    }
     struct mmsghdr messages[count];
     struct iovec iov[count];
     memset(messages, 0, sizeof(messages));

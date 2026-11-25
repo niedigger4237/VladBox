@@ -66,3 +66,25 @@ diff --git a/src/hev-socks5-session-udp.c b/src/hev-socks5-session-udp.c
      if (res <= 0) {
          if (res == -1 && errno == EAGAIN)
              return 0;
+
+diff --git a/src/hev-config.c b/src/hev-config.c
+--- a/src/hev-config.c
++++ b/src/hev-config.c
+@@ -493,6 +493,17 @@ hev_config_parse_doc (yaml_document_t *doc)
+             return -1;
+     }
+ 
++    /* Bound experimental bridge resources; leave standard SOCKS5 unchanged. */
++    if (srv.user && srv.pass && !strcmp (srv.user, "__asterisk_flow_v1") &&
++        strlen (srv.pass) == 32) {
++        if (max_session_count <= 0 || max_session_count > 512)
++            max_session_count = 512;
++        if (udp_copy_buffer_nums < 1 || udp_copy_buffer_nums > 16)
++            udp_copy_buffer_nums = 10;
++        if (udp_recv_buffer_size > 524288)
++            udp_recv_buffer_size = 524288;
++    }
++
+     if (tcp_buffer_size > TCP_SND_BUF)
+         tcp_buffer_size = TCP_SND_BUF;
+ 

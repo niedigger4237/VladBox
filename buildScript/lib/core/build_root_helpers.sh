@@ -37,8 +37,8 @@ if [ ! -d "$MATCHER/.git" ]; then
 fi
 [ "$(git -C "$MATCHER" rev-parse HEAD)" = "$MATCHER_COMMIT" ] || { echo "bpfmatcher tag moved"; exit 1; }
 
-# Restore the two upstream files on repeated local builds before applying the pinned overlay.
-git -C "$HEV" restore -- src/hev-socks5-session.c src/hev-socks5-session-udp.c
+# Restore the upstream files on repeated local builds before applying the pinned overlay.
+git -C "$HEV" restore -- src/hev-socks5-session.c src/hev-socks5-session-udp.c src/hev-config.c
 cp "$HEV_PATCHES/src/"* "$HEV/src/"
 git -C "$HEV" apply --check "$HEV_PATCHES/0001-flow-metadata.patch"
 git -C "$HEV" apply "$HEV_PATCHES/0001-flow-metadata.patch"
