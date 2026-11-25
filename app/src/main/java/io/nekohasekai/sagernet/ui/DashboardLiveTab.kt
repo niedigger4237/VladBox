@@ -90,7 +90,7 @@ private fun dashboardDirect(path: String, method: String, body: JSONObject?, han
 
 private fun dashboardRoot(path: String, method: String, body: JSONObject?, handle: DashboardRequestHandle): JSONObject {
     require(method in listOf("GET", "PUT"))
-    val q = io.nekohasekai.sagernet.bg.root.RootShell::q
+    fun q(value: String): String = io.nekohasekai.sagernet.bg.root.RootShell.q(value)
     val url = q("http://127.0.0.1:9090/" + path)
     val payload = body?.let { " -H " + q("Content-Type: application/json") + " --data-binary " + q(it.toString()) }.orEmpty()
     val token = io.nekohasekai.sagernet.bg.proto.ClashApiSecret.value
