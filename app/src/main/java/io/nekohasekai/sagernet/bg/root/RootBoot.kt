@@ -32,8 +32,8 @@ object RootBoot {
             "set -e", "umask 077", "mkdir -p ${RootShell.q(BOOT)}",
             "chmod 700 ${RootShell.q(BOOT)}",
             "cat /proc/sys/kernel/random/boot_id > ${RootShell.q("$BOOT/manual-owner")}",
-            "if command -v flock >/dev/null 2>&1; then (flock -x -w 45 9) 9>${RootShell.q(monitorLock)}; fi",
-            timeoutMs = 50000,
+            "if command -v flock >/dev/null 2>&1; then (flock -x -w 90 9) 9>${RootShell.q(monitorLock)}; fi",
+            timeoutMs = 95000,
         )
         return result.ok
     }

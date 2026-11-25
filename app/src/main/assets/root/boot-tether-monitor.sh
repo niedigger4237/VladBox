@@ -84,13 +84,23 @@ BOOT=$BASE/boot
 DAEMON=$BASE/bin/libasteriskd.so
 POLICY=$BOOT/tether-policy
 CONFIG=$BOOT/asteriskd.json
+RUNTIME=$BOOT/runtime-asteriskd.json
+CORE=$BASE/bin/libsingbox.so
+BOOT_ID=$(cat /proc/sys/kernel/random/boot_id)
+MODE=$(awk '$1=="mode"{print $2}' "$POLICY")
+IPV6=$(awk '$1=="ipv6"{print $2}' "$POLICY")
+BLOCK6=$(awk '$1=="block6"{print $2}' "$POLICY")
+command -v flock >/dev/null 2>&1 || exit 0
 command -v timeout >/dev/null 2>&1 || exit 1
 [ -f "$POLICY" ] || exit 0
 work=$(mktemp -d "$BOOT/monitor.XXXXXXXX") || exit 1
 trap 'rm -rf "$work"' EXIT
 trap 'exit 0' HUP INT TERM
 
-current() { [ "$(cat "$BOOT/ready" 2>/dev/null || true)" = "$GEN" ]; }
+current() {
+    [ "$(cat "$BOOT/ready" 2>/dev/null || true)" = "$GEN" ] &&
+    [ "$(cat "$BOOT/manual-owner" 2>/dev/null || true)" != "$BOOT_ID" ]
+}
 owned() {
     current || return 1
     status=$(timeout 5 "$DAEMON" status 2>/dev/null) || return 1
@@ -98,7 +108,7 @@ owned() {
     printf '%s\n' "$status" | grep -Eq '"phase"[[:space:]]*:[[:space:]]*"running"' || return 1
     pid=$(printf '%s\n' "$status" | sed -n 's/.*"supervisorPid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)
     case "$pid" in ""|0|*[!0-9]*) return 1;; esac
-    tr '\000' '\n' < "/proc/$pid/cmdline" | grep -Fx -- "$CONFIG" >/dev/null
+    tr '\000' '\n' < "/proc/$pid/cmdline" | grep -Fx -e "$CONFIG" -e "$RUNTIME" >/dev/null
 }
 snapshot() {
     if ! timeout 5 dumpsys tethering --short > "$work/tether" 2>/dev/null || ! grep -q TetheredState "$work/tether"; then
@@ -111,6 +121,148 @@ snapshot() {
     parse "$POLICY" "$work/tether" "$work/routes" "$work/links" "$work/addr" > "$work/unsorted" || return 1
     LC_ALL=C sort -u "$work/unsorted" > "$work/current"
 }
+
+# Remove only exact rules inserted by this monitor. Names come from its own
+# validated snapshots; no shell evaluation of iptables output.
+forward_rule() {
+    tool=$1; name=$2; action=$3
+    if [ "$action" = add ]; then
+        "$tool" -w 3 -C tetherctrl_FORWARD -i "$name" -o asterisk0 -m comment --comment NF_ROOT_TUN_FWD -j ACCEPT 2>/dev/null ||
+            "$tool" -w 3 -I tetherctrl_FORWARD 2 -i "$name" -o asterisk0 -m comment --comment NF_ROOT_TUN_FWD -j ACCEPT || return 1
+        "$tool" -w 3 -C tetherctrl_FORWARD -i asterisk0 -o "$name" -m conntrack --ctstate ESTABLISHED,RELATED -m comment --comment NF_ROOT_TUN_FWD -j ACCEPT 2>/dev/null ||
+            "$tool" -w 3 -I tetherctrl_FORWARD 2 -i asterisk0 -o "$name" -m conntrack --ctstate ESTABLISHED,RELATED -m comment --comment NF_ROOT_TUN_FWD -j ACCEPT || return 1
+    else
+        while "$tool" -w 3 -C tetherctrl_FORWARD -i "$name" -o asterisk0 -m comment --comment NF_ROOT_TUN_FWD -j ACCEPT 2>/dev/null; do
+            "$tool" -w 3 -D tetherctrl_FORWARD -i "$name" -o asterisk0 -m comment --comment NF_ROOT_TUN_FWD -j ACCEPT || return 1
+        done
+        while "$tool" -w 3 -C tetherctrl_FORWARD -i asterisk0 -o "$name" -m conntrack --ctstate ESTABLISHED,RELATED -m comment --comment NF_ROOT_TUN_FWD -j ACCEPT 2>/dev/null; do
+            "$tool" -w 3 -D tetherctrl_FORWARD -i asterisk0 -o "$name" -m conntrack --ctstate ESTABLISHED,RELATED -m comment --comment NF_ROOT_TUN_FWD -j ACCEPT || return 1
+        done
+    fi
+}
+guard6() {
+    name=$1; action=$2
+    if [ "$action" = add ]; then
+        ip6tables -w 3 -C FORWARD -i "$name" -m comment --comment NF_ROOT_TETHER_V6_BLOCK -j DROP 2>/dev/null ||
+            ip6tables -w 3 -I FORWARD 1 -i "$name" -m comment --comment NF_ROOT_TETHER_V6_BLOCK -j DROP
+    else
+        while ip6tables -w 3 -C FORWARD -i "$name" -m comment --comment NF_ROOT_TETHER_V6_BLOCK -j DROP 2>/dev/null; do
+            ip6tables -w 3 -D FORWARD -i "$name" -m comment --comment NF_ROOT_TETHER_V6_BLOCK -j DROP || return 1
+        done
+    fi
+}
+names() { awk '$1=="link"{print $3}' "$1"; }
+apply_rules() {
+    for n in $(names "$1"); do
+        if [ "$MODE" = tun ]; then
+            forward_rule iptables "$n" add || return 1
+            if [ "$IPV6" = 1 ]; then forward_rule ip6tables "$n" add || return 1; fi
+        fi
+        if [ "$BLOCK6" = 1 ]; then guard6 "$n" add || return 1; fi
+    done
+}
+remove_rules() {
+    for n in $(names "$1"); do
+        if [ "$MODE" = tun ]; then
+            forward_rule iptables "$n" remove || return 1
+            if [ "$IPV6" = 1 ]; then forward_rule ip6tables "$n" remove || return 1; fi
+        fi
+        if [ "$BLOCK6" = 1 ]; then guard6 "$n" remove || return 1; fi
+    done
+}
+# Generate JSON using only exact sentinel strings. Validate all substitutions;
+# no parsing or execution of arbitrary JSON as shell.
+render_tun() {
+    ifaces=$(awk '$1=="link"{if(n++)printf ",";printf "\"%s\"",$3}' "$work/current")
+    exclusions=$(awk -v v6="$IPV6" '
+        BEGIN { printf "\"255.255.255.255/32\",\"169.254.0.0/16\",\"224.0.0.0/24\""; if(v6==1)printf ",\"fe80::/10\",\"ff02::/16\"" }
+        $1=="ipv4" {
+            split($3,a,"/"); if(a[2]<16 || a[2]>30 || split(a[1],o,".")!=4) next
+            for(i=1;i<=4;i++)if(o[i]<0 || o[i]>255 || o[i]!~/^[0-9]+$/)next
+            if(o[1]==0 || o[1]==127 || o[1]>=224) next
+            for(i=1;i<=4;i++){bits=a[2]-(i-1)*8;if(bits<0)bits=0;if(bits>8)bits=8;step=2^(8-bits);o[i]=int(o[i]/step)*step}
+            printf ",\"%d.%d.%d.%d/%d\"",o[1],o[2],o[3],o[4],a[2]
+        }
+        $1=="ipv6-prefix" && v6==1 {printf ",\"%s\"",$3}
+    ' "$work/current")
+    # Empty downstream uses original phone-only config, not an empty JSON string.
+    if [ -z "$ifaces" ]; then
+        cp "$BOOT/config.json" "$work/core.json" || return 1
+        return 0
+    fi
+    awk -v a="$ifaces" -v b="$exclusions" '
+        {if(index($0,"\"__NF_BOOT_IFACES__\"")){i++;sub(/"__NF_BOOT_IFACES__"/,a)}
+         if(index($0,"\"__NF_BOOT_LOCAL__\"")){j++;sub(/"__NF_BOOT_LOCAL__"/,b)} print}
+        END{if(i!=1 || j!=1)exit 1}
+    ' "$BOOT/tun-template.json" > "$work/core.json" || return 1
+    awk -v a="$ifaces" '
+        {if(index($0,"\"__NF_BOOT_IFACES__\"")){i++;sub(/"__NF_BOOT_IFACES__"/,a)}print}
+        END{if(i!=1)exit 1}
+    ' "$BOOT/daemon-template.json" > "$work/daemon.json"
+}
+wait_running() {
+    for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        if owned; then return 0; fi
+        sleep 2
+    done
+    return 1
+}
+reconcile() (
+    flock -x -w 5 9 || exit 1
+    owned || exit 1
+    if [ "$MODE" != tun ]; then
+        # Native selector handling owns these modes. Only maintain the
+        # supplemental software IPv6 guard for confirmed downstreams.
+        if [ "$BLOCK6" = 1 ]; then
+            apply_rules "$work/current" || exit 1
+            # Remove rules for interfaces no longer selected.
+            awk 'FILENAME==ARGV[1]{if($1=="link")a[$3]=1;next}$1=="link"&&!a[$3]' "$work/current" "$work/applied" > "$work/stale"
+            remove_rules "$work/stale" || exit 1
+        fi
+        cp "$work/current" "$work/applied"
+        exit 0
+    fi
+    [ -f "$BOOT/tun-template.json" ] && [ -f "$BOOT/daemon-template.json" ] || exit 1
+    if cmp -s "$work/current" "$work/applied"; then
+        apply_rules "$work/current"
+        exit
+    fi
+    now=$(date +%s)
+    last=$(cat "$work/last-restart" 2>/dev/null || echo 0)
+    [ "$((now-last))" -ge 15 ] || exit 1
+    render_tun || exit 1
+    # Only bundled sing-box is used to validate. External cores are excluded
+    # from autonomous dynamic TUN until their executable identity is verified.
+    [ -x "$CORE" ] || exit 1
+    timeout 15 "$CORE" check -c "$work/core.json" -D "$BASE/run" >/dev/null 2>&1 || exit 1
+    owned || exit 1
+    printf '%s\n' "$now" > "$work/last-restart"
+    remove_rules "$work/applied" || exit 1
+    # The app's handoff waits on this lock; check generation once more.
+    owned || exit 1
+    response=$(timeout 30 "$DAEMON" shutdown 2>/dev/null) || exit 1
+    printf '%s\n' "$response" | grep -Eq '"code"[[:space:]]*:[[:space:]]*"ok"' || exit 1
+    stopped=0
+    for attempt in 1 2 3 4 5 6; do
+        response=$(timeout 5 "$DAEMON" status 2>/dev/null || true)
+        if printf '%s\n' "$response" | grep -Eq '"code"[[:space:]]*:[[:space:]]*"not_running"'; then stopped=1; break; fi
+        sleep 1
+    done
+    [ "$stopped" = 1 ] && current || exit 1
+    launch=$CONFIG
+    if [ -n "$(names "$work/current")" ]; then
+        mv -f "$work/core.json" "$BOOT/runtime-config.json" || exit 1
+        mv -f "$work/daemon.json" "$RUNTIME" || exit 1
+        launch=$RUNTIME
+    fi
+    current || exit 1
+    # Close the lock fd in the daemon, otherwise it would retain the lock.
+    nohup "$DAEMON" boot --config "$launch" </dev/null >>"$BASE/run/logs/boot.out" 2>&1 9>&- &
+    wait_running || exit 1
+    apply_rules "$work/current" || exit 1
+    cp "$work/current" "$work/applied"
+) 9>"$BOOT/monitor.lock"
+
 # Wait only for a bounded initial readiness window.
 for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
     current || exit 0
@@ -118,6 +270,7 @@ for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
     sleep 2
 done
 owned || exit 0
+: > "$work/applied"
 while owned; do
     if snapshot && owned; then
         # Require two consecutive identical observations before publishing.
@@ -129,6 +282,9 @@ while owned; do
             } > "$work/report"
             if current && ! cmp -s "$work/report" "$BOOT/downstream-status"; then
                 mv -f "$work/report" "$BOOT/downstream-status"
+            fi
+            if ! reconcile; then
+                printf "%s\n" "boot tether: reconciliation deferred or failed" >> "$BASE/run/logs/boot-tether.log"
             fi
         else
             cp "$work/current" "$work/candidate"
