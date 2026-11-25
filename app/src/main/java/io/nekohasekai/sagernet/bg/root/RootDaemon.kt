@@ -428,6 +428,9 @@ object RootDaemon {
 
         RootBoot.stage()?.let { return it }
         mark("boot staging")
+        // Never replace a live supervisor's configuration or truncate its logs.
+        if (!shutdownVerified()) return "Previous ROOT supervisor did not shut down cleanly"
+        mark("cleanup previous daemon")
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
         val useFlow = managed && core.bundled && DataStore.rootFlowMetadata &&
             mode in listOf(Mode.TUN2SOCKS, Mode.BPF2SOCKS)
@@ -473,9 +476,7 @@ object RootDaemon {
         RootCore.check(core.path, File(configPath))?.let { return "sing-box check: $it" }
         mark("validate config")
 
-        // a leftover supervisor of ours must be gone first
-        shutdown()
-        mark("cleanup previous daemon")
+        // Publication happened only after the previous control socket disappeared.
         val r = RootShell.run(
             "nohup ${RootShell.q(binary)} start --config ${RootShell.q(daemonConfigPath)} </dev/null >${RootShell.q("$logDir/asteriskd.out")} 2>&1 &",
             timeoutMs = 10_000,
@@ -532,12 +533,55 @@ object RootDaemon {
     private fun alive(): Boolean =
         RootShell.run("pgrep -x libasteriskd.so >/dev/null", timeoutMs = 3_000).ok
 
-    /** Ends the cycle and the supervisor; it removes its own rules/routes/devices first. */
-    fun shutdown() {
+    private fun control(command: String, timeout: Long): JsonObject? {
+        val response = RootShell.run("${RootShell.q(binary)} $command", timeoutMs = timeout)
+        return runCatching {
+            if (response.code !in listOf(0, 3)) return null
+            com.google.gson.JsonParser.parseString(response.out).asJsonObject.getAsJsonObject("result")
+        }.getOrNull()
+    }
+
+    /**
+     * Wait for the native cleanup acknowledgement and disappearance of the control socket.
+     * Do not kill an arbitrary asteriskd by process name: that skips cleanup and can strand
+     * TC/BPF hooks or Android offload settings.
+     */
+    private fun shutdownVerified(): Boolean {
         appliedDownstreams = null
         stopLogForward()
-        RootShell.run("${RootShell.q(binary)} shutdown >/dev/null 2>&1; true", timeoutMs = 20_000)
-        // belt and braces: a wedged supervisor must not keep the rules
-        RootShell.run("pkill -x libasteriskd.so 2>/dev/null; true", timeoutMs = 3_000)
+        val before = control("status", 5000) ?: return false
+        if (before.get("code")?.asString == "not_running") return true
+        val snapshot = before.get("snapshot")?.takeIf { it.isJsonObject }?.asJsonObject ?: return false
+        val pid = snapshot.get("supervisorPid")?.asInt ?: return false
+        if (snapshot.get("owner")?.asString != OWNER || pid <= 0) {
+            Logs.w("ROOT supervisor: refusing to stop a foreign owner")
+            return false
+        }
+        val owned = RootShell.run(
+            "tr '\\000' '\\n' </proc/$pid/cmdline | grep -Fx -- ${RootShell.q(daemonConfigPath)} >/dev/null",
+            timeoutMs = 3000
+        )
+        if (!owned.ok) {
+            Logs.w("ROOT supervisor: cannot verify previous process ownership")
+            return false
+        }
+        val result = control("shutdown", 30000) ?: return false
+        val code = result.get("code")?.asString
+        if (code != "ok" && code != "not_running") return false
+        if (code == "ok" && result.get("snapshot")?.takeIf { it.isJsonObject }?.asJsonObject
+                ?.get("phase")?.asString != "stopped") return false
+        repeat(6) {
+            if (control("status", 5000)?.get("code")?.asString == "not_running") {
+                Logs.i("ROOT supervisor: previous session cleaned and stopped")
+                return true
+            }
+            Thread.sleep(250)
+        }
+        return false
+    }
+
+    /** Ends the cycle and the supervisor; it removes its own rules/routes/devices first. */
+    fun shutdown() {
+        if (!shutdownVerified()) Logs.w("ROOT supervisor: cleanup not confirmed; no forced kill")
     }
 }
