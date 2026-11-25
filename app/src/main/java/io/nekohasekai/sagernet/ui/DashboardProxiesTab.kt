@@ -46,7 +46,7 @@ internal fun DashboardProxiesTab(
                     if (group != null) {
                         Column(horizontalAlignment = Alignment.End) {
                         Box {
-                            TextButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text((if (group.type.equals("URLTest", true)) "Auto" else group.type) + " ▾") }
+                            TextButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text((if (group.type.equals("URLTest", true) || group.type.equals("Fallback", true)) "Auto" else group.type) + " ▾") }
                             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                                 groups.forEach { item ->
                                     DropdownMenuItem(text = { Text(item.name) }, onClick = { selectedGroup = item.name; expanded = false })
