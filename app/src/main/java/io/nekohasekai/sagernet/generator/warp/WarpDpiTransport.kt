@@ -35,12 +35,12 @@ internal class WarpDpiTransport(private val context: Context) {
         calls: RegistrationCalls,
         progress: (Int, Int, DpiStrategySelector.Strategy) -> Unit
     ): WarpRegistration.Account = DpiStrategySelector.withWorkingStrategy(
-        DpiStrategyCatalog.strategies,
+        DpiStrategyCatalog.available(DpiStrategyCatalog.settings(context)),
         DpiStrategyCatalog.preferred(context),
         { strategy ->
             val engine = NativeByeDpi.open(strategy)
             try {
-                ApiSession(engine, calls)
+                ApiSession(engine, calls, DpiStrategyCatalog.settings(context).timeout)
             } catch (failure: Throwable) {
                 engine.close()
                 throw failure
@@ -60,7 +60,8 @@ internal class WarpDpiTransport(private val context: Context) {
 
     private class ApiSession(
         private val engine: NativeByeDpi,
-        private val calls: RegistrationCalls
+        private val calls: RegistrationCalls,
+        private val probeTimeout: Int
     ) : AutoCloseable {
         val client: OkHttpClient = WarpApi.clientBuilder()
             .proxy(Proxy.NO_PROXY)
@@ -76,7 +77,7 @@ internal class WarpDpiTransport(private val context: Context) {
 
         fun probe(): Boolean {
             val call = client.newCall(WarpApi.buildRequest("GET", "reg", null, null))
-            call.timeout().timeout(6, TimeUnit.SECONDS)
+            call.timeout().timeout(probeTimeout.toLong(), TimeUnit.SECONDS)
             return calls.execute(call) { it.code in 200..499 && it.code != 429 }
         }
 
