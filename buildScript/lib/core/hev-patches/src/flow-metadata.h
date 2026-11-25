@@ -71,7 +71,8 @@ static inline size_t flow_metadata_decode(const uint8_t *data, size_t len,
     static const uint8_t signature[12] = {
         '\r', '\n', '\r', '\n', 0, '\r', '\n', 'Q', 'U', 'I', 'T', '\n'};
     size_t width, n;
-    if (len < 16 || memcmp(data, signature, 12) || data[12] != 0x21 || data[14] != 0 || !token ||
+    if (!data || !source || !destination || len < 16 || memcmp(data, signature, 12) ||
+        data[12] != 0x21 || data[14] != 0 || !token ||
         strlen(token) != 32)
         return 0;
     if (data[13] == 0x12)
@@ -83,6 +84,10 @@ static inline size_t flow_metadata_decode(const uint8_t *data, size_t len,
     n = width * 2 + 4;
     if (data[15] != n + 40 || len < 16 + n + 40 || data[16 + n] != 0xe0 || data[17 + n] ||
         data[18 + n] != 37 || data[19 + n] != 1 || memcmp(data + 20 + n, token, 32))
+        return 0;
+    /* Port zero is invalid for these authenticated transport tuples. */
+    if (!(data[16 + 2 * width] | data[17 + 2 * width]) ||
+        !(data[18 + 2 * width] | data[19 + 2 * width]))
         return 0;
     memset(source, 0, sizeof(*source));
     memset(destination, 0, sizeof(*destination));

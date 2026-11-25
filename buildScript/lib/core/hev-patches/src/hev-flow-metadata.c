@@ -16,6 +16,8 @@ void hev_flow_run(HevSocks5Session *self) {
     HevConfigServer *srv = hev_config_get_socks5_server();
     HevSocks5Client *client = HEV_SOCKS5_CLIENT(self);
     HevSocks5SessionIface *iface;
+    /* Bound connect and metadata header transmission in both branches. */
+    hev_socks5_set_timeout(HEV_SOCKS5(self), hev_config_get_misc_connect_timeout());
     if (HEV_SOCKS5(self)->type == HEV_SOCKS5_TYPE_TCP) {
         HevSocks5SessionTCP *tcp = HEV_SOCKS5_SESSION_TCP(self);
         uint8_t header[FLOW_METADATA_MAX_HEADER];
@@ -45,7 +47,6 @@ void hev_flow_run(HevSocks5Session *self) {
             sent += res;
         }
     } else {
-        hev_socks5_set_timeout(HEV_SOCKS5(self), hev_config_get_misc_connect_timeout());
         struct sockaddr_in6 address = {0};
         HevSocks5Addr dst;
         HevSocks5ClientClass *klass = HEV_OBJECT_GET_CLASS(client);
@@ -115,6 +116,10 @@ int hev_flow_recvmmsg(HevSocks5SessionUDP *self, HevSocks5UDPMsg *msgv, unsigned
     struct iovec iov[count];
     memset(messages, 0, sizeof(messages));
     for (i = 0; i < count; i++) {
+        if (!msgv[i].buf || !msgv[i].len) {
+            errno = EINVAL;
+            return -1;
+        }
         iov[i] = (struct iovec){msgv[i].buf, msgv[i].len};
         messages[i].msg_hdr.msg_iov = &iov[i];
         messages[i].msg_hdr.msg_iovlen = 1;
@@ -126,9 +131,17 @@ int hev_flow_recvmmsg(HevSocks5SessionUDP *self, HevSocks5UDPMsg *msgv, unsigned
     res = hev_task_io_socket_recvmmsg(fd, messages, count, MSG_DONTWAIT, hev_socks5_task_io_yielder, self);
     for (i = 0; i < res; i++) {
         struct sockaddr_storage source, destination;
+        /* Do not decode a length that exceeds the actual receive buffer.
+         * MSG_TRUNC must be checked before any reads from the datagram. */
+        if ((messages[i].msg_hdr.msg_flags & MSG_TRUNC) ||
+            messages[i].msg_len > iov[i].iov_len) {
+            msgv[i].addr = NULL;
+            msgv[i].len = 0;
+            continue;
+        }
         size_t n = flow_metadata_decode(msgv[i].buf, messages[i].msg_len, &source, &destination,
             hev_config_get_socks5_server()->pass);
-        if (!n || (messages[i].msg_hdr.msg_flags & MSG_TRUNC)) {
+        if (!n) {
             msgv[i].addr = NULL;
             msgv[i].len = 0;
             continue;

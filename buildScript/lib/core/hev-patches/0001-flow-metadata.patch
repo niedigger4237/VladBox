@@ -21,6 +21,15 @@ diff --git a/src/hev-socks5-session.c b/src/hev-socks5-session.c
  
      srv = hev_config_get_socks5_server ();
  
+@@ -39,7 +45,7 @@
+     if (srv->user && srv->pass) {
+         hev_socks5_client_set_auth (HEV_SOCKS5_CLIENT (self), srv->user,
+                                     srv->pass);
+-        LOG_D ("%p socks5 client auth %s:%s", self, srv->user, srv->pass);
++        LOG_D ("%p socks5 client auth configured", self);
+     }
+ 
+     res = hev_socks5_client_handshake (HEV_SOCKS5_CLIENT (self), srv->pipeline);
 diff --git a/src/hev-socks5-session-udp.c b/src/hev-socks5-session-udp.c
 --- a/src/hev-socks5-session-udp.c
 +++ b/src/hev-socks5-session-udp.c
@@ -66,6 +75,15 @@ diff --git a/src/hev-socks5-session-udp.c b/src/hev-socks5-session-udp.c
      if (res <= 0) {
          if (res == -1 && errno == EAGAIN)
              return 0;
+@@ -271,7 +281,7 @@
+         return;
+     }
+ 
+-    if (self->frames > UDP_POOL_SIZE) {
++    if (self->frames >= UDP_POOL_SIZE) {
+         pbuf_free (p);
+         return;
+     }
 
 diff --git a/src/hev-config.c b/src/hev-config.c
 --- a/src/hev-config.c
