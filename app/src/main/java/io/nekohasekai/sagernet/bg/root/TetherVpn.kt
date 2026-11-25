@@ -347,7 +347,10 @@ object TetherVpn {
             if (!TetherCrashWatchdog.healthy()) {
                 // No unjournaled new mutations if the independent worker failed.
                 if (!clearLocked() || !guard.clear() || !TetherCrashWatchdog.release()) return
-                if (!TetherCrashWatchdog.arm(journalBoot ?: return)) return
+                if (!TetherCrashWatchdog.arm(journalBoot ?: return)) {
+                    Logs.w("VPN tether: independent recovery unavailable; no new rules installed")
+                    return
+                }
             }
             val addresses = RootShell.run("ip -4 -o addr show", timeoutMs = 5000)
             if (!addresses.ok) { clearLocked(); return }

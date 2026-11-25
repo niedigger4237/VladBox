@@ -78,6 +78,13 @@ printf '%s\n' "${'$'}STATUS" | grep -Eq '"code"[[:space:]]*:[[:space:]]*"not_run
 [ -f "${'$'}BASE/boot/ready" ] || exit 0
 GEN="${'$'}(cat "${'$'}BASE/boot/ready")"
 [ -n "${'$'}GEN" ] || exit 0
+# Global offload settings can survive a reboot. Do not launch ROOT over
+# unresolved ordinary VPN tether resources or an active recovery lease.
+RECOVERY="${'$'}BASE/tether-recovery"
+if [ -d "${'$'}RECOVERY" ]; then
+    (flock -n -x 8) 8>"${'$'}RECOVERY/lock" || exit 0
+    [ ! -e "${'$'}RECOVERY/ipv4" ] && [ ! -e "${'$'}RECOVERY/ipv6" ] && [ ! -e "${'$'}RECOVERY/guard" ] || exit 0
+fi
 nohup "${'$'}BASE/bin/libasteriskd.so" boot --config "${'$'}BASE/boot/asteriskd.json" </dev/null >"${'$'}BASE/run/logs/boot.out" 2>&1 9>&- &
 # Keep the handoff lock until the native control socket has appeared.
 for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do

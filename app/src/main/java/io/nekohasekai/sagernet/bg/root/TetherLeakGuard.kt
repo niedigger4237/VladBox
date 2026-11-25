@@ -100,10 +100,7 @@ internal class TetherLeakGuard {
             val before = RootShell.run("settings get global tether_offload_disabled", timeoutMs = 5000)
             if (!before.ok || before.out !in listOf("null", "0", "1")) return false
             offloadBefore = before.out
-            if (!save()) {
-                offloadBefore = null
-                return false
-            }
+            if (!save()) return false
         }
         if (names.isNotEmpty()) {
             for (name in names) if (!add(name)) return false

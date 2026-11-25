@@ -63,6 +63,14 @@ done
 same_lease || exit 1
 [ "$dead" -ge 2 ] || exit 1
 rm -f "$DIR/ready"
+# The app may have died while a bounded su transaction was in flight.
+# Allow its normal command deadline to pass before attempting cleanup.
+# This grace period is not a guarantee against a hung kernel command.
+sleep 25
+same_lease || exit 1
+state=0
+owner_state || state=$?
+[ "$state" = 1 ] || exit 1
 
 recover_one() {
     name=$1

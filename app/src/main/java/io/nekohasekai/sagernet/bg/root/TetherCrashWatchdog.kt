@@ -67,7 +67,8 @@ internal object TetherCrashWatchdog {
             "set -e",
             "test \"\$(cat ${RootShell.q("$DIR/ready")})\" = ${RootShell.q(id)}",
             // A stale ready file is not enough: the worker must hold its lock.
-            "if (flock -n -x 9) 9>${RootShell.q("$DIR/lock")}; then exit 1; fi",
+            "command -v flock >/dev/null",
+            "if (flock -n -x 9) 9>${RootShell.q("$DIR/lock")}; then exit 1; else test \"\$?\" = 1; fi",
             timeoutMs = 5000,
         ).ok
     }
