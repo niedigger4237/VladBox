@@ -42,7 +42,16 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
                 } else {
                     OutlinedTextField(query, { model.search(it) }, Modifier.fillMaxWidth().padding(vertical = 8.dp), label = { Text("Search settings") }, singleLine = true)
                 }
+                val tetherTitle = stringResource(R.string.cat_tethering)
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+                    if (category == tetherTitle && modeValue == "vpn" && state.rootAccess != Access.UNAVAILABLE) {
+                        item {
+                            Text(stringResource(R.string.vpn_tether_ipv4_warning),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                        }
+                    }
                     if (category == null && query.isBlank()) {
                         if (mode != null) item { SettingTile(mode, changed, true, state.revision, state.rootAccess, state.checkingRoot) }
                         items(groups.size) { index ->
