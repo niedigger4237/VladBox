@@ -360,6 +360,74 @@ object RootDaemon {
     } catch (e: Exception) { json }
 
     @Volatile private var tailer: Thread? = null
+    @Volatile private var tunDiagnostics: Thread? = null
+
+    // Read-only, bounded snapshots; no probes are transmitted and no firewall is modified.
+    // Never log the full core config: it contains credentials.
+    private fun startTunDiagnostics(snapshot: DownstreamSnapshot, ipv6: Boolean) {
+        stopTunDiagnostics()
+        val names = snapshot.names.filter { exactInterface.matches(it) && it !in internalInterfaces }
+        if (names.isEmpty()) return
+        tunDiagnostics = Thread({
+            val self = Thread.currentThread()
+            fun active() = !self.isInterrupted && tunDiagnostics === self
+            fun capture(label: String, command: String) {
+                if (!active()) return
+                // Each command has its own bound and reports failure separately.
+                val result = RootShell.run(command, timeoutMs = 4000L)
+                if (!active()) return
+                Logs.i("ROOT TUN diagnostic [$label] rc=${result.code}")
+                result.out.lineSequence().take(180).forEach { line ->
+                    if (active() && line.isNotBlank()) Logs.i("ROOT TUN diagnostic [$label] ${line.take(1000)}")
+                }
+                if (result.out.lineSequence().count() > 180) Logs.i("ROOT TUN diagnostic [$label] output truncated")
+                if (!result.ok && result.err.isNotBlank()) Logs.w("ROOT TUN diagnostic [$label] ${result.err.take(500)}")
+            }
+            try {
+                Thread.sleep(2000L)
+                if (!active()) return@Thread
+                Logs.i("ROOT TUN diagnostic: begin downstream=$names")
+                capture("forwarding", "cat /proc/sys/net/ipv4/ip_forward; cat /proc/sys/net/ipv4/conf/all/rp_filter; settings get global tether_offload_disabled")
+                capture("IPv4 rules", "ip -4 rule show")
+                capture("IPv4 routes", "ip -4 route show table all")
+                if (ipv6) {
+                    capture("IPv6 rules", "ip -6 rule show")
+                    capture("IPv6 routes", "ip -6 route show table all")
+                }
+                capture("filter", "iptables -w 1 -t filter -L -n -v -x")
+                capture("nat", "iptables -w 1 -t nat -L -n -v -x")
+                capture("mangle", "iptables -w 1 -t mangle -L -n -v -x")
+                capture("offload", "dumpsys tethering | grep -iE 'offload|TetheredState|LocalHotspotState|current upstream' | head -n 80")
+                for (name in names) {
+                    val dev = RootShell.q(name)
+                    capture("$name TC ingress", "tc filter show dev $dev ingress")
+                    capture("$name TC egress", "tc filter show dev $dev egress")
+                    capture("$name client routes", "ip -4 neigh show dev $dev | awk '/lladdr/ {print \$1}' | head -n 8 | while read -r client; do echo client=\$client; ip -4 route get 1.1.1.1 from \"\$client\" iif $dev; ip -4 route get \"\$client\"; done")
+                }
+                val devices = names + TUN_DEVICE
+                repeat(2) { index ->
+                    if (!active()) return@Thread
+                    for (name in devices) {
+                        val dev = RootShell.q(name)
+                        capture("counters ${index + 1} $name", "ip -s link show dev $dev | sed '/link\\//d'")
+                    }
+                    if (index == 0) Thread.sleep(5000L)
+                }
+                if (active()) Logs.i("ROOT TUN diagnostic: complete")
+            } catch (_: InterruptedException) {
+                // Normal service shutdown.
+            } catch (e: Exception) {
+                if (active()) Logs.w("ROOT TUN diagnostic failed: ${e.javaClass.simpleName}")
+            }
+        }, "root-tun-diagnostics").apply { isDaemon = true }
+        tunDiagnostics?.start()
+    }
+
+    private fun stopTunDiagnostics() {
+        val old = tunDiagnostics
+        tunDiagnostics = null
+        old?.interrupt()
+    }
 
     /** forwards core/daemon log lines into the in-app log (Logs -> neko.log) while the service runs */
     fun startLogForward(mode: Mode? = null) {
@@ -453,6 +521,10 @@ object RootDaemon {
         }
         if (useFlow) Logs.i("ROOT flow metadata: enabled")
         val useMatcher = matcherAvailable(mode, ipv6)
+        if (managed && mode == Mode.TUN) {
+            val tun = managedTunInbound(com.google.gson.JsonParser.parseString(effectiveConfig).asJsonObject)
+            if (tun != null) Logs.i("ROOT TUN effective config: include_interface=${tun.get("include_interface")} stack=${tun.get("stack")} mtu=${tun.get("mtu")} auto_route=${tun.get("auto_route")} auto_redirect=${tun.get("auto_redirect")}")
+        }
         val cfg = File(stage, "config.json").apply { writeText(withLogFile(effectiveConfig)) }
         // A boot-started native daemon has no Android app monitor. Keep its native prefix
         // selectors for daemon-managed modes when start-on-boot is enabled.
@@ -510,6 +582,7 @@ object RootDaemon {
                 mark("wait for readiness")
                 appliedDownstreams = dynamicDownstreams
                 startLogForward(mode)
+                if (mode == Mode.TUN && dynamicDownstreams != null) startTunDiagnostics(dynamicDownstreams, ipv6)
                 return null
             }
             if (phase == "failed") break
@@ -560,6 +633,7 @@ object RootDaemon {
      */
     private fun shutdownVerified(): Boolean {
         appliedDownstreams = null
+        stopTunDiagnostics()
         stopLogForward()
         val before = control("status", 5000) ?: return false
         if (before.get("code")?.asString == "not_running") return true
