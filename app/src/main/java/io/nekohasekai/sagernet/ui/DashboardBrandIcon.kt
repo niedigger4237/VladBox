@@ -16,6 +16,11 @@ import kotlinx.coroutines.withContext
 import com.caverock.androidsvg.SVG
 
 private val serviceDomains = listOf(
+    "icloud" to listOf("icloud.com", "icloud-content.com"),
+    "sing-box" to listOf("sing-box.sagernet.org", "sing-box.app"),
+    "xray" to listOf("xtls.github.io"),
+    "mullvad-vpn" to listOf("mullvad.net"),
+    "nordvpn" to listOf("nordvpn.com", "nordcdn.com"),
     "pinterest" to listOf("pinterest.com", "pinimg.com"),
     "snapchat" to listOf("snapchat.com", "sc-cdn.net"),
     "threads" to listOf("threads.net", "threads.com"),
@@ -63,7 +68,7 @@ private val serviceDomains = listOf(
     "steam" to listOf("steampowered.com", "steamcommunity.com", "steamstatic.com"),
     "dropbox" to listOf("dropbox.com", "dropboxusercontent.com"),
     "app-store" to listOf("apps.apple.com", "itunes.apple.com"),
-    "apple" to listOf("apple.com", "icloud.com"),
+    "apple" to listOf("apple.com"),
     "tiktok" to listOf("tiktok.com", "tiktokcdn.com"),
     "x" to listOf("x.com", "twitter.com", "twimg.com"),
     "playstation" to listOf("playstation.com", "playstation.net"),
