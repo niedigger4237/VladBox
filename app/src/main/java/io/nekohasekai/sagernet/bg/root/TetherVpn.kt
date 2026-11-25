@@ -5,29 +5,39 @@ import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.bg.TunAddressPlan
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.Logs
+import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
-/**
- * Hotspot / USB / Bluetooth / Ethernet tethering through the ordinary VPN mode (needs root).
- * Android does not send tethered clients through a VPN, so the clients' traffic is routed to the VPN interface
- * with ip rules and NATed there (the same approach as VPNHotspot).
- */
+/** Root-assisted IPv4 tethering for Android VpnService. All mutations run on one worker. */
 object TetherVpn {
-    private const val PREF = 17900
-    private const val TABLE = 17900
-
     private data class Addr(val name: String, val ip: String, val prefix: Int)
+    private data class RuleSet(
+        val up: String,
+        val down: List<Addr>,
+        val dns: String,
+        val table: Int,
+        val pref: Int,
+        val suffix: String,
+        val offloadBefore: String,
+    ) {
+        val forward get() = "NFV_F_$suffix"
+        val prerouting get() = "NFV_D_$suffix"
+        val postrouting get() = "NFV_N_$suffix"
+    }
 
-    private var lastUp: String? = null
-    private var lastDns = TunAddressPlan.legacy().dns4
-    private var lastSig: String? = null
+    private val worker = Executors.newSingleThreadScheduledExecutor { task ->
+        Thread(task, "tether-vpn").apply { isDaemon = true }
+    }
+    private var polling: ScheduledFuture<*>? = null
+    @Volatile private var generation = 0L
+    private var installed: RuleSet? = null
     private var lastSeen: String? = null
-    @Volatile
-    private var watcher: Thread? = null
-    private var lastDown: List<String> = emptyList()
-    private var prevOffload: String? = null
+    private var rootGranted = false
 
     private fun enabled() = DataStore.tetherWifi || DataStore.tetherBluetooth || DataStore.tetherUsb ||
-            DataStore.tetherEthernet || DataStore.tetherCustom.isNotBlank()
+        DataStore.tetherEthernet || DataStore.tetherCustom.isNotBlank()
 
     private fun network(ip: String, prefix: Int): String {
         val p = ip.split('.').map { it.toInt() }
@@ -37,27 +47,108 @@ object TetherVpn {
         return "${(v ushr 24) and 255}.${(v ushr 16) and 255}.${(v ushr 8) and 255}.${v and 255}/$prefix"
     }
 
-    private fun cleanupScript(up: String?, down: List<String>, dns: String): List<String> {
-        val l = ArrayList<String>()
-        l += "for i in 1 2 3 4 5 6 7 8; do ip rule del pref $PREF 2>/dev/null; ip rule del pref ${PREF - 1} 2>/dev/null; done"
-        l += "ip route flush table $TABLE 2>/dev/null"
-        if (up != null) {
-            l += "while iptables -w -t nat -D POSTROUTING -o $up -j MASQUERADE 2>/dev/null; do :; done"
-            for (d in down) {
-                for (proto in listOf("udp", "tcp"))
-                    l += "while iptables -w -t nat -D PREROUTING -i $d -p $proto --dport 53 -j DNAT --to-destination ${dns}:53 2>/dev/null; do :; done"
-                l += "while iptables -w -D FORWARD -i $d -o $up -j ACCEPT 2>/dev/null; do :; done"
-                l += "while iptables -w -D FORWARD -i $up -o $d -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null; do :; done"
-            }
+    /** Never flush a shared table or delete rules by preference alone. */
+    private fun cleanup(r: RuleSet): Boolean {
+        val commands = mutableListOf("set -e")
+        fun detach(table: String, hook: String, chain: String) {
+            val cmd = "iptables -w 3 -t $table"
+            commands += "while $cmd -C $hook -j $chain 2>/dev/null; do $cmd -D $hook -j $chain || exit 1; done"
+            commands += "if $cmd -S $chain >/dev/null 2>&1; then $cmd -F $chain && $cmd -X $chain || exit 1; fi"
         }
-        return l
+        detach("filter", "FORWARD", r.forward)
+        detach("nat", "PREROUTING", r.prerouting)
+        detach("nat", "POSTROUTING", r.postrouting)
+        for (d in r.down) {
+            val net = network(d.ip, d.prefix)
+            commands += "ip -4 rule del pref ${r.pref} iif ${d.name} lookup ${r.table} 2>/dev/null || true"
+            commands += "ip -4 rule del pref ${r.pref - 1} iif ${r.up} to $net lookup ${r.table} 2>/dev/null || true"
+            commands += "ip -4 route del $net dev ${d.name} scope link table ${r.table} 2>/dev/null || true"
+        }
+        commands += "ip -4 route del default dev ${r.up} table ${r.table} 2>/dev/null || true"
+        // Restore only the value we changed, not a setting changed by another component meanwhile.
+        val restore = if (r.offloadBefore == "null") "settings delete global tether_offload_disabled"
+            else "settings put global tether_offload_disabled ${RootShell.q(r.offloadBefore)}"
+        if (r.offloadBefore != "1") {
+            commands += "if [ \"\$(settings get global tether_offload_disabled)\" = 1 ]; then $restore; fi"
+        }
+        val result = RootShell.run(*commands.toTypedArray(), timeoutMs = 20000)
+        if (!result.ok) Logs.w("VPN tether cleanup failed: ${result.err}")
+        return result.ok
     }
 
-    @Synchronized
-    fun apply(plan: TunAddressPlan = TunAddressPlan.legacy()) {
+    private fun clearLocked(): Boolean {
+        val r = installed ?: return true
+        if (!cleanup(r)) return false
+        installed = null
+        return true
+    }
+
+    private fun allocate(up: String, down: List<Addr>, dns: String): RuleSet? {
+        val rules = RootShell.run("ip -4 rule show", timeoutMs = 5000)
+        val routes = RootShell.run("ip -4 route show table all", timeoutMs = 5000)
+        val offload = RootShell.run("settings get global tether_offload_disabled", timeoutMs = 5000)
+        val forwarding = RootShell.run("cat /proc/sys/net/ipv4/ip_forward", timeoutMs = 5000)
+        if (!rules.ok || !routes.ok || !offload.ok || !forwarding.ok) return null
+        if (forwarding.out != "1") {
+            Logs.w("VPN tether: Android has not enabled IPv4 forwarding")
+            return null
+        }
+        if (offload.out !in listOf("null", "0", "1")) return null
+        val usedPrefs = Regex("""^\s*(\d+):""", RegexOption.MULTILINE)
+            .findAll(rules.out).map { it.groupValues[1].toInt() }.toSet()
+        val usedTables = Regex("""\b(?:lookup|table)\s+(\d+)\b""")
+            .findAll(rules.out + "\n" + routes.out).map { it.groupValues[1].toInt() }.toSet()
+        val pref = (17900..17998 step 2).firstOrNull { it !in usedPrefs && it - 1 !in usedPrefs } ?: return null
+        val table = (17900..17999).firstOrNull { id ->
+            if (id in usedTables) false else {
+                val probe = RootShell.run("ip -4 route show table $id", timeoutMs = 2000)
+                (probe.ok && probe.out.isBlank()) ||
+                    (!probe.ok && probe.err.contains("FIB table does not exist", ignoreCase = true))
+            }
+        } ?: return null
+        return RuleSet(up, down, dns, table, pref, UUID.randomUUID().toString().replace("-", "").take(12), offload.out)
+    }
+
+    private fun install(r: RuleSet): Boolean {
+        val s = mutableListOf("set -e")
+        val filter = "iptables -w 3 -t filter"
+        val nat = "iptables -w 3 -t nat"
+        s += "$filter -N ${r.forward}"
+        s += "$nat -N ${r.prerouting}"
+        s += "$nat -N ${r.postrouting}"
+        s += "ip -4 route add default dev ${r.up} table ${r.table}"
+        for (d in r.down) {
+            val net = network(d.ip, d.prefix)
+            s += "ip -4 route add $net dev ${d.name} scope link table ${r.table}"
+            s += "ip -4 rule add pref ${r.pref - 1} iif ${r.up} to $net lookup ${r.table}"
+            s += "$filter -A ${r.forward} -i ${d.name} -o ${r.up} -j ACCEPT"
+            s += "$filter -A ${r.forward} -i ${r.up} -o ${d.name} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
+            s += "$nat -A ${r.postrouting} -s $net -o ${r.up} -j MASQUERADE"
+            for (proto in listOf("udp", "tcp")) {
+                s += "$nat -A ${r.prerouting} -i ${d.name} -p $proto --dport 53 -j DNAT --to-destination ${r.dns}:53"
+            }
+        }
+        s += "$filter -I FORWARD 1 -j ${r.forward}"
+        s += "$nat -I PREROUTING 1 -j ${r.prerouting}"
+        s += "$nat -I POSTROUTING 1 -j ${r.postrouting}"
+        s += "settings put global tether_offload_disabled 1"
+        for (d in r.down) s += "ip -4 rule add pref ${r.pref} iif ${d.name} lookup ${r.table}"
+        installed = r // remember partial installation for rollback
+        val result = RootShell.run(*s.toTypedArray(), timeoutMs = 20000)
+        if (!result.ok) {
+            Logs.w("VPN tether install failed: ${result.err}")
+            clearLocked()
+            return false
+        }
+        Logs.i("VPN tether: ${r.down.map { it.name }} -> ${r.up}, table=${r.table}, pref=${r.pref}, chains=${r.suffix}")
+        return true
+    }
+
+    private fun apply(plan: TunAddressPlan, token: Long) {
         try {
+            if (token != generation) return
             if (!enabled()) { clearLocked(); return }
-            if (!RootShell.isAvailable()) { Logs.w("tethering through VPN needs root"); return }
+            if (!rootGranted) return
             val addresses = RootShell.run("ip -4 -o addr show", timeoutMs = 5000)
             if (!addresses.ok) { clearLocked(); return }
             val addrs = Regex("^\\d+:\\s+(\\S+)\\s+inet\\s+(\\d+\\.\\d+\\.\\d+\\.\\d+)/(\\d+)", RegexOption.MULTILINE)
@@ -97,89 +188,54 @@ object TetherVpn {
                 a.name !in uplinks && !skip.matches(a.name) && a.prefix in 16..30 &&
                     a.name in active && sel.any { c -> if (c.endsWith("+")) a.name.startsWith(c.dropLast(1)) else a.name == c }
             }.distinctBy { it.name }
-            val sig = up + "|" + downs.joinToString(",") { "${it.name}/${it.ip}/${it.prefix}" }
+
+            val ordered = downs.sortedBy { it.name }
+            val sig = "$up|${ordered.joinToString()}|${plan.dns4}"
             if (sig != lastSeen) {
                 lastSeen = sig
-                Logs.i("tethering: addresses=${addrs.map { it.name + "/" + it.ip }} uplinks=$uplinks selectors=$sel -> ${downs.map { it.name }}")
+                Logs.i("VPN tether discovery: $sig")
             }
-            if (downs.isEmpty()) {
-                clearLocked()
-                return // waiting: the watcher picks the interface up as soon as the hotspot is switched on
+            if (token != generation) return
+            if (ordered.isEmpty()) { clearLocked(); return }
+            val current = installed
+            if (current != null && current.up == up && current.down == ordered && current.dns == plan.dns4) return
+            if (!clearLocked()) return
+            val next = allocate(up, ordered, plan.dns4)
+            if (next == null) {
+                Logs.w("VPN tether: unable to reserve routing resources")
+                return
             }
-            if (sig == lastSig) return // already installed for exactly this interface/address
-            clearLocked()
-
-            val s = ArrayList<String>()
-            s += cleanupScript(up, downs.map { it.name }, plan.dns4)
-            s += "set -e"
-            s += "echo 1 > /proc/sys/net/ipv4/ip_forward"
-            s += "ip route add default dev $up table $TABLE"
-            for (d in downs) {
-                val net = network(d.ip, d.prefix)
-                s += "ip route add $net dev ${d.name} scope link table $TABLE"
-                s += "ip rule add to $net lookup $TABLE pref ${PREF - 1}"
-                s += "ip rule add iif ${d.name} lookup $TABLE pref $PREF"
-                s += "iptables -w -I FORWARD 1 -i ${d.name} -o $up -j ACCEPT"
-                s += "iptables -w -I FORWARD 1 -i $up -o ${d.name} -m state --state ESTABLISHED,RELATED -j ACCEPT"
-            }
-            s += "iptables -w -t nat -I POSTROUTING 1 -o $up -j MASQUERADE"
-            // clients' DNS goes to the VPN resolver (sing-box hijack-dns), not to the system one
-            for (d in downs) for (proto in listOf("udp", "tcp")) {
-                s += "iptables -w -t nat -I PREROUTING 1 -i ${d.name} -p $proto --dport 53 -j DNAT --to-destination ${plan.dns4}:53"
-            }
-            // hardware tethering offload bypasses ip rules/NAT
-            if (prevOffload == null) prevOffload = RootShell.run("settings get global tether_offload_disabled").out.trim()
-            s += "settings put global tether_offload_disabled 1"
-            val r = RootShell.run(*s.toTypedArray(), timeoutMs = 20_000)
-            lastUp = up
-            lastDns = plan.dns4
-            lastSig = if (r.ok) sig else null
-            lastDown = downs.map { it.name }
-            Logs.i("tethering via VPN: $lastDown -> $up (exit ${r.code}${if (r.err.isNotBlank()) ", " + r.err.take(300) else ""})")
-            if (!r.ok) clearLocked()
+            if (token == generation) install(next)
         } catch (e: Exception) {
             Logs.w(e)
         }
     }
 
-    /** Keeps the rules in sync while the VPN is up: the hotspot may be switched on (or get a new subnet) later. */
+    /** A stale stop cannot clear a newer VPN session. Never interrupt a running root transaction. */
     @Synchronized
-    fun start(plan: TunAddressPlan = TunAddressPlan.legacy()) {
-        if (!enabled() || watcher?.isAlive == true) return
-        val t = Thread({
-            if (!RootShell.isAvailable()) {
-                Logs.w("tethering through VPN needs root; no rules installed")
-                return@Thread
+    fun start(plan: TunAddressPlan): Long {
+        val token = ++generation
+        polling?.cancel(false)
+        worker.execute {
+            if (token == generation) {
+                clearLocked()
+                rootGranted = enabled() && RootShell.isAvailable()
+                if (enabled() && !rootGranted) Logs.w("VPN tether: root unavailable")
+                lastSeen = null
             }
-            while (!Thread.currentThread().isInterrupted) {
-                apply(plan)
-                try { Thread.sleep(3_000) } catch (e: InterruptedException) { break }
-            }
-        }, "tether-vpn")
-        t.isDaemon = true
-        watcher = t
-        t.start()
-    }
-
-    fun clear() {
-        watcher?.interrupt()
-        watcher = null
-        try { clearLockedSync() } catch (e: Exception) { Logs.w(e) }
-    }
-
-    @Synchronized
-    private fun clearLockedSync() = clearLocked()
-
-    private fun clearLocked() {
-        val up = lastUp ?: return
-        RootShell.run(*cleanupScript(up, lastDown, lastDns).toTypedArray(), timeoutMs = 10_000)
-        prevOffload?.let { p ->
-            RootShell.run(if (p.isBlank() || p == "null") "settings delete global tether_offload_disabled"
-                else "settings put global tether_offload_disabled $p")
-            prevOffload = null
         }
-        lastUp = null
-        lastSig = null
-        lastDown = emptyList()
+        polling = worker.scheduleWithFixedDelay({ apply(plan, token) }, 0, 3, TimeUnit.SECONDS)
+        return token
+    }
+
+    @Synchronized
+    fun stop(token: Long) {
+        if (token != generation) return
+        val stopped = ++generation
+        polling?.cancel(false)
+        polling = null
+        worker.execute {
+            if (stopped == generation) clearLocked()
+        }
     }
 }
