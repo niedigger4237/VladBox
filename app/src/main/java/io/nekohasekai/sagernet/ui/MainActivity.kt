@@ -332,7 +332,7 @@ class MainActivity : ThemedActivity(),
         if (fragment is ConfigurationFragment) {
             binding.stats.allowShow = true
             binding.stats.performShow()
-        } else if (!DataStore.showBottomBar) {
+        } else if (fragment is DashboardFragment || !DataStore.showBottomBar) {
             binding.stats.allowShow = false
             binding.stats.performHide()
         }
@@ -340,6 +340,12 @@ class MainActivity : ThemedActivity(),
             .replace(R.id.fragment_holder, fragment)
             .commitAllowingStateLoss()
         binding.drawerLayout.closeDrawers()
+    }
+
+    fun openDashboard() {
+        displayFragment(DashboardFragment())
+        binding.stats.allowShow = false
+        binding.stats.performHide()
     }
 
     fun displayFragmentWithId(@IdRes id: Int): Boolean {
