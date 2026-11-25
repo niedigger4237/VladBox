@@ -154,20 +154,28 @@ object RootDaemon {
         fun matches(name: String, selector: String): Boolean =
             if (selector.endsWith("+")) name.startsWith(selector.dropLast(1)) else name == selector
         if (manual.isEmpty() && selectors.isEmpty()) return emptyList()
-        val dump = RootShell.run("dumpsys tethering --short", timeoutMs = 5000)
-        val routes = RootShell.run("ip -4 route show table all; ip -6 route show table all", timeoutMs = 5000)
+        val shortDump = RootShell.run("dumpsys tethering --short", timeoutMs = 5000)
+        val dump = if (shortDump.ok && shortDump.out.contains("TetheredState")) shortDump
+            else RootShell.run("dumpsys tethering", timeoutMs = 5000)
+        // Both families must succeed; a partial route dump cannot prove that an interface is not WAN.
+        val routes = RootShell.run("ip -4 route show table all && ip -6 route show table all", timeoutMs = 5000)
+        if (!routes.ok) {
+            Logs.w("ROOT TUN: cannot verify upstream interfaces; skipping all downstreams for this start")
+            return emptyList()
+        }
         val state = Regex("""^\s*([A-Za-z0-9_.-]{1,15})\s+-\s+TetheredState\s+-\s+lastError\s*=\s*0\s*$""")
         val active = if (dump.ok) dump.out.lineSequence()
             .mapNotNull { state.matchEntire(it)?.groupValues?.get(1) }.distinct().toList() else emptyList()
         val upstream = routes.out.lineSequence().filter { it.trimStart().startsWith("default ") }
             .flatMap { Regex("""\bdev\s+([A-Za-z0-9_.-]{1,15})(?:\s|$)""").findAll(it).map { match -> match.groupValues[1] } }
             .toSet()
-        val auto = if (dump.ok && routes.ok) active.filter { name -> selectors.any { matches(name, it) } } else emptyList()
+        val auto = if (dump.ok) active.filter { name -> selectors.any { matches(name, it) } } else emptyList()
         val result = (manual + auto).distinct().filter { name ->
             name !in internalInterfaces && name !in upstream && ignored.none { matches(name, it) }
         }
         Logs.i("ROOT TUN downstream: active=$active selected=$result upstream=$upstream dumpOk=${dump.ok} routesOk=${routes.ok}")
-        if (selectors.isNotEmpty() && auto.isEmpty()) Logs.w("ROOT TUN: no matching active downstream; enable tethering before connecting or enter an exact interface name")
+        if (!dump.ok) Logs.w("ROOT TUN: Android tethering state unavailable; only verified manual downstreams can be used")
+        if (selectors.isNotEmpty() && result.isEmpty()) Logs.w("ROOT TUN: no matching active downstream; enable tethering before connecting or enter an exact interface name")
         return result
     }
 
