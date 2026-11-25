@@ -73,8 +73,32 @@ object TetherVpn {
             commands += "if [ \"\$(settings get global tether_offload_disabled)\" = 1 ]; then $restore; fi"
         }
         val result = RootShell.run(*commands.toTypedArray(), timeoutMs = 20000)
-        if (!result.ok) Logs.w("VPN tether cleanup failed: ${result.err}")
-        return result.ok
+        if (!result.ok) {
+            Logs.w("VPN tether cleanup failed: ${result.err}")
+            return false
+        }
+        // A missing rule is fine, but do not interpret a failed deletion as a successful cleanup.
+        val firewall = RootShell.run("iptables -w 3 -t filter -S && iptables -w 3 -t nat -S", timeoutMs = 10000)
+        val rules = RootShell.run("ip -4 rule show", timeoutMs = 5000)
+        val routes = RootShell.run("ip -4 route show table ${r.table}", timeoutMs = 5000)
+        val tableAbsent = !routes.ok &&
+            (routes.err + routes.out).contains("FIB table does not exist", ignoreCase = true)
+        val routeLines = routes.out.lineSequence().map { it.trim() }.toList()
+        val ownedRoute = routeLines.any { line ->
+            (line.startsWith("default dev ${r.up} ") || line == "default dev ${r.up}") ||
+                r.down.any { d -> line.startsWith("${network(d.ip, d.prefix)} dev ${d.name} ") ||
+                    line == "${network(d.ip, d.prefix)} dev ${d.name}" }
+        }
+        val ownedRule = rules.out.lineSequence().any { line ->
+            val pref = line.substringBefore(':').trim().toIntOrNull()
+            (pref == r.pref || pref == r.pref - 1) &&
+                Regex("""\blookup\s+${r.table}\b""").containsMatchIn(line)
+        }
+        val ok = firewall.ok && rules.ok && (routes.ok || tableAbsent) &&
+            listOf(r.forward, r.prerouting, r.postrouting).none { firewall.out.contains(it) } &&
+            !ownedRule && !ownedRoute
+        if (!ok) Logs.w("VPN tether cleanup verification failed: table=${r.table}, chains=${r.suffix}")
+        return ok
     }
 
     private fun clearLocked(): Boolean {
@@ -109,7 +133,7 @@ object TetherVpn {
             if (id in usedTables) false else {
                 val probe = RootShell.run("ip -4 route show table $id", timeoutMs = 2000)
                 (probe.ok && probe.out.isBlank()) ||
-                    (!probe.ok && probe.err.contains("FIB table does not exist", ignoreCase = true))
+                    (!probe.ok && (probe.err + probe.out).contains("FIB table does not exist", ignoreCase = true))
             }
         } ?: return null
         return RuleSet(up, down, dns, table, pref, UUID.randomUUID().toString().replace("-", "").take(12), offload.out)
