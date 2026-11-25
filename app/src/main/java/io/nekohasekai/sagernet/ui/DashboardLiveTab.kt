@@ -279,7 +279,7 @@ private fun DashboardServiceIcon(host: String) {
             3 -> { line(2f,10f,22f,3f); line(22f,3f,17f,21f); line(17f,21f,10f,15f); line(10f,15f,22f,3f); line(2f,10f,10f,15f) }
             4 -> { drawRoundRect(tint,pt(3f,6f),androidx.compose.ui.geometry.Size(18*s,12*s),androidx.compose.ui.geometry.CornerRadius(5*s),style=outline()); drawCircle(tint,1.5*s,pt(9f,12f)); drawCircle(tint,1.5*s,pt(15f,12f)); line(6f,18f,4f,20f); line(18f,18f,20f,20f) }
             5 -> { drawCircle(tint,9*s,pt(12f,12f),style=outline()); line(8f,8f,7f,5f); line(16f,8f,17f,5f); drawRoundRect(tint,pt(7f,8f),androidx.compose.ui.geometry.Size(10*s,8*s),androidx.compose.ui.geometry.CornerRadius(3*s)); line(12f,16f,12f,21f) }
-            6 -> { drawCircle(tint,10*s,pt(12f,12f),style=outline()); for(i in 0..2) drawArc(tint,205f,125f,false,pt(5f+i,9f+i*3),androidx.compose.ui.geometry.Size((14-2*i)*s,7*s),style=outline()) }
+            6 -> { drawCircle(tint,10*s,pt(12f,12f),style=outline()); for(i in 0..2) drawArc(tint,205f,125f,false,pt(5f+i,9f+i*3f),androidx.compose.ui.geometry.Size((14f-2f*i)*s,7*s),style=outline()) }
             7 -> { drawArc(tint,180f,180f,false,pt(5f,4f),androidx.compose.ui.geometry.Size(14*s,14*s),style=outline()); line(5f,11f,2f,15f); line(2f,15f,4f,18f); line(4f,18f,22f,18f); line(22f,18f,22f,14f); line(22f,14f,19f,11f) }
             else -> { drawCircle(tint,10*s,pt(12f,12f),style=outline()); drawOval(tint,pt(7f,2f),androidx.compose.ui.geometry.Size(10*s,20*s),style=outline()); line(2f,12f,22f,12f) }
         }
