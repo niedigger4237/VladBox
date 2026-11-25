@@ -57,7 +57,8 @@ internal class RootTunNetworkMonitor(
     }
 
     private fun reconcile(reason: String) {
-        val observed = RootDaemon.resolveDownstreams(mode, requireReliable = true, ipv6 = applied.ipv6Enabled)
+        val observed = RootDaemon.resolveDownstreams(mode, requireReliable = true, ipv6 = applied.serviceIpv6)
+        if (!closed && applied.blockIpv6) RootDaemon.reconcileTetherIpv6Guard(applied, observed)
         if (observed == null || observed == applied) {
             candidate = null
             // netd may rebuild tetherctrl_FORWARD without changing downstream identity.

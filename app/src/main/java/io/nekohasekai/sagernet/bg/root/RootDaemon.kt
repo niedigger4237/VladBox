@@ -150,6 +150,8 @@ object RootDaemon {
         val identity: List<String>,
         val ipv6Enabled: Boolean = false,
         val ipv6Prefixes: List<TetherIpv6.Down> = emptyList(),
+        val blockIpv6: Boolean = false,
+        val serviceIpv6: Boolean = ipv6Enabled,
     )
 
     // Android reports active downstreams explicitly; never guess from all wlan* devices.
@@ -158,7 +160,8 @@ object RootDaemon {
         // a saved global prefix must not bypass traffic after reboot/renumbering.
         val trackV6 = ipv6 && (mode == Mode.TUN || (mode in listOf(Mode.TUN2SOCKS, Mode.TPROXY, Mode.BPF2SOCKS) &&
             !DataStore.configurationStore.getBoolean("startOnBoot", false)))
-        fun emptySnapshot() = DownstreamSnapshot(emptyList(), emptyList(), trackV6)
+        val blockV6 = !ipv6 && DataStore.rootDisableSystemIpv6
+        fun emptySnapshot() = DownstreamSnapshot(emptyList(), emptyList(), trackV6, blockIpv6 = blockV6, serviceIpv6 = ipv6)
         val manual = if (mode == Mode.TUN) configuredTunInterfaces() else emptyList()
         val selectors = tetherSelectors().toMutableList()
         if (DataStore.tetherWifi) selectors += listOf("swlan+", "wifi+")
@@ -198,7 +201,7 @@ object RootDaemon {
         val names = result.sorted()
         if (names.isEmpty()) return emptySnapshot()
         val links = RootShell.run("ip -o link show && ip -4 -o addr show", timeoutMs = 5000)
-        if (!links.ok) return if (requireReliable) null else DownstreamSnapshot(names, emptyList(), trackV6)
+        if (!links.ok) return if (requireReliable) null else DownstreamSnapshot(names, emptyList(), trackV6, blockIpv6 = blockV6, serviceIpv6 = ipv6)
         // Include the ifindex and IPv4 gateway/prefix: Android may recreate ap0 using the same name.
         val identity = RootTetherIdentity.parse(names, links.out)
         if (requireReliable && (names - manual.toSet()).any { name -> identity.none { it.substringAfter(':').substringBefore(':') == name } }) return null
@@ -208,7 +211,7 @@ object RootDaemon {
         } else emptyList()
         if (prefixes == null && requireReliable) return null
         if (prefixes == null) Logs.w("ROOT ${mode.wire}: cannot discover downstream IPv6 prefixes")
-        return DownstreamSnapshot(names, identity, trackV6, prefixes.orEmpty())
+        return DownstreamSnapshot(names, identity, trackV6, prefixes.orEmpty(), blockV6, ipv6)
     }
 
     @Volatile internal var appliedDownstreams: DownstreamSnapshot? = null
@@ -225,6 +228,14 @@ object RootDaemon {
         if (!RootTunForwarding.ensure(snapshot.names, snapshot.ipv6Enabled)) {
             Logs.w("ROOT TUN forwarding: reconciliation pending")
         }
+    }
+
+    @Synchronized
+    internal fun reconcileTetherIpv6Guard(applied: DownstreamSnapshot, observed: DownstreamSnapshot?) {
+        if (appliedDownstreams !== applied || !applied.blockIpv6) return
+        // Keep earlier rules until the normal restart transaction finishes.
+        val names = (applied.names + observed?.names.orEmpty()).distinct()
+        if (!RootTetherIpv6Guard.ensure(names)) Logs.w("ROOT tether IPv6 guard: reconciliation failed")
     }
 
     private fun managedTunInbound(root: JsonObject): JsonObject? = root.getAsJsonArray("inbounds")?.firstOrNull {
@@ -599,12 +610,21 @@ object RootDaemon {
         RootCore.check(core.path, File(configPath))?.let { return "sing-box check: $it" }
         mark("validate config")
 
+        // Protect selected downstreams before the daemon starts. This filter is
+        // independent of its routing and does not change Android IPv6 sysctls.
+        if (dynamicDownstreams?.blockIpv6 == true && !RootTetherIpv6Guard.ensure(dynamicDownstreams.names)) {
+            RootTetherIpv6Guard.clear()
+            return "ROOT tether: cannot install IPv6 forwarding guard"
+        }
         // Publication happened only after the previous control socket disappeared.
         val r = RootShell.run(
             "nohup ${RootShell.q(binary)} start --config ${RootShell.q(daemonConfigPath)} </dev/null >${RootShell.q("$logDir/asteriskd.out")} 2>&1 &",
             timeoutMs = 10_000,
         )
-        if (!r.ok) return r.err.ifBlank { "failed to launch asteriskd" }
+        if (!r.ok) {
+            shutdown()
+            return r.err.ifBlank { "failed to launch asteriskd" }
+        }
 
         mark("spawn daemon")
         // Keep log-forward SU processes out of the readiness critical path.
@@ -623,6 +643,10 @@ object RootDaemon {
                     !RootTunForwarding.ensure(dynamicDownstreams.names, dynamicDownstreams.ipv6Enabled)) {
                     shutdown()
                     return "ROOT TUN: cannot install Android hotspot forwarding exceptions"
+                }
+                if (dynamicDownstreams?.blockIpv6 == true && !RootTetherIpv6Guard.ensure(dynamicDownstreams.names)) {
+                    shutdown()
+                    return "ROOT tether: cannot verify IPv6 forwarding guard"
                 }
                 appliedDownstreams = dynamicDownstreams
                 startLogForward(mode)
@@ -681,7 +705,11 @@ object RootDaemon {
         stopTunDiagnostics()
         stopLogForward()
         val before = control("status", 5000) ?: return false
-        if (before.get("code")?.asString == "not_running") return RootTunForwarding.clear()
+        if (before.get("code")?.asString == "not_running") {
+            val forwardingClean = RootTunForwarding.clear()
+            val guardClean = RootTetherIpv6Guard.clear()
+            return forwardingClean && guardClean
+        }
         val snapshot = before.get("snapshot")?.takeIf { it.isJsonObject }?.asJsonObject ?: return false
         val pid = snapshot.get("supervisorPid")?.asInt ?: return false
         if (snapshot.get("owner")?.asString != OWNER || pid <= 0) {
@@ -706,7 +734,8 @@ object RootDaemon {
         repeat(6) {
             if (control("status", 5000)?.get("code")?.asString == "not_running") {
                 Logs.i("ROOT supervisor: previous session cleaned and stopped")
-                return forwardingClean || RootTunForwarding.clear()
+                val guardClean = RootTetherIpv6Guard.clear()
+                return (forwardingClean || RootTunForwarding.clear()) && guardClean
             }
             Thread.sleep(250)
         }
