@@ -61,7 +61,8 @@ internal class TetherLeakGuard {
         }
         if (names.isNotEmpty()) {
             for (name in names) if (!add(name)) return false
-            val offload = RootShell.run("settings put global tether_offload_disabled 1", timeoutMs = 5000)
+            // Avoid rewriting the Android setting on every network poll.
+            val offload = RootShell.run("set -e", "if [ \"\$(settings get global tether_offload_disabled)\" != 1 ]; then settings put global tether_offload_disabled 1; fi", "test \"\$(settings get global tether_offload_disabled)\" = 1", timeoutMs = 5000)
             if (!offload.ok) return false
         }
         for (name in (tracked - names).toList()) if (!remove(name)) return false
