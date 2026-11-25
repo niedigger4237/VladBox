@@ -17,30 +17,46 @@ static inline int hev_flow_enabled(void) {
     return s->user && !strcmp(s->user, FLOW_METADATA_USERNAME) && s->pass && strlen(s->pass) == 32;
 }
 
-static inline int hev_flow_sockaddr(const HevSocks5Addr *a, struct sockaddr_storage *out) {
+static inline int hev_flow_endpoint(const HevSocks5Addr *a, FlowMetadataEndpoint *out) {
     memset(out, 0, sizeof(*out));
     if (a->atype == HEV_SOCKS5_ADDR_TYPE_IPV4) {
-        struct sockaddr_in *s = (void *)out;
-        s->sin_family = AF_INET;
-        memcpy(&s->sin_addr, a->ipv4.addr, 4);
-        s->sin_port = a->ipv4.port;
+        out->width = 4;
+        memcpy(out->address, a->ipv4.addr, 4);
+        memcpy(&out->port, &a->ipv4.port, 2);
     } else if (a->atype == HEV_SOCKS5_ADDR_TYPE_IPV6) {
-        struct sockaddr_in6 *s = (void *)out;
-        s->sin6_family = AF_INET6;
-        memcpy(&s->sin6_addr, a->ipv6.addr, 16);
-        s->sin6_port = a->ipv6.port;
-    } else
-        return -1;
+        out->width = 16;
+        memcpy(out->address, a->ipv6.addr, 16);
+        memcpy(&out->port, &a->ipv6.port, 2);
+    } else return -1;
+    return 0;
+}
+
+static inline int hev_flow_lwip_endpoint(const ip_addr_t *ip, uint16_t port, FlowMetadataEndpoint *out) {
+    memset(out, 0, sizeof(*out));
+    if (IP_IS_V4(ip)) {
+        out->width = 4;
+        memcpy(out->address, &ip_2_ip4(ip)->addr, 4);
+    } else if (IP_IS_V6(ip)) {
+        out->width = 16;
+        memcpy(out->address, ip_2_ip6(ip)->addr, 16);
+    } else return -1;
+    out->port = htons(port);
     return 0;
 }
 
 static inline size_t hev_flow_header(
     uint8_t *out, const ip_addr_t *ip, uint16_t port, const HevSocks5Addr *dst, int udp) {
-    HevSocks5Addr src;
-    struct sockaddr_storage s, d;
-    if (!port || hev_socks5_addr_from_lwip(&src, ip, port) < 0) return 0;
-    if (hev_flow_sockaddr(&src, &s) || hev_flow_sockaddr(dst, &d)) return 0;
-    return flow_metadata_encode(out, FLOW_METADATA_MAX_HEADER, (void *)&s, (void *)&d, udp,
+    FlowMetadataEndpoint s, d;
+    if (hev_flow_lwip_endpoint(ip, port, &s) || hev_flow_endpoint(dst, &d)) return 0;
+    return flow_metadata_encode_endpoints(out, FLOW_METADATA_MAX_HEADER, s, d, udp,
+        FLOW_METADATA_UNKNOWN_UID, hev_config_get_socks5_server()->pass);
+}
+
+static inline size_t hev_flow_tcp_header(uint8_t *out, const ip_addr_t *src, uint16_t sport,
+    const ip_addr_t *dst, uint16_t dport) {
+    FlowMetadataEndpoint s, d;
+    if (hev_flow_lwip_endpoint(src, sport, &s) || hev_flow_lwip_endpoint(dst, dport, &d)) return 0;
+    return flow_metadata_encode_endpoints(out, FLOW_METADATA_MAX_HEADER, s, d, 0,
         FLOW_METADATA_UNKNOWN_UID, hev_config_get_socks5_server()->pass);
 }
 
