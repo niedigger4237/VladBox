@@ -65,7 +65,7 @@ class ConfigBuildResult(
 const val TAG_SOCKS_HELPER = "socks-in"
 
 fun buildConfig(
-    proxy: ProxyEntity, forTest: Boolean = false, forExport: Boolean = false
+    proxy: ProxyEntity, forTest: Boolean = false, forExport: Boolean = false, forSelectorCheck: Boolean = false
 ): ConfigBuildResult {
 
     if (proxy.type == TYPE_CONFIG) {
@@ -158,8 +158,14 @@ fun buildConfig(
     val externalIndexMap = ArrayList<IndexEntity>()
     val ipv6Mode = if (forTest) IPv6Mode.ENABLE else DataStore.ipv6Mode
     // Managed ordinary VPN only. Raw configs, exports and the separate ROOT engines keep their existing semantics.
-    val tunPlan = if (isVPN && !forTest && !forExport && ipv6Mode != IPv6Mode.ONLY)
-        TunAddressPlan.select(ipv6Mode != IPv6Mode.DISABLE) else null
+    val tunPlan = if (isVPN && !forTest && !forExport && !forSelectorCheck && ipv6Mode != IPv6Mode.ONLY) {
+        val includeIpv6 = ipv6Mode != IPv6Mode.DISABLE
+        when (DataStore.tunAddressMode) {
+            "automatic" -> TunAddressPlan.select(includeIpv6)
+            "manual" -> TunAddressPlan.manual(DataStore.tunIpv4Subnet, DataStore.tunIpv6Subnet, includeIpv6)
+            else -> error("Unknown TUN address mode")
+        }
+    } else null
 
     fun genDomainStrategy(noAsIs: Boolean): String {
         return when {
