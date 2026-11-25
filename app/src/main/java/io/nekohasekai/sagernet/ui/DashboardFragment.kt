@@ -147,7 +147,7 @@ class DashboardFragment : ToolbarFragment() {
                             } else if (tab == 2) {
                                 DashboardLiveProxies(connected)
                             } else if (tab == 3) {
-                                DashboardRulesTab(connected)
+                                DashboardLiveRules(connected)
                             } else {
                                 DashboardLiveTab(tab, connected)
                             }
