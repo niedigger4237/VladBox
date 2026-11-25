@@ -17,7 +17,6 @@ void hev_flow_run(HevSocks5Session *self) {
     HevSocks5SessionIface *iface;
     if (HEV_SOCKS5(self)->type == HEV_SOCKS5_TYPE_TCP) {
         HevSocks5SessionTCP *tcp = HEV_SOCKS5_SESSION_TCP(self);
-        HevSocks5Addr dst;
         uint8_t header[FLOW_METADATA_MAX_HEADER];
         size_t n, sent = 0;
         if (!tcp->pcb) return;
@@ -27,13 +26,12 @@ void hev_flow_run(HevSocks5Session *self) {
         }
         // Connecting yields; a client reset can clear the PCB while we wait.
         if (!tcp->pcb) return;
-        if (hev_socks5_addr_from_lwip(&dst, &tcp->pcb->local_ip, tcp->pcb->local_port) < 0) {
-            LOG_W ("flow metadata TCP: invalid destination");
-            return;
-        }
-        n = hev_flow_header(header, &tcp->pcb->remote_ip, tcp->pcb->remote_port, &dst, 0);
+        n = hev_flow_tcp_header(header, &tcp->pcb->remote_ip, tcp->pcb->remote_port,
+                                &tcp->pcb->local_ip, tcp->pcb->local_port);
         if (!n) {
-            LOG_W ("flow metadata TCP: cannot encode original socket tuple");
+            LOG_W ("flow metadata TCP: cannot encode tuple (src type=%u port=%u, dst type=%u port=%u)",
+                (unsigned)IP_GET_TYPE(&tcp->pcb->remote_ip), (unsigned)tcp->pcb->remote_port,
+                (unsigned)IP_GET_TYPE(&tcp->pcb->local_ip), (unsigned)tcp->pcb->local_port);
             return;
         }
         while (sent < n) {
@@ -80,7 +78,12 @@ int hev_flow_sendmmsg(HevSocks5SessionUDP *self, HevSocks5UDPMsg *msgv, unsigned
     for (i = 0; i < count; i++) {
         size_t n = hev_flow_header(
             headers[i], &self->pcb->remote_ip, self->pcb->remote_port, msgv[i].addr, 1);
-        if (!n) return -1;
+        if (!n) {
+            LOG_W ("flow metadata UDP: cannot encode tuple (src type=%u port=%u, dst type=%u)",
+                (unsigned)IP_GET_TYPE(&self->pcb->remote_ip), (unsigned)self->pcb->remote_port,
+                (unsigned)msgv[i].addr->atype);
+            return -1;
+        }
         iov[2 * i] = (struct iovec){headers[i], n};
         iov[2 * i + 1] = (struct iovec){msgv[i].buf, msgv[i].len};
         messages[i].msg_hdr.msg_iov = &iov[2 * i];
