@@ -11,6 +11,8 @@ data class ConnectionUiState(
     val tx: String = "",
     val rx: String = "",
     val connected: Boolean = false,
+    val txBytes: Long = 0,
+    val rxBytes: Long = 0,
     val serviceState: io.nekohasekai.sagernet.bg.BaseService.State = io.nekohasekai.sagernet.bg.BaseService.State.Stopped
 )
 
@@ -22,5 +24,5 @@ class ConnectionViewModel : ViewModel() {
     fun updateStatus(value: String) { mutableState.update { it.copy(status = value) } }
     fun updateMode(value: String) { mutableState.update { it.copy(mode = value) } }
     fun updateConnected(value: Boolean) { mutableState.update { it.copy(connected = value) } }
-    fun updateSpeed(tx: String, rx: String) { mutableState.update { it.copy(tx = tx, rx = rx) } }
+    fun updateSpeed(tx: String, rx: String, txBytes: Long = 0, rxBytes: Long = 0) { mutableState.update { it.copy(tx = tx, rx = rx, txBytes = txBytes, rxBytes = rxBytes) } }
 }
