@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -17,7 +18,11 @@ import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.bg.BaseService
 
 @Composable
-fun ConnectionPower(state: BaseService.State, onClick: () -> Unit, tonalRing: Boolean = false) {
+fun ConnectionPower(state: BaseService.State, onClick: () -> Unit) =
+    ConnectionPower(state, onClick, tonalRing = false)
+
+@Composable
+fun ConnectionPower(state: BaseService.State, onClick: () -> Unit, tonalRing: Boolean) {
     val busy = state == BaseService.State.Connecting || state == BaseService.State.Stopping
     val connected = state == BaseService.State.Connected
     val colors = MaterialTheme.colorScheme
@@ -37,7 +42,7 @@ fun ConnectionPower(state: BaseService.State, onClick: () -> Unit, tonalRing: Bo
             modifier = Modifier.size(72.dp),
             shape = CircleShape,
             color = if (tonalRing) tint.copy(alpha = .15f) else tint,
-            border = if (tonalRing) BorderStroke(2.dp, tint) else null,
+            border = if (tonalRing) BorderStroke(2.dp, Brush.sweepGradient(listOf(tint, colors.secondary, colors.tertiary, tint))) else null,
             contentColor = if (tonalRing) tint else if (busy || connected) Color.Black else colors.onPrimary
         ) {
             Box(contentAlignment = Alignment.Center) {

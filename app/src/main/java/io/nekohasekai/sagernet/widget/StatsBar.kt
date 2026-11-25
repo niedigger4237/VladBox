@@ -14,7 +14,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.res.painterResource
 import io.nekohasekai.sagernet.ui.compose.ConnectionPower
 import androidx.compose.ui.unit.dp
@@ -225,12 +224,12 @@ class StatsBar @JvmOverloads constructor(
                 }
                 Surface(onClick = { testConnection() }, enabled = !latencyLoading.value,
                     shape = RoundedCornerShape(16.dp), color = tint.copy(alpha = .12f), contentColor = tint) {
-                    Row(Modifier.defaultMinSize(minWidth = 68.dp, minHeight = 42.dp).padding(horizontal = 8.dp),
+                    Row(Modifier.widthIn(min = 68.dp, max = 112.dp).heightIn(min = 42.dp).padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)) {
                         if (latencyLoading.value) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp, color = tint)
                         else Icon(painterResource(R.drawable.ic_dash_symbol_bolt), contentDescription = stringResource(R.string.connection_test), modifier = Modifier.size(16.dp), tint = tint)
-                        Text(if (latencyFailed.value) "—" else latencyMs.value?.let { "$it ms" } ?: "—",
-                            style = MaterialTheme.typography.labelLarge, color = tint, maxLines = 1, softWrap = false)
+                        Text(if (latencyFailed.value) stringResource(R.string.unavailable) else latencyMs.value?.let { "$it ms" } ?: "—",
+                            style = if (latencyFailed.value) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelLarge, color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
                     }
                 }
             }
@@ -268,7 +267,6 @@ class StatsBar @JvmOverloads constructor(
         val connected = state == BaseService.State.Connected
         model.updateConnected(connected)
         refreshConnectionCountry()
-        if (!connected) connectionTestJob?.cancel()
         if (state == BaseService.State.Connected) {
             postWhenStarted {
                 if (allowShow) performShow()
