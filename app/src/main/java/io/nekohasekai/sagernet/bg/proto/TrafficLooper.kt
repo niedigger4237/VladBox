@@ -84,7 +84,8 @@ class TrafficLooper
         val delayMs = DataStore.speedInterval.toLong()
         val showDirectSpeed = DataStore.showDirectSpeed
         val profileTrafficStatistics = DataStore.profileTrafficStatistics
-        if (delayMs == 0L) return
+        Logs.d("VPN traffic: interval=${delayMs}ms, profileStats=$profileTrafficStatistics, directSpeed=$showDirectSpeed")
+        if (delayMs <= 0L) return
 
         var trafficUpdater: TrafficUpdater? = null
         var proxy: ProxyInstance?
@@ -100,7 +101,10 @@ class TrafficLooper
             }
 
             if (trafficUpdater == null) {
-                if (!proxy.isInitialized()) continue
+                if (!proxy.isInitialized()) {
+                    delay(50)
+                    continue
+                }
                 idMap.clear()
                 idMap[-1] = itemBypass
                 //
@@ -129,6 +133,7 @@ class TrafficLooper
                     box = proxy.box, items = idMap.values.toList()
                 )
                 proxy.box.enableStats(tags.joinToString("\n"))
+                Logs.d("VPN traffic: native stats enabled for ${tags.size} tags")
             }
 
             trafficUpdater.updateAll()
