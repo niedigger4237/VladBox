@@ -53,6 +53,8 @@ class DashboardFragment : ToolbarFragment() {
                     val ui by model.state.collectAsState()
                     val connected = ui.serviceState.connected
                     var tab by rememberSaveable { mutableStateOf(0) }
+                    var searchOpen by rememberSaveable { mutableStateOf(false) }
+                    var menuOpen by remember { mutableStateOf(false) }
                     val history = remember { mutableStateListOf<Pair<Long, Long>>() }
                     LaunchedEffect(connected, dashboardVisible) {
                         history.clear()
@@ -73,11 +75,29 @@ class DashboardFragment : ToolbarFragment() {
                                     drawLine(c, Offset(size.width*.2f,size.height*.5f), Offset(size.width*.5f,size.height*.8f), 2.dp.toPx())
                                 }
                             }
-                            Text("Dashboard", style = MaterialTheme.typography.titleLarge)
+                            Icon(painterResource(R.drawable.ic_dash_symbol_shield), contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Dashboard", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                            IconButton(onClick = { if (tab != 1 && tab != 3) { tab = 1; searchOpen = true } else searchOpen = !searchOpen }) {
+                                Canvas(Modifier.size(22.dp)) {
+                                    val tint = androidx.compose.ui.graphics.Color.Gray
+                                    drawCircle(tint, radius = size.width * .28f, center = Offset(size.width * .4f, size.height * .4f), style = Stroke(2.dp.toPx()))
+                                    drawLine(tint, Offset(size.width * .61f, size.height * .61f), Offset(size.width * .87f, size.height * .87f), 2.dp.toPx())
+                                }
+                            }
+                            Box {
+                                IconButton(onClick = { menuOpen = true }) { Text("⋮", style = MaterialTheme.typography.headlineSmall) }
+                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    listOf("Overview", "Connections", "Proxies", "Rules").forEachIndexed { index, label ->
+                                        DropdownMenuItem(text = { Text(label) }, onClick = { tab = index; searchOpen = false; menuOpen = false })
+                                    }
+                                    DropdownMenuItem(text = { Text("Return to configuration") }, onClick = { menuOpen = false; activity.displayFragmentWithId(R.id.nav_configuration) })
+                                }
+                            }
                         }
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             listOf("Overview", "Connections", "Proxies", "Rules").forEachIndexed { index, label ->
-                                Surface(modifier = Modifier.weight(1f).clickable { tab = index }, shape = RoundedCornerShape(18.dp),
+                                Surface(modifier = Modifier.weight(1f).clickable { tab = index; searchOpen = false }, shape = RoundedCornerShape(18.dp),
                                     color = androidx.compose.animation.animateColorAsState(if (tab == index) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent).value) {
                                     Column(Modifier.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                         DashboardTabIcon(index)
@@ -93,7 +113,7 @@ class DashboardFragment : ToolbarFragment() {
                                     colors = CardDefaults.outlinedCardColors(containerColor = if (connected) green.copy(alpha = .14f) else MaterialTheme.colorScheme.surfaceVariant),
                                     border = BorderStroke(1.dp, if (connected) green.copy(alpha = .6f) else MaterialTheme.colorScheme.outlineVariant)) {
                                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        Icon(painterResource(if (connected) R.drawable.ic_dashboard_connected else R.drawable.ic_dashboard_idle), null, tint = if (connected) green else MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Icon(painterResource(if (connected) R.drawable.ic_dash_symbol_check_circle else R.drawable.ic_dashboard_idle), null, tint = if (connected) green else MaterialTheme.colorScheme.onSurfaceVariant)
                                         Column {
                                             Text(if (connected) "Service active" else "Service inactive", style = MaterialTheme.typography.titleMedium)
                                             Text(ui.mode + " · sing-box", style = MaterialTheme.typography.bodySmall)
@@ -113,7 +133,9 @@ class DashboardFragment : ToolbarFragment() {
                                         val primary = MaterialTheme.colorScheme.primary
                                         val grid = MaterialTheme.colorScheme.outlineVariant
                                         val samples = history.toList()
-                                        val peak = maxOf(125L, samples.maxOfOrNull { maxOf(it.first, it.second) } ?: 0L)
+                                        val rawPeak = maxOf(125L, samples.maxOfOrNull { maxOf(it.first, it.second) } ?: 0L)
+                                        val magnitude = Math.pow(10.0, kotlin.math.floor(kotlin.math.log10(rawPeak.toDouble())))
+                                        val peak = (kotlin.math.ceil(rawPeak / magnitude) * magnitude).toLong().coerceAtLeast(rawPeak)
                                         val divisor = if (peak >= 125000) 1000000.0 else 1000.0
                                         Text(if (divisor == 1000.0) "Kbps" else "Mbps", style = MaterialTheme.typography.labelSmall)
                                         Row(Modifier.fillMaxWidth()) {
@@ -166,9 +188,9 @@ class DashboardFragment : ToolbarFragment() {
                             } else if (tab == 2) {
                                 DashboardLiveProxies(connected)
                             } else if (tab == 3) {
-                                DashboardLiveRules(connected)
+                                DashboardLiveRules(connected, searchOpen, { searchOpen = it })
                             } else {
-                                DashboardLiveTab(tab, connected)
+                                DashboardLiveTab(tab, connected, searchOpen, { searchOpen = it })
                             }
                         }
                     }
@@ -226,6 +248,7 @@ private fun DashboardMemory(visible: Boolean, connected: Boolean, mode: String) 
     val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val rootMode = mode.contains("root", ignoreCase = true) || mode.contains("tproxy", ignoreCase = true)
     var sample by remember(connected, mode) { mutableStateOf<DashboardMemorySample?>(null) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(visible, connected, mode) {
         while (visible) {
             sample = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -259,7 +282,8 @@ private fun DashboardMemory(visible: Boolean, connected: Boolean, mode: String) 
                         drawLine(tint, Offset(size.width * .78f, p), Offset(size.width, p), stroke)
                     }
                 }
-                Text("Memory usage", style = MaterialTheme.typography.titleMedium)
+                Text("Memory usage", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(horizontal = 4.dp)) { Text(if (expanded) "Less" else "Details") }
             }
             val current = sample
             fun mb(value: Long?): String = value?.let { String.format(java.util.Locale.getDefault(), "%.1f MiB", it / 1048576.0) } ?: "—"
@@ -268,7 +292,13 @@ private fun DashboardMemory(visible: Boolean, connected: Boolean, mode: String) 
                 "Native heap (allocated)" to mb(current?.nativeAllocated),
                 "Background service (PSS)" to mb(current?.backgroundPss),
                 "ROOT core (PSS)" to if (rootMode && connected) mb(current?.rootPss) else "—")
-            rows.forEach { (label, value) ->
+            val pssValues = listOfNotNull(current?.pss, current?.backgroundPss, current?.rootPss)
+            val complete = current != null && (!connected || current.backgroundPss != null) && (!connected || !rootMode || current.rootPss != null)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(if (complete) "Process PSS total" else "Measured process PSS", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                Text(mb(pssValues.takeIf { it.isNotEmpty() }?.sum()), style = MaterialTheme.typography.titleMedium)
+            }
+            if (expanded) rows.forEach { (label, value) ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(label, Modifier.weight(1f), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     Text(value, style = MaterialTheme.typography.labelMedium)
@@ -276,11 +306,13 @@ private fun DashboardMemory(visible: Boolean, connected: Boolean, mode: String) 
             }
             if (current != null) {
                 val ratio = (current.javaUsed.toFloat() / current.javaLimit.coerceAtLeast(1)).coerceIn(0f, 1f)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Java heap · " + mb(current.javaUsed) + " / " + mb(current.javaLimit), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                    Text(String.format(java.util.Locale.getDefault(), "%.1f%%", ratio * 100), style = MaterialTheme.typography.labelLarge)
+                }
                 LinearProgressIndicator(progress = ratio, modifier = Modifier.fillMaxWidth())
-                Text("Java heap limit · " + String.format(java.util.Locale.getDefault(), "%.1f%%", ratio * 100),
-                    style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
             }
-            Text("Process PSS values are separate; heap values overlap app PSS. — means unavailable or inactive.",
+            if (expanded) Text("Process PSS values are separate; heap values overlap app PSS. — means unavailable or inactive.",
                 style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
         }
     }

@@ -52,7 +52,7 @@ private val serviceDomains = listOf(
     "qobuz" to listOf("qobuz.com"),
     "rutube" to listOf("rutube.ru"),
     "messenger" to listOf("messenger.com", "m.me"),
-    "youtube" to listOf("youtube.com", "youtu.be", "googlevideo.com", "ytimg.com"),
+    "youtube" to listOf("youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com"),
     "gmail" to listOf("mail.google.com", "gmail.com"),
     "google-drive" to listOf("drive.google.com", "drivefrontend-pa.clients6.google.com", "docs.google.com"),
     "google-photos" to listOf("photos.google.com"),

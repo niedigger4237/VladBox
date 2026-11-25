@@ -35,12 +35,16 @@ internal fun DashboardProxiesTab(
             OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), border = BorderStroke(0.5.dp, colors.outlineVariant.copy(alpha = .55f)), colors = CardDefaults.outlinedCardColors(containerColor = colors.surfaceVariant.copy(alpha = .35f))) {
                 Row(Modifier.padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("🌐  " + (group?.name ?: "No proxy groups"), style = MaterialTheme.typography.titleSmall)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_lan), contentDescription = null, modifier = Modifier.size(20.dp), tint = colors.primary)
+                            Text(group?.name ?: "No proxy groups", style = MaterialTheme.typography.titleSmall)
+                        }
                         Text(group?.let { if (it.type.equals("URLTest", true)) "Automatic server selection" else "Proxy group" }
                             ?: if (connected) "Proxy data unavailable" else "Service is not running",
                             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                     }
                     if (group != null) {
+                        Column(horizontalAlignment = Alignment.End) {
                         Box {
                             TextButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text((if (group.type.equals("URLTest", true)) "Auto" else group.type) + " ▾") }
                             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -49,7 +53,8 @@ internal fun DashboardProxiesTab(
                                 }
                             }
                         }
-                        ProxyDelay(group.nodes.firstOrNull { it.name == group.selected }?.delay)
+                        ProxyDelay(group.nodes.firstOrNull { it.name == group.selected }?.delay, showLightning = true)
+                        }
                     }
                 }
             }
@@ -97,7 +102,7 @@ internal fun DashboardProxiesTab(
 }
 
 @Composable
-private fun ProxyDelay(delay: Int?) {
+private fun ProxyDelay(delay: Int?, showLightning: Boolean = false) {
     val tint = when {
         delay == null || delay <= 0 -> MaterialTheme.colorScheme.onSurfaceVariant
         delay < 100 -> Color(0xFF81D99A)
@@ -105,7 +110,7 @@ private fun ProxyDelay(delay: Int?) {
         else -> MaterialTheme.colorScheme.error
     }
     Surface(color = tint.copy(alpha = .18f), shape = RoundedCornerShape(20.dp)) {
-        Text(if (delay != null && delay > 0) "$delay ms" else "—", Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        Text(if (delay != null && delay > 0) (if (showLightning) "ϟ " else "") + "$delay ms" else "—", Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
             color = tint, style = MaterialTheme.typography.labelMedium)
     }
 }

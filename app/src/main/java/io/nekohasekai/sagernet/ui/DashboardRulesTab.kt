@@ -18,11 +18,11 @@ import androidx.compose.ui.unit.dp
 internal data class DashboardRule(val type: String, val payload: String, val target: String)
 
 @Composable
-internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = emptyList(), status: String? = null) {
-    var searchOpen by rememberSaveable { mutableStateOf(false) }
+internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = emptyList(), status: String? = null, searchOpen: Boolean = false, onSearchChange: (Boolean) -> Unit = {}) {
     var query by rememberSaveable { mutableStateOf("") }
     var detail by remember { mutableStateOf<DashboardRule?>(null) }
     val colors = MaterialTheme.colorScheme
+    LaunchedEffect(searchOpen) { if (!searchOpen) query = "" }
     detail?.let { rule -> AlertDialog(onDismissRequest = { detail = null }, title = { Text(ruleLabel(rule)) }, text = { Text(rule.payload + "\n\n" + rule.target) }, confirmButton = { TextButton(onClick = { detail = null }) { Text("Close") } }) }
     val filtered = rules.filter { "${ruleLabel(it)} ${it.type} ${it.payload} ${it.target}".contains(query, ignoreCase = true) }
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
@@ -31,7 +31,7 @@ internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = 
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Routing rules" + if (rules.isNotEmpty()) " (${rules.size})" else "",
                     Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) query = "" }) {
+                IconButton(onClick = { onSearchChange(!searchOpen) }) {
                     val tint = colors.onSurface
                     Canvas(Modifier.size(22.dp)) {
                         drawCircle(tint, radius = size.width * .28f, center = Offset(size.width * .4f, size.height * .4f), style = Stroke(2.dp.toPx()))
@@ -79,7 +79,16 @@ internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = 
 private fun RuleTypeIcon(type: String) {
     val tint = MaterialTheme.colorScheme.onSurfaceVariant
     val normalized = type.uppercase(java.util.Locale.ROOT)
-    if (normalized == "MATCH" || normalized == "FINAL") {
+    val symbol = when {
+        normalized.contains("IP") -> io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_lan
+        normalized.contains("PROTOCOL") || normalized.contains("PORT") -> io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_dns
+        normalized.contains("RULE SET") -> io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_folder
+        normalized.contains("INBOUND") -> io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_shield
+        else -> null
+    }
+    if (symbol != null) {
+        Icon(androidx.compose.ui.res.painterResource(symbol), contentDescription = null, modifier = Modifier.size(24.dp), tint = tint)
+    } else if (normalized == "MATCH" || normalized == "FINAL") {
         Text("{}", Modifier.width(24.dp), color = tint, style = MaterialTheme.typography.titleMedium)
     } else {
         Canvas(Modifier.size(24.dp)) {
@@ -101,7 +110,7 @@ private fun RuleTypeIcon(type: String) {
 
 
 @Composable
-internal fun DashboardLiveRules(connected: Boolean) {
+internal fun DashboardLiveRules(connected: Boolean, searchOpen: Boolean = false, onSearchChange: (Boolean) -> Unit = {}) {
     var rules by remember(connected) { mutableStateOf(emptyList<DashboardRule>()) }
     var status by remember(connected) { mutableStateOf<String?>("Loading…") }
     LaunchedEffect(connected) {
@@ -123,7 +132,7 @@ internal fun DashboardLiveRules(connected: Boolean) {
             kotlinx.coroutines.delay(5000)
         }
     }
-    DashboardRulesTab(connected, rules, status)
+    DashboardRulesTab(connected, rules, status, searchOpen, onSearchChange)
 }
 
 private fun ruleLabel(rule: DashboardRule): String {

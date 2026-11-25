@@ -160,7 +160,7 @@ private fun dashboardEntries(tab: Int, data: JSONObject): List<DashboardEntry> {
 }
 
 @Composable
-internal fun DashboardLiveTab(tab: Int, connected: Boolean) {
+internal fun DashboardLiveTab(tab: Int, connected: Boolean, searching: Boolean = false, onSearchChange: (Boolean) -> Unit = {}) {
     var entries by remember(tab, connected) { mutableStateOf(emptyList<DashboardEntry>()) }
     var error by remember(tab, connected) { mutableStateOf<String?>(null) }
     var loaded by remember(tab, connected) { mutableStateOf(false) }
@@ -183,18 +183,25 @@ internal fun DashboardLiveTab(tab: Int, connected: Boolean) {
     }
     var selected by remember(tab) { mutableStateOf<DashboardEntry?>(null) }
     selected?.let { item -> AlertDialog(onDismissRequest = { selected = null }, title = { Text(item.title) }, text = { Text(item.address + "\nDownload: " + item.download + "\nUpload: " + item.upload + "\nRoute: " + item.detail) }, confirmButton = { TextButton(onClick = { selected = null }) { Text("Close") } }) }
-    var searching by remember(tab) { mutableStateOf(false) }
+    var routeFilter by remember(tab) { mutableStateOf("All") }
+    var filterMenu by remember { mutableStateOf(false) }
+    LaunchedEffect(searching) { if (!searching) query = "" }
     val colors = MaterialTheme.colorScheme
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant.copy(alpha = .35f))) {
-        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text("Active connections" + if (loaded && error == null) " (" + entries.size + ")" else "",
                     Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
-                    androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
-                        drawCircle(colors.onSurface, size.width * .28f, androidx.compose.ui.geometry.Offset(size.width * .4f, size.height * .4f), style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
-                        drawLine(colors.onSurface, androidx.compose.ui.geometry.Offset(size.width * .61f, size.height * .61f), androidx.compose.ui.geometry.Offset(size.width * .87f, size.height * .87f), 2.dp.toPx())
+                Box {
+                    IconButton(onClick = { filterMenu = true }) {
+                        Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_filter_alt), contentDescription = "Filter connections", tint = if (routeFilter == "All") colors.onSurface else colors.primary)
+                    }
+                    DropdownMenu(expanded = filterMenu, onDismissRequest = { filterMenu = false }) {
+                        listOf("All", "Proxy", "Direct", "Other").forEach { option ->
+                            DropdownMenuItem(text = { Text(if (routeFilter == option) "✓  $option" else option) }, onClick = { routeFilter = option; filterMenu = false })
+                        }
+                        DropdownMenuItem(text = { Text("Search") }, onClick = { onSearchChange(!searching); filterMenu = false })
                     }
                 }
             }
@@ -204,13 +211,20 @@ internal fun DashboardLiveTab(tab: Int, connected: Boolean) {
                 Text(if (!connected) "Service is not running" else error ?: if (!loaded) "Loading…" else "No connections",
                     color = colors.onSurfaceVariant)
             }
-            entries.filter { (it.title + " " + it.subtitle + " " + it.detail).contains(query, ignoreCase = true) }.forEach { item ->
+            val filtered = entries.filter { item ->
+                val direct = item.detail.equals("direct", true) || item.detail.equals("bypass", true)
+                val proxy = item.detail.equals("proxy", true)
+                val matchesRoute = when (routeFilter) { "Direct" -> direct; "Proxy" -> proxy; "Other" -> !direct && !proxy; else -> true }
+                matchesRoute && (item.title + " " + item.subtitle + " " + item.detail).contains(query, ignoreCase = true)
+            }
+            if (entries.isNotEmpty() && filtered.isEmpty()) Text("No matching connections", color = colors.onSurfaceVariant)
+            filtered.forEach { item ->
                 val direct = item.detail.equals("direct", true) || item.detail.equals("bypass", true)
                 val proxy = item.detail.equals("proxy", true)
                 val tint = if (direct) androidx.compose.ui.graphics.Color(0xFF81D99A) else colors.primary
                 OutlinedCard(Modifier.fillMaxWidth(), border = androidx.compose.foundation.BorderStroke(0.5.dp, colors.outlineVariant.copy(alpha = .55f)), shape = RoundedCornerShape(10.dp),
                     colors = CardDefaults.outlinedCardColors(containerColor = colors.surfaceVariant.copy(alpha = .35f))) {
-                    Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Surface(Modifier.size(32.dp), shape = androidx.compose.foundation.shape.CircleShape, color = colors.secondaryContainer) {
