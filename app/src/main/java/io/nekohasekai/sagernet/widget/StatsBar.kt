@@ -29,6 +29,10 @@ import com.google.android.material.card.MaterialCardView
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.proto.isRawCoreConfig
+import io.nekohasekai.sagernet.bg.proto.ConnectionCountry
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.res.stringResource
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.ui.MainActivity
@@ -42,6 +46,56 @@ class StatsBar @JvmOverloads constructor(
 ) : MaterialCardView(context, attrs, defStyleAttr) {
     private val model by lazy { ViewModelProvider(context as MainActivity)[ConnectionViewModel::class.java] }
     private var composeInitialized = false
+    private val countryCode = mutableStateOf<String?>(null)
+    private val countryLoading = mutableStateOf(false)
+    private var countryJob: kotlinx.coroutines.Job? = null
+    private var countryProfile: Long? = null
+    private var countryMode: String? = null
+    private fun countryView(): ComposeView? = (parent as? View)?.findViewById(R.id.connection_country)
+
+    private fun syncCountryVisibility() {
+        countryView()?.visibility = if (allowShow && visibility == View.VISIBLE && DataStore.serviceState.connected) View.VISIBLE else View.GONE
+    }
+
+    fun refreshConnectionCountry(force: Boolean = false) {
+        val activity = context as MainActivity
+        if (!DataStore.serviceState.connected) {
+            countryJob?.cancel()
+            countryProfile = null
+            countryMode = null
+            countryCode.value = null
+            countryLoading.value = false
+            syncCountryVisibility()
+            return
+        }
+        val profile = DataStore.currentProfile
+        val mode = DataStore.serviceMode
+        if (!force && countryProfile == profile && countryMode == mode) return
+        countryJob?.cancel()
+        countryProfile = profile
+        countryMode = mode
+        countryCode.value = null
+        countryLoading.value = true
+        syncCountryVisibility()
+        countryJob = activity.lifecycleScope.launch {
+            try {
+                delay(350L)
+                var code = ConnectionCountry.lookup()
+                if (code == null) {
+                    delay(700L)
+                    code = ConnectionCountry.lookup()
+                }
+                if (DataStore.serviceState.connected && DataStore.currentProfile == profile && DataStore.serviceMode == mode) {
+                    countryCode.value = code
+                    countryLoading.value = false
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (countryProfile == profile && countryMode == mode) countryLoading.value = false
+            }
+        }
+    }
     var allowShow = true
     var onPowerClick: () -> Unit = {}
     private val powerVisible = androidx.compose.runtime.mutableStateOf(true)
@@ -50,11 +104,13 @@ class StatsBar @JvmOverloads constructor(
     fun performShow() {
         powerVisible.value = true
         if (allowShow) visibility = View.VISIBLE
+        syncCountryVisibility()
         refreshMode()
     }
 
     fun performHide() {
         visibility = View.GONE
+        syncCountryVisibility()
     }
 
     private fun refreshMode() {
@@ -65,6 +121,28 @@ class StatsBar @JvmOverloads constructor(
         super.setOnClickListener(l)
         if (!composeInitialized) {
             composeInitialized = true
+            countryView()?.apply {
+                setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+                setContent {
+                    HubTheme {
+                        val code = countryCode.value
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.Center) {
+                            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .65f)) {
+                                Row(Modifier.clickable { refreshConnectionCountry(force = true) }.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    if (code != null) {
+                                        Text(ConnectionCountry.flag(code), fontSize = 18.sp)
+                                        Text(ConnectionCountry.name(code), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    } else {
+                                        if (countryLoading.value) CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 1.5.dp)
+                                        else Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_dash_symbol_public), contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Text(stringResource(if (countryLoading.value) R.string.connection_country_loading else R.string.connection_country_unknown), style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             val surface = com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface)
             val foreground = com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface)
             setCardBackgroundColor(androidx.core.graphics.ColorUtils.blendARGB(surface, foreground, 0.08f))
@@ -130,6 +208,7 @@ class StatsBar @JvmOverloads constructor(
         refreshMode()
         val connected = state == BaseService.State.Connected
         model.updateConnected(connected)
+        refreshConnectionCountry()
         if (!connected) connectionTestJob?.cancel()
         if (state == BaseService.State.Connected) {
             postWhenStarted {

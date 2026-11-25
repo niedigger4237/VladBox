@@ -694,4 +694,6 @@
     <string name="apps_space_private">Private</string>
     <string name="apps_enable">Per-app mode enabled</string>
     <string name="srs_source_hint">HTTPS directory or URL template with {name} for the full .srs filename.</string>
+    <string name="connection_country_loading">Detecting country…</string>
+    <string name="connection_country_unknown">Country unavailable</string>
 </resources>

@@ -430,6 +430,7 @@ class MainActivity : ThemedActivity(),
         val old = DataStore.selectedProxy
         DataStore.selectedProxy = id
         DataStore.currentProfile = id
+        binding.stats.post { binding.stats.refreshConnectionCountry() }
         runOnDefaultDispatcher {
             ProfileManager.postUpdate(old, true)
             ProfileManager.postUpdate(id, true)

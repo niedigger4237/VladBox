@@ -594,4 +594,6 @@
     <string name="apps_space_private">Приватное</string>
     <string name="apps_enable">Режим по приложениям включён</string>
     <string name="srs_source_hint">HTTPS-ссылка на каталог или шаблон с {name} для полного имени файла .srs.</string>
+    <string name="connection_country_loading">Определение страны…</string>
+    <string name="connection_country_unknown">Страна не определена</string>
 </resources>
