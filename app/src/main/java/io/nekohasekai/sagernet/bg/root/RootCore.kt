@@ -55,23 +55,102 @@ object RootCore {
 
     fun selectedLabel(): String = resolve()?.let { if (it.bundled) "Bundled (patched)" else "External: ${it.label}" } ?: "Unavailable"
 
-    private data class BundledFingerprint(val path: String, val size: Long, val modified: Long, val hash: String)
-    private var bundledFingerprint: BundledFingerprint? = null
+    private data class BundledIdentity(
+        val path: String,
+        val size: Long,
+        val modified: Long,
+        val device: Long,
+        val inode: Long,
+        val changed: Long,
+        val apkUpdated: Long
+    ) {
+        fun toJson() = JSONObject().apply {
+            put("path", path)
+            put("size", size)
+            put("modified", modified)
+            put("device", device)
+            put("inode", inode)
+            put("changed", changed)
+            put("apkUpdated", apkUpdated)
+        }
 
-    // The APK library path changes on update. Cache only the immutable packaged binary,
-    // never an external core that root may replace at the same path.
+        fun matches(json: JSONObject): Boolean =
+            json.optString("path") == path &&
+                json.optLong("size", -1) == size &&
+                json.optLong("modified", -1) == modified &&
+                json.optLong("device", -1) == device &&
+                json.optLong("inode", -1) == inode &&
+                json.optLong("changed", -1) == changed &&
+                json.optLong("apkUpdated", -1) == apkUpdated
+    }
+
+    private data class BundledFingerprint(val identity: BundledIdentity, val hash: String)
+    private var bundledFingerprint: BundledFingerprint? = null
+    private val validFingerprint = Regex("[0-9a-fA-F]{64}")
+    private val fingerprintCacheFile: File
+        get() = File(SagerNet.application.noBackupFilesDir, "root-core-fingerprint-v1.json")
+
+    private fun bundledIdentity(file: File): BundledIdentity? {
+        if (file.absolutePath != bundled.absolutePath) return null
+        return runCatching {
+            val stat = android.system.Os.stat(file.absolutePath)
+            if (!android.system.OsConstants.S_ISREG(stat.st_mode) || stat.st_size <= 0) return null
+            val app = SagerNet.application
+            val updated = app.packageManager.getPackageInfo(app.packageName, 0).lastUpdateTime
+            BundledIdentity(file.absolutePath, stat.st_size, file.lastModified(),
+                stat.st_dev, stat.st_ino, stat.st_ctime, updated)
+        }.getOrNull()
+    }
+
+    private fun readFingerprint(identity: BundledIdentity): String? = runCatching {
+        val cache = fingerprintCacheFile
+        if (!cache.isFile || cache.length() !in 1L..4096L) return null
+        val json = JSONObject(cache.readText(Charsets.UTF_8))
+        if (json.optInt("version") != 1 || !identity.matches(json.getJSONObject("identity"))) return null
+        json.optString("sha256").takeIf { validFingerprint.matches(it) }
+    }.getOrNull()
+
+    private fun saveFingerprint(value: BundledFingerprint) {
+        // Unique temporary file + atomic rename: readers never see partial JSON,
+        // even if another app process starts at the same time.
+        runCatching {
+            val target = fingerprintCacheFile
+            val temp = File.createTempFile("root-fingerprint-", ".tmp", target.parentFile)
+            try {
+                temp.writeText(JSONObject().apply {
+                    put("version", 1)
+                    put("identity", value.identity.toJson())
+                    put("sha256", value.hash)
+                }.toString(), Charsets.UTF_8)
+                check(temp.renameTo(target))
+            } finally {
+                temp.delete()
+            }
+        }.onFailure { Logs.w("ROOT fingerprint cache write failed: ${it.javaClass.simpleName}") }
+    }
+
+    // Diagnostic cache only. External cores are always hashed; the cache does
+    // not replace signature verification or the normal sing-box config check.
     @Synchronized
     fun fingerprint(binary: String): String {
         val file = File(binary)
-        val cacheable = file.absolutePath == bundled.absolutePath && file.isFile && file.length() > 0
-        val size = file.length()
-        val modified = file.lastModified()
-        if (cacheable) bundledFingerprint?.let {
-            if (it.path == file.absolutePath && it.size == size && it.modified == modified) return it.hash
+        val identity = bundledIdentity(file)
+        if (identity != null) {
+            bundledFingerprint?.takeIf { it.identity == identity }?.let { return it.hash }
+            readFingerprint(identity)?.let { hash ->
+                bundledFingerprint = BundledFingerprint(identity, hash)
+                return hash
+            }
         }
-        val hash = RootShell.run("sha256sum ${RootShell.q(binary)}").out.trim().substringBefore(" ")
-            .takeIf { it.matches(Regex("[0-9a-fA-F]{64}")) } ?: "unavailable"
-        if (cacheable && hash != "unavailable") bundledFingerprint = BundledFingerprint(file.absolutePath, size, modified, hash)
+        val result = RootShell.run("sha256sum ${RootShell.q(binary)}")
+        val hash = result.out.trim().substringBefore(" ")
+            .takeIf { result.ok && validFingerprint.matches(it) } ?: "unavailable"
+        // Never cache a failed calculation or a file that changed while hashing.
+        if (identity != null && hash != "unavailable" && bundledIdentity(file) == identity) {
+            val value = BundledFingerprint(identity, hash)
+            bundledFingerprint = value
+            saveFingerprint(value)
+        }
         return hash
     }
 
