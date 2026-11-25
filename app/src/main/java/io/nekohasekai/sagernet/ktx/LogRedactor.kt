@@ -1,0 +1,39 @@
+package io.nekohasekai.sagernet.ktx
+
+/** Best-effort diagnostic redaction, not a general-purpose anonymizer. */
+object LogRedactor {
+    private const val REDACTED = "[redacted]"
+    private val sensitive = Regex(
+        """(?i)(?:private[\s_-]*key|pre[\s_-]*shared[\s_-]*key|password|passwd|passphrase|secret|(?:access|refresh|auth|flow[\s_-]*metadata|api|registration)[\s_-]*token|authorization|cookie|api[\s_-]*key|license[\s_-]*key|credential|subscription[\s_-]*(?:url|link)|token|psk|uuid|auth|user[\s_-]*id|auth[\s_-]*str|auth[\s_-]*string|username|user[\s_-]*info|short[\s_-]*id)\s*["']?\s*(?:[:=]|->|\s+["'])"""
+    )
+    private val bearer = Regex("""(?i)\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+""")
+    private val uri = Regex("""(?i)\b(?:https?|vless|vmess|ss|ssr|trojan|hysteria2?|hy2|tuic|socks5?h?|wireguard|wg|awg|ssh|naive(?:\+https)?)://[^\s<>"']+""")
+    private val uuid = Regex("""(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b""")
+    private val opaque = Regex("""(?<![A-Za-z0-9_+/=-])[A-Za-z0-9_+/-]{32,}={0,2}(?![A-Za-z0-9_+/=-])""")
+    private val pemBegin = Regex("""-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----""")
+    private val pemEnd = Regex("""-----END [A-Z0-9 ]*PRIVATE KEY-----""")
+
+    fun line(value: String): String {
+        if (value.length > 65536) return "[oversized diagnostic omitted]"
+        if (sensitive.containsMatchIn(value) || pemBegin.containsMatchIn(value) || pemEnd.containsMatchIn(value))
+            return "[credential-bearing diagnostic omitted]"
+        return opaque.replace(uuid.replace(uri.replace(bearer.replace(value, REDACTED), REDACTED), REDACTED), REDACTED)
+    }
+
+    class Stream {
+        private var privateKey = false
+        fun redact(value: String): String {
+            if (pemBegin.containsMatchIn(value)) privateKey = true
+            if (privateKey) {
+                if (pemEnd.containsMatchIn(value)) privateKey = false
+                return "[private key material omitted]"
+            }
+            return line(value)
+        }
+    }
+
+    fun text(value: String): String {
+        val stream = Stream()
+        return value.lineSequence().joinToString("\n") { stream.redact(it) }
+    }
+}

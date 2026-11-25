@@ -6,7 +6,7 @@ import java.io.OutputStream
 
 object Logs {
 
-    private fun emit(line: String) = Libcore.nekoLogPrintln(line)
+    private fun emit(line: String) = Libcore.nekoLogPrintln(LogRedactor.text(line))
 
 
     private fun mkTag(): String {

@@ -487,6 +487,7 @@ object RootDaemon {
         stopLogForward()
         tailer = Thread({
             val offsets = HashMap<String, Long>()
+            val redactors = HashMap<String, io.nekohasekai.sagernet.ktx.LogRedactor.Stream>()
             val files = listOf(coreLogPath, logPath, "$logDir/error.log") +
                 if (mode == Mode.TUN2SOCKS) listOf("$logDir/tun2socks.log") else emptyList()
             try {
@@ -513,14 +514,14 @@ object RootDaemon {
                         if (end > 0) {
                             String(data, 0, end, Charsets.UTF_8).lineSequence()
                                 .filter { it.isNotBlank() && (!f.endsWith("/tun2socks.log") || "flow metadata" in it) }.forEach {
-                                    if (active()) Libcore.nekoLogPrintln(it)
+                                    if (active()) Libcore.nekoLogPrintln(redactors.getOrPut(f) { io.nekohasekai.sagernet.ktx.LogRedactor.Stream() }.redact(it))
                                 }
                         }
                         // A log line may span chunks (including UTF-8 characters).
                         // Bound memory for malformed/very large lines.
                         val remainder = data.copyOfRange(end, data.size)
                         if (remainder.size <= 65536) pending[f] = remainder
-                        else if (active()) Libcore.nekoLogPrintln(String(remainder, Charsets.UTF_8))
+                        else if (active()) Libcore.nekoLogPrintln("[oversized native diagnostic omitted]")
                     }
                     Thread.sleep(1500)
                 }
@@ -594,7 +595,7 @@ object RootDaemon {
             val prep = RootShell.run(
                 "set -e",
                 "umask 077",
-                "mkdir -p ${RootShell.q(logDir)}",
+                "mkdir -p ${RootShell.q(logDir)} && chmod 700 ${RootShell.q(logDir)}",
                 "rm -f ${RootShell.q(coreLogPath)} ${RootShell.q(logPath)} ${RootShell.q("$logDir/error.log")} ${RootShell.q("$logDir/tun2socks.log")}",
                 "rm -f ${RootShell.q(runDir)}/geoip.db ${RootShell.q(runDir)}/geosite.db",
                 "cp -f ${RootShell.q(cfg)} ${RootShell.q("$configPath.new")} && chmod 600 ${RootShell.q("$configPath.new")} && mv -f ${RootShell.q("$configPath.new")} ${RootShell.q(configPath)} || exit 1",

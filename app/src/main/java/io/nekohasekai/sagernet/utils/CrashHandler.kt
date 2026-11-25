@@ -7,7 +7,7 @@ import android.util.Log
 import com.jakewharton.processphoenix.ProcessPhoenix
 import io.nekohasekai.sagernet.BuildConfig
 import io.nekohasekai.sagernet.SagerNet
-import io.nekohasekai.sagernet.database.preference.PublicDatabase
+import io.nekohasekai.sagernet.ktx.LogRedactor
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.app
 import io.nekohasekai.sagernet.ui.BlankActivity
@@ -25,7 +25,7 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         // note: libc / go panic is in android log
 
         try {
-            Log.e(thread.toString(), throwable.stackTraceToString())
+            Log.e(thread.name, LogRedactor.text(throwable.stackTraceToString()))
         } catch (e: Exception) {
         }
 
@@ -57,7 +57,7 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
             format += "\n\nCaused by: " + formatThrowable(cause)
         }
 
-        return format
+        return LogRedactor.text(format)
     }
 
     fun buildReportHeader(): String {
@@ -97,19 +97,12 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         }\n\n"
 
 
-        try {
-            report += "Settings: \n"
-            for (pair in PublicDatabase.kvPairDao.all()) {
-                report += "\n"
-                report += pair.key + ": " + pair.toString()
-            }
-        } catch (e: Exception) {
-            report += "Export settings failed: " + formatThrowable(e)
-        }
+        // Preference values may contain credentials and subscription URLs.
+        report += "Settings: omitted for privacy\n"
 
         report += "\n\n"
 
-        return report
+        return LogRedactor.text(report)
     }
 
     private fun getSystemProperties(): Properties {
