@@ -269,6 +269,12 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
         }
         enableDnsRouting.onPreferenceChangeListener = reloadListener
 
+        for (key in listOf("tunAddressMode", "tunIpv4Subnet", "tunIpv6Subnet")) {
+            findPreference<Preference>(key)?.setOnPreferenceChangeListener { _, _ ->
+                needRestart()
+                true
+            }
+        }
         ipv6Mode.onPreferenceChangeListener = reloadListener
         allowAccess.onPreferenceChangeListener = reloadListener
 
