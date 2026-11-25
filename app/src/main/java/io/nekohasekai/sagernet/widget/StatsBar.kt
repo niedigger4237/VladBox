@@ -177,17 +177,13 @@ class StatsBar @JvmOverloads constructor(
         setStatus(app.getText(R.string.connection_test_testing))
         connectionTestJob = activity.lifecycleScope.launch {
             try {
-                val elapsed = kotlinx.coroutines.withTimeout(12000L) {
-                    kotlinx.coroutines.suspendCancellableCoroutine<Int> { continuation ->
-                        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                            val result = runCatching { activity.urlTest() }
-                            if (continuation.isActive) continuation.resumeWith(result)
-                        }
-                    }
+                val url = DataStore.connectionTestURL
+                val elapsed = kotlinx.coroutines.withTimeout(io.nekohasekai.sagernet.bg.proto.LATENCY_REQUEST_TIMEOUT_MS) {
+                    io.nekohasekai.sagernet.bg.proto.activeProfileDelay(url = url)
                 }
                 if (DataStore.serviceState.connected) {
                     setStatus(app.getString(
-                        if (DataStore.connectionTestURL.startsWith("https://")) R.string.connection_test_available
+                        if (url.startsWith("https://", true)) R.string.connection_test_available
                         else R.string.connection_test_available_http, elapsed))
                 }
             } catch (e: Exception) {

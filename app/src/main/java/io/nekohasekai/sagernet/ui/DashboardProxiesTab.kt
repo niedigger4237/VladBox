@@ -186,9 +186,7 @@ internal fun DashboardLiveProxies(connected: Boolean) {
                 val failed = mutableListOf<String>()
                 for (node in nodes) {
                     try {
-                        val result = dashboardGet("proxies/" + android.net.Uri.encode(node.name) + "/delay?timeout=5000&url=" +
-                            android.net.Uri.encode("https://www.gstatic.com/generate_204"))
-                        val ms = result.optInt("delay")
+                        val ms = io.nekohasekai.sagernet.bg.proto.clashDelay(node.name)
                         if (ms > 0) measured[node.name] = ms else { measured.remove(node.name); failed.add(node.name) }
                     } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                     catch (_: Exception) { measured.remove(node.name); failed.add(node.name) }
