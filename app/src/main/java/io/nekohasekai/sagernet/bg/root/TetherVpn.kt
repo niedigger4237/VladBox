@@ -19,6 +19,7 @@ object TetherVpn {
         val up: String,
         val down: List<Addr>,
         val dns: String,
+        val plan: TunAddressPlan,
         val table: Int,
         val pref: Int,
         val suffix: String,
@@ -123,13 +124,15 @@ object TetherVpn {
         }
         // Failure in one address family must not leave the other family's routes installed.
         installed?.let {
-            if (cleanup(it)) installed = null
-            else clean = false
+            if (cleanup(it)) {
+                TetherConntrack.clear("ipv4", it.down.map { d -> network(d.ip, d.prefix) }, it.plan.ipv4, it.dns)
+                installed = null
+            } else clean = false
         }
         return clean
     }
 
-    private fun allocate(up: String, down: List<Addr>, dns: String, down6: List<TetherIpv6.Down>, dns6: String?): RuleSet? {
+    private fun allocate(up: String, down: List<Addr>, plan: TunAddressPlan, down6: List<TetherIpv6.Down>, dns6: String?): RuleSet? {
         if (down.map { network(it.ip, it.prefix) }.distinct().size != down.size) {
             Logs.w("VPN tether: duplicate downstream subnet")
             return null
@@ -158,7 +161,7 @@ object TetherVpn {
                 free(probe) && free(probe6)
             }
         } ?: return null
-        return RuleSet(up, down, dns, table, pref, UUID.randomUUID().toString().replace("-", "").take(12), down6, dns6)
+        return RuleSet(up, down, plan.dns4, plan, table, pref, UUID.randomUUID().toString().replace("-", "").take(12), down6, dns6)
     }
 
     private fun install(r: RuleSet): Boolean {
@@ -220,7 +223,7 @@ object TetherVpn {
             Logs.w("VPN tether: NAT66 unavailable; IPv6 forwarding remains blocked")
             return
         }
-        val rules = TetherIpv6.Rules(r.up, r.down6, dns, r.table, r.pref, r.suffix)
+        val rules = TetherIpv6.Rules(r.up, r.down6, dns, r.table, r.pref, r.suffix, r.plan.ipv6)
         installed6 = rules
         ipv6Ready = TetherIpv6.install(rules)
         if (!ipv6Ready && TetherIpv6.cleanup(rules)) installed6 = null
@@ -361,7 +364,7 @@ object TetherVpn {
                 return
             }
             if (!clearLocked() || !guard.prune(names)) return
-            val next = allocate(up, ordered, plan.dns4, down6, dns6)
+            val next = allocate(up, ordered, plan, down6, dns6)
             if (next == null) {
                 Logs.w("VPN tether: unable to reserve routing resources")
                 return
