@@ -98,6 +98,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var appTheme by configurationStore.int(Key.APP_THEME)
     var nightTheme by configurationStore.stringToInt(Key.NIGHT_THEME) { 1 }
     var serviceMode by configurationStore.string(Key.SERVICE_MODE) { Key.MODE_VPN }
+    var tunAddressMode by configurationStore.string("tunAddressMode") { "automatic" }
+    var tunIpv4Subnet by configurationStore.string("tunIpv4Subnet") { "172.19.0.0/28" }
+    var tunIpv6Subnet by configurationStore.string("tunIpv6Subnet") { "fdfe:dcba:9876::/126" }
     var socksPort by configurationStore.stringToInt("socksPort") { 10809 }
     var bpfBridgePort by configurationStore.stringToInt("bpfBridgePort") { 9899 }
     var remoteDnsPreset by configurationStore.string("remoteDnsPreset") { "google" }
