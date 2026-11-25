@@ -1,5 +1,6 @@
 package io.nekohasekai.sagernet.ui
 
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
@@ -108,4 +109,66 @@ private fun proxyFlag(countryCode: String?): String {
     val code = countryCode?.uppercase(java.util.Locale.ROOT) ?: return ""
     if (code.length != 2 || code.any { it !in 'A'..'Z' }) return ""
     return code.map { String(Character.toChars(0x1F1E6 + (it - 'A'))) }.joinToString("")
+}
+
+
+@Composable
+internal fun DashboardLiveProxies(connected: Boolean) {
+    var groups by remember(connected) { mutableStateOf(emptyList<DashboardProxyGroup>()) }
+    var error by remember(connected) { mutableStateOf<String?>(null) }
+    var busy by remember(connected) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    suspend fun refresh() {
+        val proxies = dashboardGet("proxies").getJSONObject("proxies")
+        groups = proxies.keys().asSequence().mapNotNull { name ->
+            val item = proxies.optJSONObject(name) ?: return@mapNotNull null
+            val all = item.optJSONArray("all") ?: return@mapNotNull null
+            val nodes = (0 until all.length()).map { index ->
+                val tag = all.getString(index)
+                val history = proxies.optJSONObject(tag)?.optJSONArray("history")
+                val delay = history?.optJSONObject(history.length() - 1)?.optInt("delay")?.takeIf { it > 0 }
+                DashboardProxyNode(tag, delay)
+            }
+            DashboardProxyGroup(name, item.optString("type"), item.optString("now"), nodes)
+        }.toList()
+    }
+    LaunchedEffect(connected) {
+        if (!connected) return@LaunchedEffect
+        while (true) {
+            if (!busy) {
+                try { refresh(); error = null }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) { error = "Local API unavailable" }
+            }
+            kotlinx.coroutines.delay(5000)
+        }
+    }
+    fun action(block: suspend () -> Unit) {
+        if (busy || !connected) return
+        busy = true
+        scope.launch {
+            try { block(); refresh(); error = null }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { error = "Proxy operation failed" }
+            finally { busy = false }
+        }
+    }
+    DashboardProxiesTab(connected, groups,
+        onSelect = if (busy) null else { group, node ->
+            action { dashboardRequest("proxies/" + android.net.Uri.encode(group), "PUT", org.json.JSONObject().put("name", node)) }
+        },
+        onTest = if (busy) null else { group ->
+            action {
+                val nodes = groups.firstOrNull { it.name == group }?.nodes.orEmpty()
+                for (node in nodes) {
+                    try {
+                        dashboardGet("proxies/" + android.net.Uri.encode(node.name) + "/delay?timeout=5000&url=" +
+                            android.net.Uri.encode("https://www.gstatic.com/generate_204"))
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: Exception) { /* Continue testing remaining nodes. */ }
+                }
+            }
+        })
+    if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 }
