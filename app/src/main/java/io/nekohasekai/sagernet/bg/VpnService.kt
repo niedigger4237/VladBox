@@ -52,6 +52,14 @@ class VpnService : BaseVpnService(),
             .apply { acquire() }
     }
 
+    override suspend fun beforeStopProcesses() {
+        val token = tetherSession ?: return
+        Logs.i("VPN tether: restoring Android forwarding before closing TUN")
+        if (!io.nekohasekai.sagernet.bg.root.TetherVpn.stopAndAwait(token)) {
+            Logs.w("VPN tether: cleanup pending; worker will continue after TUN closes")
+        }
+    }
+
     @Suppress("EXPERIMENTAL_API_USAGE")
     override fun killProcesses() {
         tetherSession?.let { io.nekohasekai.sagernet.bg.root.TetherVpn.stop(it) }
