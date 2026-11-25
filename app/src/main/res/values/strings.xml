@@ -657,7 +657,7 @@
     <string name="socks_port_sum">Dedicated SOCKS5 inbound used by the root helpers</string>
     <string name="bpf_bridge_port">BPF2SOCKS bridge port</string>
     <string name="cat_tethering">Tethering (Root)</string>
-    <string name="vpn_tether_ipv4_warning">Ordinary VPN tethering requires root and currently supports IPv4 only. IPv6 traffic may bypass the VPN.</string>
+    <string name="vpn_tether_ipv4_warning">Root-assisted VPN tethering: IPv6 requires a suitable client prefix and NAT66 support. If unavailable, IPv6 forwarding is blocked on detected tethering interfaces. Verify leak protection on your device.</string>
     <string name="root_access_checking">Checking root access…</string>
     <string name="root_access_unknown">Root access not verified. Reopen settings to retry.</string>
     <string name="tether_wifi">Wi-Fi hotspot</string>
