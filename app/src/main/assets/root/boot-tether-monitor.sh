@@ -29,6 +29,17 @@ parse() {
     }
     FILENAME==ARGV[3] {
         if ($1=="default") for(i=2;i<NF;i++) if($i=="dev") upstream[$(i+1)]=1
+        # Connected IPv6 routes are already canonical network prefixes. Do not
+        # track temporary client addresses or infer prefixes from default routes.
+        if ($1 ~ /^[0-9a-fA-F:]+\/[0-9]+$/ && $1 ~ /:/ && tolower($1) !~ /^(fe[89ab]|ff|::)/) {
+            split($1,cidr,"/")
+            dev=""; kernel=0
+            for(i=2;i<NF;i++) {
+                if($i=="dev") dev=$(i+1)
+                if($i=="proto" && $(i+1)=="kernel") kernel=1
+            }
+            if(valid(dev) && kernel && cidr[2]>=64 && cidr[2]<128) prefix6[dev SUBSEP $1]=1
+        }
         next
     }
     FILENAME==ARGV[4] {
@@ -50,6 +61,10 @@ parse() {
             for (key in address) {
                 split(key,parts,SUBSEP)
                 if(parts[1]==n) print "ipv4",n,parts[2]
+            }
+            for (key in prefix6) {
+                split(key,parts,SUBSEP)
+                if(parts[1]==n) print "ipv6-prefix",n,parts[2]
             }
         }
     }' "$1" "$2" "$3" "$4" "$5"
@@ -86,8 +101,7 @@ owned() {
     tr '\000' '\n' < "/proc/$pid/cmdline" | grep -Fx -- "$CONFIG" >/dev/null
 }
 snapshot() {
-    timeout 5 dumpsys tethering --short > "$work/tether" 2>/dev/null || return 1
-    if ! grep -q TetheredState "$work/tether"; then
+    if ! timeout 5 dumpsys tethering --short > "$work/tether" 2>/dev/null || ! grep -q TetheredState "$work/tether"; then
         timeout 5 dumpsys tethering > "$work/tether" 2>/dev/null || return 1
     fi
     timeout 5 ip -4 route show table all > "$work/routes" || return 1
