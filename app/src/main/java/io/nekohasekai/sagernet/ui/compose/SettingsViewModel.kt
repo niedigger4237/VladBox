@@ -1,6 +1,8 @@
 package io.nekohasekai.sagernet.ui.compose
 
 import androidx.lifecycle.ViewModel
+import io.nekohasekai.sagernet.IPv6Mode
+import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.bg.root.RootShell.Access
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,6 +43,9 @@ private val rootOnlySettings = setOf(
 internal fun settingVisible(key: String?, mode: String, access: Access = Access.UNKNOWN): Boolean {
     if (access == Access.UNAVAILABLE && key in rootOnlySettings) return false
     return when (key) {
+    "tunAddressMode" -> mode == "vpn" && DataStore.ipv6Mode != IPv6Mode.ONLY
+    "tunIpv4Subnet" -> mode == "vpn" && DataStore.tunAddressMode == "manual" && DataStore.ipv6Mode != IPv6Mode.ONLY
+    "tunIpv6Subnet" -> mode == "vpn" && DataStore.tunAddressMode == "manual" && DataStore.ipv6Mode != IPv6Mode.DISABLE && DataStore.ipv6Mode != IPv6Mode.ONLY
     "rootTproxyPort" -> mode == "root_tproxy"
     "bpfBridgePort" -> mode == "root_bpf2socks"
     "rootTunInterfaces", "rootTunBypassRuleSets" -> mode == "root_tun"
