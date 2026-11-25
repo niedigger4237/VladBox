@@ -250,6 +250,8 @@ class BaseService {
             else startService(Intent(this, javaClass))
         }
 
+        suspend fun beforeStopProcesses() {}
+
         fun killProcesses() {
             data.networkReconnectJob?.cancel()
             data.networkReconnectJob = null
@@ -283,8 +285,12 @@ class BaseService {
 
             runOnMainDispatcher {
                 try {
-                    data.connectingJob?.cancelAndJoin()
-                    killProcesses()
+                    try {
+                        data.connectingJob?.cancelAndJoin()
+                        beforeStopProcesses()
+                    } finally {
+                        killProcesses()
+                    }
                 } catch (e: Exception) {
                     Logs.w(e)
                 } finally {
