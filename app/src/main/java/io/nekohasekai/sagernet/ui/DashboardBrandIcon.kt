@@ -16,6 +16,11 @@ import kotlinx.coroutines.withContext
 import com.caverock.androidsvg.SVG
 
 private val serviceDomains = listOf(
+    "pinterest" to listOf("pinterest.com", "pinimg.com"),
+    "snapchat" to listOf("snapchat.com", "sc-cdn.net"),
+    "threads" to listOf("threads.net", "threads.com"),
+    "mega-nz" to listOf("mega.nz", "mega.io"),
+    "mediafire" to listOf("mediafire.com"),
     "bandcamp" to listOf("bandcamp.com", "bcbits.com"),
     "crunchyroll" to listOf("crunchyroll.com"),
     "disney-plus" to listOf("disneyplus.com", "disney-plus.net"),
