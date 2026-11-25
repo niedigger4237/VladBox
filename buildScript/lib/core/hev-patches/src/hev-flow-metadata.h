@@ -38,7 +38,7 @@ static inline size_t hev_flow_header(
     uint8_t *out, const ip_addr_t *ip, uint16_t port, const HevSocks5Addr *dst, int udp) {
     HevSocks5Addr src;
     struct sockaddr_storage s, d;
-    hev_socks5_addr_from_lwip(&src, ip, port);
+    if (!port || hev_socks5_addr_from_lwip(&src, ip, port) < 0) return 0;
     if (hev_flow_sockaddr(&src, &s) || hev_flow_sockaddr(dst, &d)) return 0;
     return flow_metadata_encode(out, FLOW_METADATA_MAX_HEADER, (void *)&s, (void *)&d, udp,
         FLOW_METADATA_UNKNOWN_UID, hev_config_get_socks5_server()->pass);
