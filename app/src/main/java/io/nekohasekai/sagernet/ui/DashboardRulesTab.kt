@@ -1,6 +1,7 @@
 package io.nekohasekai.sagernet.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -20,7 +21,9 @@ internal data class DashboardRule(val type: String, val payload: String, val tar
 internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = emptyList(), status: String? = null) {
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
+    var detail by remember { mutableStateOf<DashboardRule?>(null) }
     val colors = MaterialTheme.colorScheme
+    detail?.let { rule -> AlertDialog(onDismissRequest = { detail = null }, title = { Text(ruleLabel(rule)) }, text = { Text(rule.payload + "\n\n" + rule.target) }, confirmButton = { TextButton(onClick = { detail = null }) { Text("Close") } }) }
     val filtered = rules.filter { "${ruleLabel(it)} ${it.type} ${it.payload} ${it.target}".contains(query, ignoreCase = true) }
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant.copy(alpha = .45f))) {
@@ -45,7 +48,7 @@ internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = 
                     Modifier.padding(vertical = 12.dp), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
             filtered.forEach { rule ->
-                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp),
+                OutlinedCard(Modifier.fillMaxWidth().clickable { detail = rule }, border = androidx.compose.foundation.BorderStroke(0.5.dp, colors.outlineVariant.copy(alpha = .55f)), shape = RoundedCornerShape(10.dp),
                     colors = CardDefaults.outlinedCardColors(containerColor = colors.surfaceVariant.copy(alpha = .35f))) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -57,12 +60,12 @@ internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = 
                         }
                         Text("→", color = colors.onSurfaceVariant)
                         val targetColor = when (rule.target.lowercase(java.util.Locale.ROOT)) {
-                            "direct", "bypass" -> Color(0xFF81D99A)
+                            "direct", "bypass", "route(bypass)", "route(direct)" -> Color(0xFF81D99A)
                             "block", "reject" -> colors.error
                             else -> colors.primary
                         }
                         Surface(shape = RoundedCornerShape(20.dp), color = targetColor.copy(alpha = .15f)) {
-                            Text(rule.target.ifBlank { "—" }, Modifier.padding(horizontal = 7.dp, vertical = 3.dp).widthIn(max = 100.dp), color = targetColor,
+                            Text(ruleAction(rule.target), Modifier.padding(horizontal = 7.dp, vertical = 3.dp).widthIn(max = 100.dp), color = targetColor,
                                 style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
@@ -137,6 +140,11 @@ private fun ruleLabel(rule: DashboardRule): String {
         "geosite" -> "Geosite"
         "ruleset" -> "Rule set"
         "default" -> when {
+            payload.startsWith("inbound=") -> "Inbound"
+            payload.startsWith("protocol=") -> "Protocol"
+            payload.startsWith("port=") -> "Destination port"
+            payload.startsWith("ip_is_private=") -> "Private IP / Rule set"
+            payload.startsWith("source_ip_cidr=") -> "Source / Destination IP"
             payload.startsWith("rule_set=") || payload.startsWith("rule_set:") -> "Rule set"
             payload.startsWith("domain_suffix=") || payload.startsWith("domain_suffix:") -> "Domain suffix"
             payload.startsWith("domain_keyword=") || payload.startsWith("domain_keyword:") -> "Domain keyword"
@@ -148,4 +156,13 @@ private fun ruleLabel(rule: DashboardRule): String {
         }
         else -> rule.type.ifBlank { "Routing rule" }
     }
+}
+
+private fun ruleAction(target: String): String = when (target.lowercase(java.util.Locale.ROOT)) {
+    "route(bypass)", "route(direct)", "bypass", "direct" -> "Direct"
+    "reject", "block" -> "Block"
+    "hijack-dns" -> "DNS Hijack"
+    "sniff" -> "Sniff"
+    "route(proxy)", "proxy" -> "Proxy"
+    else -> target.ifBlank { "—" }
 }
