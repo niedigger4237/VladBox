@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Read-only autonomous downstream discovery. No firewall or route mutations.
+# Autonomous downstream discovery and owned ROOT tether reconciliation.
 set -eu
 umask 077
 
@@ -226,7 +226,7 @@ reconcile() (
         exit 0
     fi
     [ -f "$BOOT/tun-template.json" ] && [ -f "$BOOT/daemon-template.json" ] || exit 0
-    if cmp -s "$work/current" "$work/applied"; then
+    if [ ! -f "$work/attempted" ] && cmp -s "$work/current" "$work/applied"; then
         apply_rules "$work/current"
         exit
     fi
@@ -240,7 +240,21 @@ reconcile() (
     timeout 15 "$CORE" check -c "$work/core.json" -D "$BASE/run" >/dev/null 2>&1 || exit 1
     owned || exit 1
     printf '%s\n' "$now" > "$work/last-restart"
-    remove_rules "$work/applied" || exit 1
+    # Keep the IPv6 guard in place across native teardown. Install guards
+    # for new interfaces before any shutdown, and remember every attempted
+    # rule so a partial failure can still be cleaned up.
+    if [ "$BLOCK6" = 1 ]; then
+        { cat "$work/applied" "$work/current"; if [ -f "$work/attempted" ]; then cat "$work/attempted"; fi; } |
+            LC_ALL=C sort -u > "$work/attempted.new"
+        mv -f "$work/attempted.new" "$work/attempted"
+        for n in $(names "$work/attempted" | sort -u); do
+            guard6 "$n" add || exit 1
+        done
+    fi
+    for n in $(names "$work/applied" | sort -u); do
+        forward_rule iptables "$n" remove || exit 1
+        if [ "$IPV6" = 1 ]; then forward_rule ip6tables "$n" remove || exit 1; fi
+    done
     # The app's handoff waits on this lock; check generation once more.
     owned || exit 1
     response=$(timeout 30 "$DAEMON" shutdown 2>/dev/null) || exit 1
@@ -270,12 +284,23 @@ reconcile() (
             nohup "$DAEMON" boot --config "$CONFIG" </dev/null >>"$BASE/run/logs/boot.out" 2>&1 9>&- &
             wait_running || exit 1
             : > "$work/applied"
+            # Preserve attempted guard ownership for the next reconcile.
         fi
         exit 1
     fi
     current || exit 1
+    if [ "$BLOCK6" = 1 ] && [ -f "$work/attempted" ]; then
+        # Do not lose ownership on a partially successful rule installation.
+        cp "$work/attempted" "$work/applied"
+        apply_rules "$work/current" || exit 1
+        awk 'FILENAME==ARGV[1]{if($1=="link")a[$3]=1;next}$1=="link"&&!a[$3]' "$work/current" "$work/applied" > "$work/stale"
+        remove_rules "$work/stale" || exit 1
+    else
+        cp "$work/current" "$work/applied"
+        apply_rules "$work/current" || exit 1
+    fi
     cp "$work/current" "$work/applied"
-    apply_rules "$work/current" || exit 1
+    rm -f "$work/attempted"
 ) 9>"$BOOT/monitor.lock"
 
 # Wait only for a bounded initial readiness window.
@@ -316,6 +341,7 @@ done
     current || exit 0
     response=$(timeout 5 "$DAEMON" status 2>/dev/null || true)
     if printf '%s\n' "$response" | grep -Eq '"code"[[:space:]]*:[[:space:]]*"not_running"'; then
+        if [ -f "$work/attempted" ]; then remove_rules "$work/attempted" || true; fi
         remove_rules "$work/applied" || true
     fi
 ) 9>"$BOOT/monitor.lock"

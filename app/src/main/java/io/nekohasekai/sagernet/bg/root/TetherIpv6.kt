@@ -14,7 +14,7 @@ internal object TetherIpv6 {
     }
 
     private fun subnet(value: String, bits: Int): String? {
-        if (bits !in 1..128 || !value.matches(Regex("[0-9a-fA-F:]+"))) return null
+        if (bits !in 1..128 || ':' !in value || !value.matches(Regex("[0-9a-fA-F:]+"))) return null
         val address = runCatching { InetAddress.getByName(value) }.getOrNull() as? Inet6Address ?: return null
         if (address.isLinkLocalAddress || address.isLoopbackAddress || address.isMulticastAddress || address.isAnyLocalAddress) return null
         val bytes = address.address
@@ -33,7 +33,8 @@ internal object TetherIpv6 {
 
     internal fun parsePrefixes(names: Set<String>, output: String): List<Down> {
         val pattern = Regex("""^\s*\d+:\s+([A-Za-z0-9_.-]{1,15})(?:@[^\s]+)?\s+inet6\s+([0-9a-fA-F:]+)/(\d+)""")
-        return output.lineSequence().filterNot { " tentative " in it || " dadfailed " in it }
+        val invalidFlags = Regex("""\b(?:tentative|dadfailed)\b""")
+        return output.lineSequence().filterNot { invalidFlags.containsMatchIn(it) }
             .mapNotNull { line ->
                 val m = pattern.find(line) ?: return@mapNotNull null
                 val name = m.groupValues[1]

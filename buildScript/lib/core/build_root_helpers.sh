@@ -21,6 +21,14 @@ B2S="$ROOT/../bpf2socks-src"
 MATCHER="$ROOT/../bpfmatcher-src"
 HEV_PATCHES="$ROOT/buildScript/lib/core/hev-patches"
 
+# Fail before native compilation if Android-independent recovery fixtures fail.
+for script in "$ROOT"/app/src/main/assets/root/*.sh; do
+  sh -n "$script"
+done
+bash "$ROOT/buildScript/test/boot_tether_parser.sh"
+bash "$ROOT/buildScript/test/tether_crash_recovery.sh"
+bash "$ROOT/buildScript/test/hev_flow_bounds.sh"
+
 if [ ! -d "$HEV/.git" ]; then
   git clone -q --depth 1 --branch "$HEV_TAG" --recurse-submodules --shallow-submodules \
     https://github.com/heiher/hev-socks5-tunnel "$HEV"

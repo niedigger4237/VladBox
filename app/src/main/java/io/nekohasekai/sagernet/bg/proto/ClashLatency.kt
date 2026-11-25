@@ -124,7 +124,7 @@ internal suspend fun clashRequest(path: String, method: String = "GET", body: JS
                 val mode = DataStore.serviceMode
                 val profile = DataStore.currentProfile
                 val hint = rootApiHint
-                val useRoot = rootMode && hint?.mode == mode && hint.profile == profile &&
+                val useRoot = rootMode && hint != null && hint.mode == mode && hint.profile == profile &&
                     android.os.SystemClock.elapsedRealtime() < hint.expires
                 val result = if (useRoot) {
                     dashboardRoot(path, method, body, handle, readTimeoutMs)
