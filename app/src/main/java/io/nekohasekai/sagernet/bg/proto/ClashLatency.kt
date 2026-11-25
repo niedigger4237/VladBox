@@ -12,7 +12,11 @@ import kotlin.coroutines.resumeWithException
 import java.net.HttpURLConnection
 import java.net.Proxy
 import java.net.URL
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.FutureTask
 import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 
@@ -77,7 +81,15 @@ internal suspend fun activeProfileDelay(expectedProfile: Long = DataStore.curren
     return delay
 }
 
-private val dashboardExecutor = Executors.newCachedThreadPool()
+// Group latency fallback uses batches of five. Reserve one additional
+// worker for a foreground dashboard read, and bound the pending queue.
+private val dashboardExecutor = ThreadPoolExecutor(
+    6, 6, 30L, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(24),
+    { task -> Thread(task, "clash-api").apply { isDaemon = true } },
+).apply { allowCoreThreadTimeOut(true) }
+
+private data class RootApiHint(val mode: String, val profile: Long, val expires: Long)
+@Volatile private var rootApiHint: RootApiHint? = null
 
 private class DashboardRequestHandle {
     val connection = AtomicReference<HttpURLConnection?>()
@@ -88,7 +100,9 @@ private class DashboardRequestHandle {
         cancelled = true
         process.getAndSet(null)?.destroy()
         connection.getAndSet(null)?.let { conn ->
-            dashboardExecutor.execute { conn.disconnect() }
+            // Do not enqueue cleanup behind the blocked request workers.
+            Thread({ runCatching { conn.disconnect() } }, "clash-api-close")
+                .apply { isDaemon = true }.start()
         }
     }
 
@@ -101,24 +115,46 @@ internal suspend fun clashRequest(path: String, method: String = "GET", body: JS
     readTimeoutMs: Int = LATENCY_TEST_TIMEOUT_MS + 3000): JSONObject =
     suspendCancellableCoroutine { continuation ->
         val handle = DashboardRequestHandle()
-        continuation.invokeOnCancellation { handle.cancel() }
-        dashboardExecutor.execute {
+        val task = FutureTask<Unit> {
             try {
                 handle.checkActive()
                 val rootMode = io.nekohasekai.sagernet.database.DataStore.serviceMode in listOf(
                     io.nekohasekai.sagernet.Key.MODE_ROOT_TUN, io.nekohasekai.sagernet.Key.MODE_ROOT_TPROXY,
                     io.nekohasekai.sagernet.Key.MODE_ROOT_TUN2SOCKS, io.nekohasekai.sagernet.Key.MODE_ROOT_BPF2SOCKS)
-                val result = try {
+                val mode = DataStore.serviceMode
+                val profile = DataStore.currentProfile
+                val hint = rootApiHint
+                val useRoot = rootMode && hint?.mode == mode && hint.profile == profile &&
+                    android.os.SystemClock.elapsedRealtime() < hint.expires
+                val result = if (useRoot) {
+                    dashboardRoot(path, method, body, handle, readTimeoutMs)
+                } else try {
                     dashboardDirect(path, method, body, handle, readTimeoutMs)
                 } catch (e: java.io.IOException) {
                     handle.checkActive()
-                    if (!rootMode) throw e
-                    dashboardRoot(path, method, body, handle, readTimeoutMs)
+                    // A failed read after PUT may still mean the core applied
+                    // the mutation. Never blindly replay it through root.
+                    if (!rootMode || method != "GET") throw e
+                    dashboardRoot(path, method, body, handle, readTimeoutMs).also {
+                        handle.checkActive()
+                        rootApiHint = RootApiHint(mode, profile, android.os.SystemClock.elapsedRealtime() + 15000L)
+                    }
                 }
                 if (continuation.isActive) continuation.resume(result)
             } catch (e: Exception) {
                 if (continuation.isActive) continuation.resumeWithException(e)
             }
+        }
+        continuation.invokeOnCancellation {
+            task.cancel(true)
+            dashboardExecutor.remove(task)
+            handle.cancel()
+        }
+        try {
+            dashboardExecutor.execute(task)
+        } catch (e: RejectedExecutionException) {
+            if (continuation.isActive) continuation.resumeWithException(
+                IllegalStateException("Local API request queue is full"))
         }
     }
 
