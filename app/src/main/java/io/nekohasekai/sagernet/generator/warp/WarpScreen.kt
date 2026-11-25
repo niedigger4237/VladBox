@@ -1,0 +1,147 @@
+package io.nekohasekai.sagernet.generator.warp
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
+                        onSave: (WarpConfExporter.Output) -> Unit,
+                        onImport: (String) -> Unit) {
+    val state by model.state.collectAsState()
+    val s = state.settings
+    val enabled = !state.busy
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        WarpCard("WARP account") {
+            Text(state.accountAddress ?: "No account registered")
+            OutlinedButton(onClick = model::resetAccount, enabled = enabled) { Text("New account") }
+        }
+        WarpCard("Configuration") {
+            WarpChoice("Format", WarpGenerator.Format.values().toList(), s.format, enabled,
+                { model.settings(s.copy(format = it)) })
+            if (s.format == WarpGenerator.Format.AWG)
+                WarpChoice("Variant", WarpConfExporter.Variant.values().toList(), s.variant, enabled,
+                    { model.settings(s.copy(variant = it)) })
+            if (s.format == WarpGenerator.Format.WIRESOCK || s.format == WarpGenerator.Format.XRAY ||
+                (s.format == WarpGenerator.Format.AWG && s.variant == WarpConfExporter.Variant.DOMAIN))
+                WarpField("Domain", s.domain, enabled) { model.settings(s.copy(domain = it)) }
+            if (s.format == WarpGenerator.Format.WIRESOCK) {
+                WarpChoice("IP masking", listOf("QUIC", "DNS"), s.wireSockIp, enabled,
+                    { model.settings(s.copy(wireSockIp = it)) })
+                WarpChoice("Browser", listOf("Chrome", "Firefox", "cURL"), s.wireSockIb, enabled,
+                    { model.settings(s.copy(wireSockIb = it)) })
+            }
+        }
+        WarpCard("Network") {
+            WarpChoice("DNS", model.presets.dns.map { it.id }, s.dnsId, enabled,
+                { model.settings(s.copy(dnsId = it)) },
+                { id -> model.presets.dns.first { it.id == id }.label })
+            WarpChoice("Endpoint", WarpPresets.EndpointMode.values().toList(), s.endpointMode, enabled,
+                { model.settings(s.copy(endpointMode = it)) })
+            if (s.endpointMode == WarpPresets.EndpointMode.CUSTOM)
+                WarpField("Custom endpoint", s.customEndpoint, enabled) { model.settings(s.copy(customEndpoint = it)) }
+            WarpField("MTU", s.mtu.toString(), enabled) { it.toIntOrNull()?.let { n -> model.settings(s.copy(mtu = n)) } }
+            WarpToggle("IPv6", s.ipv6, enabled) { model.settings(s.copy(ipv6 = it)) }
+            WarpToggle("Persistent keepalive", s.keepalive != null, enabled) {
+                model.settings(s.copy(keepalive = if (it) 25 else null))
+            }
+            s.keepalive?.let { value ->
+                WarpField("Keepalive (seconds)", value.toString(), enabled) {
+                    it.toIntOrNull()?.let { n -> model.settings(s.copy(keepalive = n)) }
+                }
+            }
+            WarpToggle("No junk packets", s.noJunk, enabled) { model.settings(s.copy(noJunk = it)) }
+        }
+        if (s.format == WarpGenerator.Format.AWG || s.format == WarpGenerator.Format.CLASH) {
+            var expanded by remember { mutableStateOf(false) }
+            WarpCard("Advanced obfuscation") {
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide AWG options" else "Show AWG options") }
+                if (expanded) {
+                    val keys = listOf("ContentPaddingAddition", "MaxHandshakeAttempts", "KeepaliveTimeout",
+                        "RejectAfterTime", "RekeyAfterTime", "RekeyTimeout")
+                    keys.forEach { key ->
+                        WarpField(key, s.awg3[key].orEmpty(), enabled) {
+                            model.settings(s.copy(awg3 = s.awg3 + (key to it)))
+                        }
+                    }
+                    WarpToggle("Random trailers", s.randomTrailers, enabled) { model.settings(s.copy(randomTrailers = it)) }
+                    WarpToggle("Disable cookies", s.disableCookies, enabled) { model.settings(s.copy(disableCookies = it)) }
+                }
+            }
+        }
+        if (s.format == WarpGenerator.Format.AWG || s.format == WarpGenerator.Format.WIRESOCK) {
+            var expanded by remember { mutableStateOf(false) }
+            WarpCard("Split tunneling") {
+                WarpToggle("Exclude LAN", s.excludeLan, enabled) {
+                    model.settings(s.copy(excludeLan = it, sites = if (it) emptySet() else s.sites))
+                }
+                TextButton(onClick = { expanded = !expanded }) { Text("Select services (${s.sites.size})") }
+                if (expanded) model.presets.siteNames.forEach { (id, name) ->
+                    WarpToggle(name, id in s.sites, enabled && !s.excludeLan) {
+                        model.settings(s.copy(sites = if (it) s.sites + id else s.sites - id))
+                    }
+                }
+            }
+        }
+        WarpCard("API connection") {
+            WarpChoice("Transport", WarpViewModel.Transport.values().toList(), state.transport, enabled,
+                model::transport)
+            Text("ByeDPI integration pending", style = MaterialTheme.typography.bodySmall)
+        }
+        if (state.busy) {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+            OutlinedButton(onClick = model::cancel) { Text("Cancel") }
+        } else Button(onClick = model::generate, modifier = Modifier.fillMaxWidth()) { Text("Generate configuration") }
+        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        state.output?.let { output ->
+            WarpCard("Result") {
+                Text(output.fileName)
+                Text(output.text.take(1200), style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { onCopy(output.text) }) { Text("Copy") }
+                    TextButton(onClick = { onSave(output) }) { Text("Save") }
+                    if (s.format == WarpGenerator.Format.AWG || s.format == WarpGenerator.Format.WIRESOCK)
+                        TextButton(onClick = { onImport(output.text) }) { Text("Import") }
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun WarpCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            content()
+        }
+    }
+}
+@Composable private fun WarpField(label: String, value: String, enabled: Boolean, change: (String) -> Unit) {
+    OutlinedTextField(value, change, Modifier.fillMaxWidth(), enabled = enabled, singleLine = true, label = { Text(label) })
+}
+@Composable private fun WarpToggle(label: String, value: Boolean, enabled: Boolean, change: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f))
+        Switch(value, change, enabled = enabled)
+    }
+}
+@Composable private fun <T> WarpChoice(label: String, options: List<T>, value: T, enabled: Boolean,
+                                       change: (T) -> Unit, display: (T) -> String = { it.toString() }) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+            Text("$label: ${display(value)}")
+        }
+        DropdownMenu(expanded, { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(text = { Text(display(option)) }, onClick = { expanded = false; change(option) })
+            }
+        }
+    }
+}
