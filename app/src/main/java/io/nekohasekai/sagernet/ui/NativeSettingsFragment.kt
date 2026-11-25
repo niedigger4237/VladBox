@@ -11,6 +11,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.Key
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
+import io.nekohasekai.sagernet.bg.root.RootShell
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.preference.EditTextPreferenceModifiers
 import io.nekohasekai.sagernet.ktx.*
@@ -48,9 +49,10 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
     }
 
     private fun refreshRootCoreSummary() = runOnDefaultDispatcher {
-        val label = if (io.nekohasekai.sagernet.bg.root.RootShell.isAvailable())
+        val label = if (model.state.value.rootAccess == RootShell.Access.GRANTED)
             io.nekohasekai.sagernet.bg.root.RootCore.activeLabel() ?: "bundled" else "-"
         runOnMainDispatcher {
+            if (!isAdded) return@runOnMainDispatcher
             findPreference<Preference>("rootCoreUpdate")?.summary =
                 getString(R.string.root_core_summary, label)
             model.refresh()
@@ -58,7 +60,6 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
     }
 
     private fun setupRootCore() {
-        refreshRootCoreSummary()
         findPreference<Preference>("rootCoreUpdate")!!.setOnPreferenceClickListener {
             runOnDefaultDispatcher {
                 val rel = io.nekohasekai.sagernet.bg.root.RootCore.fetchLatest()
@@ -205,9 +206,14 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
             .setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
         setupRootCore()
 
-        serviceMode.setOnPreferenceChangeListener { _, _ ->
-            if (DataStore.serviceState.started) SagerNet.stopService()
-            true
+        serviceMode.setOnPreferenceChangeListener { _, value ->
+            if (value.toString().startsWith("root_") && model.state.value.rootAccess != RootShell.Access.GRANTED) {
+                checkRootAccess()
+                false
+            } else {
+                if (DataStore.serviceState.started) SagerNet.stopService()
+                true
+            }
         }
 
         val tunImplementation = findPreference<SimpleMenuPreference>(Key.TUN_IMPLEMENTATION)!!
@@ -277,8 +283,32 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
                 " · " + getString(if (DataStore.bypass) R.string.bypass_apps else R.string.route_proxy)
     }
 
+    private fun checkRootAccess() {
+        if (!model.beginRootCheck()) return
+        runOnDefaultDispatcher {
+            val access = try {
+                RootShell.probeAccess()
+            } catch (e: Exception) {
+                Logs.w(e)
+                RootShell.Access.UNKNOWN
+            }
+            runOnMainDispatcher {
+                model.finishRootCheck(access)
+                if (!isAdded) return@runOnMainDispatcher
+                if (access == RootShell.Access.UNAVAILABLE && !DataStore.serviceState.started &&
+                    DataStore.serviceMode.startsWith("root_")) {
+                    // Recover an inactive configuration, but never stop a live session from a UI probe.
+                    findPreference<ListPreference>(Key.SERVICE_MODE)?.value = Key.MODE_VPN
+                    model.refresh()
+                }
+                if (access == RootShell.Access.GRANTED) refreshRootCoreSummary()
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
+        checkRootAccess()
         model.refresh()
 
         if (::isProxyApps.isInitialized) {
