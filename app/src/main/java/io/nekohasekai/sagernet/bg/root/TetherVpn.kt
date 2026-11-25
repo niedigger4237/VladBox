@@ -58,8 +58,10 @@ object TetherVpn {
         try {
             if (!enabled()) { clearLocked(); return }
             if (!RootShell.isAvailable()) { Logs.w("tethering through VPN needs root"); return }
+            val addresses = RootShell.run("ip -4 -o addr show", timeoutMs = 5000)
+            if (!addresses.ok) { clearLocked(); return }
             val addrs = Regex("^\\d+:\\s+(\\S+)\\s+inet\\s+(\\d+\\.\\d+\\.\\d+\\.\\d+)/(\\d+)", RegexOption.MULTILINE)
-                .findAll(RootShell.run("ip -4 -o addr show").out)
+                .findAll(addresses.out)
                 .map { Addr(it.groupValues[1], it.groupValues[2], it.groupValues[3].toInt()) }.toList()
             // Resolve the Android VPN network, then confirm its actual interface in the root view.
             val cm = SagerNet.connectivity
@@ -77,13 +79,17 @@ object TetherVpn {
             }
             if (up == null) { clearLocked(); Logs.w("tethering: current VPN interface not confirmed"); return }
             // interfaces carrying a default route are uplinks (e.g. wlan0 when the phone itself is on Wi-Fi)
+            val routes = RootShell.run("ip -4 route show table all && ip -6 route show table all", timeoutMs = 5000)
+            if (!routes.ok) { clearLocked(); return }
             val uplinks = Regex("^default .*?dev (\\S+)", RegexOption.MULTILINE)
-                .findAll(RootShell.run("ip -4 route show table all").out).map { it.groupValues[1] }.toSet() + up
+                .findAll(routes.out).map { it.groupValues[1] }.toSet() + up
             val sel = RootDaemon.tetherSelectors().toMutableList()
             if (DataStore.tetherWifi) sel += listOf("swlan+", "wifi+")
             val skip = Regex("(lo|tun\\d*|rmnet.*|r_rmnet.*|ccmni.*|dummy.*|ifb.*|p2p.*|clat.*|v4-.*)")
             // the gateway address is not always x.x.x.1 (e.g. 10.242.217.50/24), so match by interface name
-            val state = RootShell.run("dumpsys tethering", timeoutMs = 5000)
+            val shortState = RootShell.run("dumpsys tethering --short", timeoutMs = 5000)
+            val state = if (shortState.ok && shortState.out.contains("TetheredState")) shortState
+                else RootShell.run("dumpsys tethering", timeoutMs = 5000)
             val active = if (state.ok) state.out.lineSequence().mapNotNull {
                 Regex("""^\s*([A-Za-z0-9_.-]{1,15})\s+-\s+TetheredState\s+-\s+lastError\s*=\s*0\s*$""").matchEntire(it)?.groupValues?.get(1)
             }.toSet() else emptySet()
@@ -130,6 +136,7 @@ object TetherVpn {
             lastSig = if (r.ok) sig else null
             lastDown = downs.map { it.name }
             Logs.i("tethering via VPN: $lastDown -> $up (exit ${r.code}${if (r.err.isNotBlank()) ", " + r.err.take(300) else ""})")
+            if (!r.ok) clearLocked()
         } catch (e: Exception) {
             Logs.w(e)
         }
@@ -140,6 +147,10 @@ object TetherVpn {
     fun start(plan: TunAddressPlan = TunAddressPlan.legacy()) {
         if (!enabled() || watcher?.isAlive == true) return
         val t = Thread({
+            if (!RootShell.isAvailable()) {
+                Logs.w("tethering through VPN needs root; no rules installed")
+                return@Thread
+            }
             while (!Thread.currentThread().isInterrupted) {
                 apply(plan)
                 try { Thread.sleep(3_000) } catch (e: InterruptedException) { break }
