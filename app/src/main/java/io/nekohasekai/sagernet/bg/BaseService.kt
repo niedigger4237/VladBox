@@ -272,6 +272,7 @@ class BaseService {
                 return
             }
             data.restartAfterStop = restart
+            if (this is VpnService) Logs.i("VPN service stop: state=${data.state}, restart=$restart, error=${msg != null}")
             data.networkReconnectJob?.cancel()
             data.networkReconnectJob = null
             if (DataStore.baseService === this) DataStore.baseService = null
@@ -352,11 +353,11 @@ class BaseService {
                     SagerNet.connectivity.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
                 } == true
                 main.post {
-                    if (data.networkListenerKey !== key || data.proxy !== owner || !data.state.canStop || isVpn) return@post
+                    if (data.networkListenerKey !== key || data.proxy !== owner || !data.state.canStop || (ordinaryVpn && isVpn)) return@post
                     if (network == null) {
                         if (ordinaryVpn) {
                             SagerNet.underlyingNetwork = null
-                            DataStore.vpnService?.updateUnderlyingNetwork()
+                            if (data.state == State.Connected) DataStore.vpnService?.updateUnderlyingNetwork()
                             if (previous != null) {
                                 lost = true
                                 Logs.i("VPN reconnect: upstream lost ($previous); waiting for network")
@@ -368,7 +369,7 @@ class BaseService {
                     }
                     val name = link?.interfaceName ?: return@post
                     SagerNet.underlyingNetwork = network
-                    DataStore.vpnService?.updateUnderlyingNetwork()
+                    if (ordinaryVpn && data.state == State.Connected) DataStore.vpnService?.updateUnderlyingNetwork()
                     val oldName = upstreamInterfaceName
                     val oldNetwork = previous
                     val restored = lost
