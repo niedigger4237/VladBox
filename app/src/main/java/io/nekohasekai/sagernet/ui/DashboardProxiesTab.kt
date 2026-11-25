@@ -44,7 +44,7 @@ internal fun DashboardProxiesTab(
                             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                     }
                     if (group != null) {
-                        Column(horizontalAlignment = Alignment.End) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box {
                             TextButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text((if (group.type.equals("URLTest", true) || group.type.equals("Fallback", true)) "Auto" else group.type) + " ▾") }
                             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -110,9 +110,9 @@ private fun ProxyDelay(delay: Int?, showLightning: Boolean = false) {
         else -> MaterialTheme.colorScheme.error
     }
     Surface(color = tint.copy(alpha = .18f), shape = RoundedCornerShape(20.dp)) {
-        Row(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(Modifier.defaultMinSize(minWidth = if (showLightning) 64.dp else 52.dp, minHeight = 24.dp).padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally)) {
             if (showLightning && delay != null && delay > 0) Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_bolt), contentDescription = null, modifier = Modifier.size(14.dp), tint = tint)
-            Text(if (delay != null && delay > 0) "$delay ms" else "—", color = tint, style = MaterialTheme.typography.labelMedium)
+            Text(if (delay != null && delay > 0) "$delay ms" else "—", color = tint, style = MaterialTheme.typography.labelMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 1, softWrap = false)
         }
     }
 }
