@@ -145,15 +145,17 @@ object RootDaemon {
         return interfaceItems(value)
     }
 
-    // Android reports the active downstreams explicitly; never guess from all wlan* devices.
-    internal fun resolveTunDownstreams(requireReliable: Boolean = false): List<String>? {
-        val manual = configuredTunInterfaces()
+    internal data class DownstreamSnapshot(val names: List<String>, val identity: List<String>)
+
+    // Android reports active downstreams explicitly; never guess from all wlan* devices.
+    internal fun resolveDownstreams(mode: Mode, requireReliable: Boolean = false): DownstreamSnapshot? {
+        val manual = if (mode == Mode.TUN) configuredTunInterfaces() else emptyList()
         val selectors = tetherSelectors().toMutableList()
         if (DataStore.tetherWifi) selectors += listOf("swlan+", "wifi+")
         val ignored = ignoredInterfaces()
         fun matches(name: String, selector: String): Boolean =
             if (selector.endsWith("+")) name.startsWith(selector.dropLast(1)) else name == selector
-        if (manual.isEmpty() && selectors.isEmpty()) return emptyList()
+        if (manual.isEmpty() && selectors.isEmpty()) return DownstreamSnapshot(emptyList(), emptyList())
         val shortDump = RootShell.run("dumpsys tethering --short", timeoutMs = 5000)
         val dump = if (shortDump.ok && shortDump.out.contains("TetheredState")) shortDump
             else RootShell.run("dumpsys tethering", timeoutMs = 5000)
@@ -161,7 +163,7 @@ object RootDaemon {
         val routes = RootShell.run("ip -4 route show table all && ip -6 route show table all", timeoutMs = 5000)
         if (!routes.ok) {
             Logs.w("ROOT TUN: cannot verify upstream interfaces; skipping all downstreams for this start")
-            return if (requireReliable) null else emptyList()
+            return if (requireReliable) null else DownstreamSnapshot(emptyList(), emptyList())
         }
         val state = Regex("""^\s*([A-Za-z0-9_.-]{1,15})\s+-\s+TetheredState\s+-\s+lastError\s*=\s*0\s*$""")
         if (requireReliable) {
@@ -183,12 +185,26 @@ object RootDaemon {
         if (!requireReliable) Logs.i("ROOT TUN downstream: active=$active selected=$result upstream=$upstream dumpOk=${dump.ok} routesOk=${routes.ok}")
         if (!dump.ok) Logs.w("ROOT TUN: Android tethering state unavailable; only verified manual downstreams can be used")
         if (!requireReliable && selectors.isNotEmpty() && result.isEmpty()) Logs.i("ROOT TUN: no matching active downstream at startup")
-        return result.sorted()
+        val names = result.sorted()
+        if (names.isEmpty()) return DownstreamSnapshot(names, emptyList())
+        val links = RootShell.run("ip -o link show && ip -4 -o addr show", timeoutMs = 5000)
+        if (!links.ok) return if (requireReliable) null else DownstreamSnapshot(names, emptyList())
+        // Include the ifindex and IPv4 gateway/prefix: Android may recreate ap0 using the same name.
+        val identity = links.out.lineSequence().mapNotNull { line ->
+            val match = Regex("""^\s*(\d+):\s+([A-Za-z0-9_.-]{1,15})(?:@[^\s:]+)?(?::|\s)""").find(line)
+                ?: return@mapNotNull null
+            val name = match.groupValues[2]
+            if (name !in names) return@mapNotNull null
+            val address = Regex("""\binet\s+(\d+\.\d+\.\d+\.\d+/\d+)""").find(line)?.groupValues?.get(1)
+            "${match.groupValues[1]}:$name:${address.orEmpty()}"
+        }.distinct().sorted().toList()
+        if (requireReliable && (names - manual.toSet()).any { name -> identity.none { it.substringAfter(':').substringBefore(':') == name } }) return null
+        return DownstreamSnapshot(names, identity)
     }
 
-    internal fun hasTunTethering(): Boolean = configuredTunInterfaces().isNotEmpty() || tetherSelectors().isNotEmpty()
+    internal fun hasTethering(mode: Mode): Boolean = (mode == Mode.TUN && configuredTunInterfaces().isNotEmpty()) || tetherSelectors().isNotEmpty()
 
-    @Volatile internal var appliedTunDownstreams: List<String>? = null
+    @Volatile internal var appliedDownstreams: DownstreamSnapshot? = null
         private set
 
     internal fun isRunning(): Boolean = PHASE.find(status())?.groupValues?.get(1) == "running"
@@ -198,10 +214,10 @@ object RootDaemon {
                 it.asJsonObject.get("interface_name")?.asString == TUN_DEVICE
         }?.asJsonObject
 
-    private fun withTunDownstreams(json: String): String {
+    private fun withTunDownstreams(json: String, names: List<String>): String {
         val root = com.google.gson.JsonParser.parseString(json).asJsonObject
         val inbound = managedTunInbound(root) ?: return json
-        inbound.add("include_interface", strings(listOf("lo") + resolveTunDownstreams().orEmpty()))
+        inbound.add("include_interface", strings(listOf("lo") + names))
         return gson.toJson(root)
     }
 
@@ -225,7 +241,7 @@ object RootDaemon {
         return names.filter { exactInterface.matches(it) && it !in internalInterfaces }.distinct()
     }
 
-    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String, flowToken: String? = null, matcher: Boolean = false): String {
+    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String, flowToken: String? = null, matcher: Boolean = false, downstreams: List<String>? = null): String {
         val root = JsonObject()
         root.addProperty("schemaVersion", SCHEMA)
         root.addProperty("owner", OWNER)
@@ -254,7 +270,7 @@ object RootDaemon {
             val ignored = if (mode == Mode.TUN) emptyList() else ignoredInterfaces()
             add("ignoredInterfaces", strings(ignored))
             add("virtualInterfaces", strings(if (mode == Mode.TUN2SOCKS) listOf(HEV_TUN_DEVICE) else emptyList()))
-            val shared = if (mode == Mode.TUN) tunInterfacesFromConfig(singBoxConfig) else tetherSelectors()
+            val shared = if (mode == Mode.TUN) tunInterfacesFromConfig(singBoxConfig) else downstreams ?: tetherSelectors()
             add("hotspotInterfaces", strings(shared.also { Logs.i("hotspotInterfaces: $it") }))
             add("proxyPrivateCidrs", strings(emptyList()))
             // as in AsteriskBOX: private/local ranges are never captured, otherwise hotspot clients lose DHCP/gateway
@@ -416,8 +432,11 @@ object RootDaemon {
         val useFlow = managed && core.bundled && DataStore.rootFlowMetadata &&
             mode in listOf(Mode.TUN2SOCKS, Mode.BPF2SOCKS)
         val flowToken = if (useFlow) newFlowToken() else null
+        val dynamicDownstreams = if (managed && (mode != Mode.TUN ||
+            managedTunInbound(com.google.gson.JsonParser.parseString(singBoxConfig).asJsonObject) != null))
+            resolveDownstreams(mode) else null
         val effectiveConfig = when {
-            managed && mode == Mode.TUN -> withTunDownstreams(singBoxConfig)
+            managed && mode == Mode.TUN -> withTunDownstreams(singBoxConfig, dynamicDownstreams?.names.orEmpty())
             flowToken != null -> withFlowMetadata(singBoxConfig, flowToken)
             else -> singBoxConfig
         }
@@ -425,7 +444,7 @@ object RootDaemon {
         val useMatcher = matcherAvailable(mode, ipv6)
         val cfg = File(stage, "config.json").apply { writeText(withLogFile(effectiveConfig)) }
         val dcfg = File(stage, "asteriskd.json").apply {
-            writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher))
+            writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, dynamicDownstreams?.names))
         }
         mark("generate configs")
         try {
@@ -476,9 +495,7 @@ object RootDaemon {
             val phase = PHASE.find(st)?.groupValues?.get(1)
             if (phase == "running") {
                 mark("wait for readiness")
-                appliedTunDownstreams = if (managed && mode == Mode.TUN &&
-                    managedTunInbound(com.google.gson.JsonParser.parseString(effectiveConfig).asJsonObject) != null)
-                    tunInterfacesFromConfig(effectiveConfig).sorted() else null
+                appliedDownstreams = dynamicDownstreams
                 startLogForward()
                 return null
             }
@@ -517,7 +534,7 @@ object RootDaemon {
 
     /** Ends the cycle and the supervisor; it removes its own rules/routes/devices first. */
     fun shutdown() {
-        appliedTunDownstreams = null
+        appliedDownstreams = null
         stopLogForward()
         RootShell.run("${RootShell.q(binary)} shutdown >/dev/null 2>&1; true", timeoutMs = 20_000)
         // belt and braces: a wedged supervisor must not keep the rules
