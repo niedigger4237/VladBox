@@ -29,8 +29,8 @@ object RootClashApi {
     var viaRoot = false
 
     private fun rootScript(path: String, seconds: Int): String =
-        "if command -v curl >/dev/null 2>&1; then curl -s -N -m $seconds ${RootShell.q("$BASE$path")}; else " +
-            "(printf 'GET $path HTTP/1.0\\r\\nHost: 127.0.0.1\\r\\n\\r\\n'; sleep $seconds) | nc 127.0.0.1 $PORT; fi"
+        "if command -v curl >/dev/null 2>&1; then curl -s -N -H ${RootShell.q("Authorization: Bearer " + ClashApiSecret.value)} -m $seconds ${RootShell.q("$BASE$path")}; else " +
+            "(printf 'GET $path HTTP/1.0\\r\\nHost: 127.0.0.1\\r\\nAuthorization: Bearer ${ClashApiSecret.value}\\r\\n\\r\\n'; sleep $seconds) | nc 127.0.0.1 $PORT; fi"
 
     private fun rootGet(path: String, seconds: Int): String {
         // read until nc/curl closes stdout (the helper `sleep` keeps the shell alive longer, so don't wait for su itself)
@@ -67,6 +67,7 @@ object RootClashApi {
         val u = "$BASE/proxies/$TAG_PROXY/delay?url=" + URLEncoder.encode(url, "UTF-8") + "&timeout=$timeoutMs"
         val c = URL(u).openConnection() as HttpURLConnection
         try {
+            c.setRequestProperty("Authorization", "Bearer " + ClashApiSecret.value)
             c.connectTimeout = 3000
             c.readTimeout = timeoutMs + 3000
             val body = (if (c.responseCode in 200..299) c.inputStream else c.errorStream)
@@ -110,6 +111,7 @@ object RootClashApi {
     private fun streamTrafficDirect(onSample: (up: Long, down: Long) -> Unit) {
         val c = URL("$BASE/traffic").openConnection() as HttpURLConnection
         try {
+            c.setRequestProperty("Authorization", "Bearer " + ClashApiSecret.value)
             c.connectTimeout = 2000
             c.readTimeout = 15000
             c.inputStream.bufferedReader().use { r ->
