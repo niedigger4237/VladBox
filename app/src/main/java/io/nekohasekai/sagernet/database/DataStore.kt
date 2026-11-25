@@ -112,9 +112,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var rootTunInterfaces by configurationStore.string("rootTunInterfaces") { "" }
     var rootTunBypassRuleSets by configurationStore.string("rootTunBypassRuleSets") { "" }
     var rootIgnoredInterfaces by configurationStore.string("rootIgnoredInterfaces") { "" }
-    var rootDisableSystemIpv6 by configurationStore.boolean("rootDisableSystemIpv6")
-    var rootHevMultiQueue by configurationStore.boolean("rootHevMultiQueue")
-    var rootHevTcpFastOpen by configurationStore.boolean("rootHevTcpFastOpen")
+    var rootDisableSystemIpv6 by configurationStore.boolean("rootDisableSystemIpv6") { true }
+    var rootHevMultiQueue by configurationStore.boolean("rootHevMultiQueue") { true }
+    var rootHevTcpFastOpen by configurationStore.boolean("rootHevTcpFastOpen") { true }
     var rootTproxyPort by configurationStore.stringToInt(Key.ROOT_TPROXY_PORT) { 9898 }
 
     var trafficSniffing by configurationStore.stringToInt(Key.TRAFFIC_SNIFFING) { 1 }

@@ -71,9 +71,9 @@ fun buildSettingsTree(manager: PreferenceManager): PreferenceScreen {
         addPreference(EditTextPreference(ctx).apply { key = "tetherCustom"; setTitle(R.string.tether_custom); setSummary(R.string.tether_custom_sum) })
     }
     category(R.string.root_settings) {
-        addPreference(SwitchPreference(ctx).apply { key = "rootDisableSystemIpv6"; setTitle(R.string.root_disable_ipv6); setSummary(R.string.root_disable_ipv6_sum); setDefaultValue(false) })
-        addPreference(SwitchPreference(ctx).apply { key = "rootHevMultiQueue"; setTitle(R.string.root_hev_multiqueue); setDefaultValue(false) })
-        addPreference(SwitchPreference(ctx).apply { key = "rootHevTcpFastOpen"; setTitle(R.string.root_hev_tfo); setDefaultValue(false) })
+        addPreference(SwitchPreference(ctx).apply { key = "rootDisableSystemIpv6"; setTitle(R.string.root_disable_ipv6); setSummary(R.string.root_disable_ipv6_sum); setDefaultValue(true) })
+        addPreference(SwitchPreference(ctx).apply { key = "rootHevMultiQueue"; setTitle(R.string.root_hev_multiqueue); setDefaultValue(true) })
+        addPreference(SwitchPreference(ctx).apply { key = "rootHevTcpFastOpen"; setTitle(R.string.root_hev_tfo); setDefaultValue(true) })
         addPreference(Preference(ctx).apply { key = "serviceControl"; setTitle(R.string.service_control); setSummary(R.string.service_control_sum) })
         addPreference(SwitchPreference(ctx).apply { key = "startOnBoot"; setTitle(R.string.start_on_boot); setSummary(R.string.start_on_boot_sum); setDefaultValue(false) })
         addPreference(Preference(ctx).apply { key = "rootCoreUpdate"; setTitle(R.string.root_core_update) })
