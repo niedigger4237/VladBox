@@ -7,7 +7,7 @@ import java.net.InetAddress
 /** Optional NAT66 routing. Failure leaves the independent IPv6 guard in place. */
 internal object TetherIpv6 {
     data class Down(val name: String, val subnet: String)
-    data class Rules(val up: String, val down: List<Down>, val dns: String, val table: Int, val pref: Int, val suffix: String) {
+    data class Rules(val up: String, val down: List<Down>, val dns: String, val table: Int, val pref: Int, val suffix: String, val tunAddress: String) {
         val forward get() = "NFV6_F_$suffix"
         val prerouting get() = "NFV6_D_$suffix"
         val postrouting get() = "NFV6_N_$suffix"
@@ -93,11 +93,13 @@ internal object TetherIpv6 {
         val rules = RootShell.run("ip -6 rule show", timeoutMs = 5000)
         val routes = RootShell.run("ip -6 route show table ${r.table}", timeoutMs = 5000)
         val absent = !routes.ok && (routes.err + routes.out).contains("FIB table does not exist", true)
-        return filter.ok && nat.ok && rules.ok && (routes.ok || absent) &&
+        val clean = filter.ok && nat.ok && rules.ok && (routes.ok || absent) &&
             listOf(r.forward, r.prerouting, r.postrouting).none { it in filter.out || it in nat.out } &&
             rules.out.lineSequence().none {
                 val pref = it.substringBefore(':').trim().toIntOrNull()
                 (pref == r.pref || pref == r.pref - 1) && Regex("""\blookup\s+${r.table}\b""").containsMatchIn(it)
             } && routes.out.isBlank()
+        if (clean) TetherConntrack.clear("ipv6", r.down.map { it.subnet }, r.tunAddress, r.dns)
+        return clean
     }
 }
