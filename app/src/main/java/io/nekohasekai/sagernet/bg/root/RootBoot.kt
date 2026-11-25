@@ -6,7 +6,7 @@ import java.io.File
 
 /**
  * «Запуск при загрузке»: скрипт в /data/adb/service.d (Magisk / KernelSU) запускает `asteriskd boot`
- * с последним конфигом. Путь к нативным библиотекам приложения меняется при обновлении, поэтому
+ * с отдельным подтверждённым загрузочным конфигом. Путь к нативным библиотекам приложения меняется при обновлении, поэтому
  * при включённой опции asteriskd, помощники и встроенное ядро копируются в [BIN].
  */
 object RootBoot {
@@ -42,12 +42,13 @@ object RootBoot {
 
     private fun script(): String = """#!/system/bin/sh
 # NieFigger Hub: root service at boot (written by the app, do not edit)
+umask 077
 BASE=${RootCore.BASE}
 until [ "${'$'}(getprop sys.boot_completed)" = "1" ]; do sleep 2; done
 sleep 5
-[ -f "${'
-mkdir -p "${'$'}BASE/run/logs"
-nohup "${' </dev/null >"${'$'}BASE/run/logs/boot.out" 2>&1 &
+[ -f "${'$'}BASE/boot/ready" ] && [ -f "${'$'}BASE/boot/asteriskd.json" ] && [ -f "${'$'}BASE/boot/config.json" ] || exit 0
+mkdir -p "${'$'}BASE/run/logs" || exit 1
+nohup "${'$'}BASE/bin/libasteriskd.so" boot --config "${'$'}BASE/boot/asteriskd.json" </dev/null >"${'$'}BASE/run/logs/boot.out" 2>&1 &
 """
 
     private fun installScript(): String? {
