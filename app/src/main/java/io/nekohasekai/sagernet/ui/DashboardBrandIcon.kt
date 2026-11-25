@@ -15,6 +15,11 @@ import kotlinx.coroutines.withContext
 import com.caverock.androidsvg.SVG
 
 private val serviceDomains = listOf(
+    "vk" to listOf("vk.com", "vk.ru", "vkontakte.ru", "vkuseraudio.net", "vkuser.net"),
+    "mail-ru" to listOf("mail.ru", "mycdn.me"),
+    "battle-net" to listOf("battle.net", "blizzard.com", "blzstatic.cn"),
+    "qobuz" to listOf("qobuz.com"),
+    "rutube" to listOf("rutube.ru"),
     "messenger" to listOf("messenger.com", "m.me"),
     "youtube" to listOf("youtube.com", "youtu.be", "googlevideo.com", "ytimg.com"),
     "gmail" to listOf("mail.google.com", "gmail.com"),
