@@ -551,6 +551,7 @@ object RootDaemon {
         if (mode == Mode.TUN2SOCKS && !File(libDir, "libhevtun.so").isFile) return "libhevtun.so (hev-socks5-tunnel) is not part of this build"
         if (mode == Mode.BPF2SOCKS && !File(libDir, "libbpf2socks.so").isFile) return "libbpf2socks.so is not part of this build"
 
+        if (!RootBoot.quiesceMonitor()) return "Autonomous ROOT monitor did not release ownership"
         RootBoot.stage()?.let { return it }
         mark("boot staging")
         // Never replace a live supervisor's configuration or truncate its logs.
@@ -660,17 +661,40 @@ object RootDaemon {
                         addProperty("coreConfigPath", RootBoot.bootCoreConfigPath)
                     }
                     val bootPolicy = if (managed) buildString {
+                        appendLine("mode ${mode.wire}")
+                        appendLine("ipv6 ${if (ipv6) 1 else 0}")
+                        appendLine("block6 ${if (!ipv6 && DataStore.rootDisableSystemIpv6) 1 else 0}")
                         val selectors = tetherSelectors() + if (DataStore.tetherWifi) listOf("swlan+", "wifi+") else emptyList()
                         (selectors + if (mode == Mode.TUN) configuredTunInterfaces() else emptyList())
                             .filter { interfaceSelector.matches(it) && it.removeSuffix("+") !in internalInterfaces }
                             .distinct().forEach { appendLine("select $it") }
                         ignoredInterfaces().forEach { appendLine("ignore $it") }
                     } else null
-                    val bootError = runCatching { RootBoot.publish(withLogFile(bootCore), gson.toJson(bootDaemon), bootPolicy) }
+                    // Marker strings are inserted structurally and replaced only by
+                    // validated kernel-derived values by the boot monitor.
+                    val templateCore = if (managed && mode == Mode.TUN) {
+                        val json = com.google.gson.JsonParser.parseString(withLogFile(bootCore)).asJsonObject
+                        managedTunInbound(json)?.let { inbound ->
+                            inbound.add("include_interface", strings(listOf("lo", "__NF_BOOT_IFACES__")))
+                            val old = inbound.get("route_exclude_address")?.let {
+                                if (it.isJsonArray) it.asJsonArray.map { item -> item.asString } else listOf(it.asString)
+                            }.orEmpty()
+                            inbound.add("route_exclude_address", strings(old + "__NF_BOOT_LOCAL__"))
+                            gson.toJson(json)
+                        }
+                    } else null
+                    val templateDaemon = if (templateCore != null) bootDaemon.deepCopy().apply {
+                        addProperty("coreConfigPath", RootBoot.runtimeBootCorePath)
+                        getAsJsonObject("network").add("hotspotInterfaces", strings(listOf("__NF_BOOT_IFACES__")))
+                    } else null
+                    val bootError = runCatching {
+                        RootBoot.publish(withLogFile(bootCore), gson.toJson(bootDaemon), bootPolicy,
+                            templateCore, templateDaemon?.let { gson.toJson(it) })
+                    }
                         .getOrElse { it.message ?: "boot snapshot write failed" }
                     bootError?.let { Logs.w("ROOT boot: snapshot not published: $it") }
                     if (managed && mode == Mode.TUN)
-                        Logs.i("ROOT boot: managed TUN snapshot is phone-only; dynamic native tethering pending")
+                        Logs.i("ROOT boot: managed TUN snapshot starts phone-only; autonomous templates published")
                 }
                 appliedDownstreams = dynamicDownstreams
                 startLogForward(mode)
@@ -725,6 +749,7 @@ object RootDaemon {
      */
     @Synchronized
     private fun shutdownVerified(): Boolean {
+        if (!RootBoot.quiesceMonitor()) return false
         appliedDownstreams = null
         stopTunDiagnostics()
         stopLogForward()
@@ -741,7 +766,7 @@ object RootDaemon {
             return false
         }
         val owned = RootShell.run(
-            "tr '\\000' '\\n' </proc/$pid/cmdline | grep -Fx -e ${RootShell.q(daemonConfigPath)} -e ${RootShell.q(RootBoot.bootConfigPath)} >/dev/null",
+            "tr '\\000' '\\n' </proc/$pid/cmdline | grep -Fx -e ${RootShell.q(daemonConfigPath)} -e ${RootShell.q(RootBoot.bootConfigPath)} -e ${RootShell.q(RootBoot.runtimeBootConfigPath)} >/dev/null",
             timeoutMs = 3000
         )
         if (!owned.ok) {
