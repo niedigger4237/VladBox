@@ -436,11 +436,20 @@ object TetherVpn {
         if (token != generation) return
         val stopped = ++generation
         stopMonitor()
-        worker.execute {
-            if (stopped == generation && !(clearLocked() && guard.clear())) {
-                // Retain the failed transaction and retry on the same worker, never a newer session.
-                worker.schedule({ if (stopped == generation && clearLocked()) guard.clear() }, 3, TimeUnit.SECONDS)
-            }
+        worker.execute { finishStop(stopped, 0) }
+    }
+
+    private fun finishStop(token: Long, attempt: Int) {
+        if (token != generation) return
+        if (clearLocked() && guard.clear()) {
+            Logs.i("VPN tether: previous session routes and guards cleared")
+            return
         }
+        if (token != generation) return
+        val delays = longArrayOf(1, 3, 6, 12)
+        if (attempt < delays.size) {
+            Logs.w("VPN tether: teardown incomplete, retrying in ${delays[attempt]} s")
+            worker.schedule({ finishStop(token, attempt + 1) }, delays[attempt], TimeUnit.SECONDS)
+        } else Logs.w("VPN tether: teardown not confirmed; retained owned state for next session")
     }
 }
