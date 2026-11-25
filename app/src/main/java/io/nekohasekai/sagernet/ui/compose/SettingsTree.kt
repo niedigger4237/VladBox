@@ -20,6 +20,16 @@ fun buildSettingsTree(manager: PreferenceManager): PreferenceScreen {
     category(R.string.cat_service) {
         addPreference(SimpleMenuPreference(ctx).apply { key = "serviceMode"; setTitle(R.string.service_mode); setEntries(R.array.service_modes); setEntryValues(R.array.service_mode_values); setDefaultValue("vpn"); summaryProvider = ListPreference.SimpleSummaryProvider.getInstance() })
         addPreference(SimpleMenuPreference(ctx).apply { key = "tunImplementation"; setTitle(R.string.tun_implementation); setEntries(R.array.tun_implementation); setEntryValues(R.array.int_array_3); setDefaultValue("0"); summaryProvider = ListPreference.SimpleSummaryProvider.getInstance() })
+        addPreference(SimpleMenuPreference(ctx).apply {
+            key = "tunAddressMode"
+            setTitle(R.string.tun_address_mode)
+            entries = arrayOf(ctx.getString(R.string.tun_address_automatic), ctx.getString(R.string.tun_address_manual))
+            entryValues = arrayOf("automatic", "manual")
+            setDefaultValue("automatic")
+            summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
+        })
+        addPreference(EditTextPreference(ctx).apply { key = "tunIpv4Subnet"; setTitle(R.string.tun_ipv4_subnet); setDefaultValue("172.19.0.0/28"); summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance() })
+        addPreference(EditTextPreference(ctx).apply { key = "tunIpv6Subnet"; setTitle(R.string.tun_ipv6_subnet); setDefaultValue("fdfe:dcba:9876::/126"); summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance() })
         addPreference(MTUPreference(ctx).apply { key = "mtu"; setTitle(R.string.mtu); setEntries(R.array.mtu_select); setEntryValues(R.array.mtu_select); setDefaultValue("9000") })
         addPreference(SimpleMenuPreference(ctx).apply { key = "ipv6Mode"; setTitle(R.string.ipv6); setEntries(R.array.ipv6_mode); setEntryValues(R.array.int_array_4); setDefaultValue("0"); summaryProvider = ListPreference.SimpleSummaryProvider.getInstance() })
         addPreference(Preference(ctx).apply { key = "proxyApps"; setTitle(R.string.proxied_apps); setSummary(R.string.proxied_apps_summary) })
