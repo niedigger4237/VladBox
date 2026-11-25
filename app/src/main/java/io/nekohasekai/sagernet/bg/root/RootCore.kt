@@ -27,6 +27,7 @@ object RootCore {
     private const val CORES = "$BASE/cores"
     private const val CURRENT = "$BASE/current"
     private const val PREVIOUS = "$BASE/previous"
+    private const val EXTERNAL_OPT_IN = "$BASE/external-opt-in-v1"
     private const val KEEP = 3
 
     private const val REPO = "shtorm-7/sing-box-extended"
@@ -52,6 +53,10 @@ object RootCore {
         return r.out.trim().takeIf { r.ok && it.isNotEmpty() }
     }
 
+    fun selectedLabel(): String = resolve()?.let { if (it.bundled) "Bundled (patched)" else "External: ${it.label}" } ?: "Unavailable"
+
+    fun fingerprint(binary: String): String = RootShell.run("sha256sum ${RootShell.q(binary)}").out.trim().substringBefore(" ").ifBlank { "unavailable" }
+
     fun installedLabels(): List<String> =
         RootShell.run("ls -1 $CORES 2>/dev/null").out.lines().map { it.trim() }.filter { it.isNotEmpty() }
 
@@ -62,7 +67,7 @@ object RootCore {
 
     /** Resolves the binary to run, falling back to the bundled one when the active core is unusable. */
     fun resolve(): Active? {
-        activeLabel()?.let { label ->
+        activeLabel()?.takeIf { RootShell.run("test -f $EXTERNAL_OPT_IN").ok }?.let { label ->
             val path = "$CORES/$label/sing-box"
             if (versionOf(path) != null) return Active(path, label, false)
             Logs.w("active core $label is broken, falling back to the bundled core")
@@ -97,6 +102,7 @@ object RootCore {
             "rm -rf $final && mv $stage $final",
             // atomic switch: rename(2) over a regular file
             "echo ${RootShell.q(safe)} > $CURRENT.tmp && mv -f $CURRENT.tmp $CURRENT",
+            "touch $EXTERNAL_OPT_IN",
             if (prev != null && prev != safe) "echo ${RootShell.q(prev)} > $PREVIOUS.tmp && mv -f $PREVIOUS.tmp $PREVIOUS" else "true",
             timeoutMs = 60_000
         )
@@ -117,12 +123,13 @@ object RootCore {
         val cur = activeLabel()
         return RootShell.run(
             "echo ${RootShell.q(prev)} > $CURRENT.tmp && mv -f $CURRENT.tmp $CURRENT",
+            "touch $EXTERNAL_OPT_IN",
             if (cur != null) "echo ${RootShell.q(cur)} > $PREVIOUS.tmp && mv -f $PREVIOUS.tmp $PREVIOUS" else "true"
         ).ok
     }
 
     /** Back to the core shipped with the app. */
-    fun useBundled() = RootShell.run("rm -f $CURRENT").ok
+    fun useBundled() = RootShell.run("rm -f $EXTERNAL_OPT_IN").ok
 
     private fun prune(keep: Set<String>) {
         val all = installedLabels()
