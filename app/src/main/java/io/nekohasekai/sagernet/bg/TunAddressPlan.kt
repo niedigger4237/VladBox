@@ -39,6 +39,17 @@ data class TunAddressPlan(
             return true
         }
 
+        /** Called when an active downstream acquires a new prefix after VPN startup. */
+        internal fun intersects(ip: String, bits: Int, cidr: String): Boolean {
+            val parts = cidr.split('/')
+            require(parts.size == 2)
+            val address = InetAddress.getByName(ip)
+            val other = InetAddress.getByName(parts[0])
+            val otherBits = parts[1].toInt()
+            require(bits in 0..address.address.size * 8 && otherBits in 0..other.address.size * 8)
+            return overlaps(Prefix(address, bits), Prefix(other, otherBits))
+        }
+
         const val DEFAULT_IPV4_SUBNET = "172.19.0.0/28"
         const val DEFAULT_IPV6_SUBNET = "fdfe:dcba:9876::/126"
 
