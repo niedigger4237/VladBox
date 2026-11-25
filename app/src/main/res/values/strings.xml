@@ -710,4 +710,8 @@
     <string name="root_disable_ipv6_sum">When IPv6 is disabled in service settings, also disable system IPv6 during ROOT operation. May affect other apps and tethered clients.</string>
     <string name="root_hev_multiqueue">HEV Multi Queue</string>
     <string name="root_hev_tfo">HEV TCP Fast Open</string>
+    <string name="root_flow_metadata">Flow Metadata</string>
+    <string name="root_flow_metadata_sum">Preserve original source addresses and available app UIDs in bundled ROOT helper modes.</string>
+    <string name="root_ebpf_matcher">eBPF matcher</string>
+    <string name="root_ebpf_matcher_sum">Use kernel-level app filtering when supported, otherwise use iptables.</string>
 </resources>

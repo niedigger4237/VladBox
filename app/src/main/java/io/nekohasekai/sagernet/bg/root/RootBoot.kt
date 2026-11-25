@@ -21,7 +21,7 @@ object RootBoot {
     /** copies the executables (called on every start while the option is on) */
     fun stage() {
         if (!DataStore.configurationStore.getBoolean("startOnBoot", false)) return
-        val names = listOf("libasteriskd.so", "libhevtun.so", "libbpf2socks.so", "libsingbox.so")
+        val names = listOf("libasteriskd.so", "libhevtun.so", "libbpf2socks.so", "libbpf-matcher.so", "libsingbox.so")
         val cmds = mutableListOf("mkdir -p ${RootShell.q(BIN)}")
         for (n in names) {
             val src = File(libDir, n)

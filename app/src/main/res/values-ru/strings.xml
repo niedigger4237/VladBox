@@ -610,4 +610,8 @@
     <string name="root_disable_ipv6_sum">Если IPv6 отключён в настройках сервиса, также отключать системный IPv6 во время ROOT. Может влиять на другие приложения и клиентов раздачи.</string>
     <string name="root_hev_multiqueue">HEV Multi Queue</string>
     <string name="root_hev_tfo">HEV TCP Fast Open</string>
+    <string name="root_flow_metadata">Flow Metadata</string>
+    <string name="root_flow_metadata_sum">Сохранять исходные адреса и доступные UID приложений во встроенных ROOT-режимах с помощниками.</string>
+    <string name="root_ebpf_matcher">eBPF matcher</string>
+    <string name="root_ebpf_matcher_sum">Фильтрация приложений в ядре при наличии поддержки, иначе через iptables.</string>
 </resources>

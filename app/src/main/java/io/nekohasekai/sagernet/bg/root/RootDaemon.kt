@@ -38,6 +38,42 @@ object RootDaemon {
     val hevBinary: File get() = RootBoot.exec(File(libDir, "libhevtun.so"))
     val bpfBinary: File get() = RootBoot.exec(File(libDir, "libbpf2socks.so"))
     const val HEV_TUN_DEVICE = "hevtun0"
+    private val matcherBinary: File get() = RootBoot.exec(File(libDir, "libbpf-matcher.so"))
+    private const val FLOW_USERNAME = "__asterisk_flow_v1"
+
+    private fun matcherAvailable(mode: Mode, ipv6: Boolean): Boolean {
+        if (!DataStore.rootEbpfMatcher || mode !in listOf(Mode.TPROXY, Mode.TUN2SOCKS)) return false
+        // Isolated probe directory; never remove a supervisor-owned BPF object.
+        val result = RootShell.run(
+            "d=$(mktemp -d /sys/fs/bpf/niefigger_probe_XXXXXX) || exit 1; " +
+                "trap 'rmdir \\"\$d\\" 2>/dev/null' EXIT; " +
+                "${RootShell.q(matcherBinary)} --probe --json --bpf-dir \"\$d\" --ipv6 ${if (ipv6) 1 else 0}",
+            timeoutMs = 8_000
+        )
+        Logs.i(if (result.ok) "ROOT eBPF matcher: enabled" else "ROOT eBPF matcher: unavailable; using iptables")
+        return result.ok
+    }
+
+    // Only managed, bundled helper sessions opt in. Raw/external cores retain normal SOCKS5.
+    private fun withFlowMetadata(json: String, token: String): String {
+        val root = com.google.gson.JsonParser.parseString(json).asJsonObject
+        val inbound = root.getAsJsonArray("inbounds").firstOrNull {
+            it.isJsonObject && it.asJsonObject.get("tag")?.asString == "socks-in"
+        }?.asJsonObject ?: error("Managed SOCKS helper inbound is missing")
+        require(inbound.get("type")?.asString == "socks" &&
+            inbound.get("listen")?.asString == "127.0.0.1" &&
+            inbound.get("listen_port")?.asInt == DataStore.socksPort) { "Invalid private SOCKS helper inbound" }
+        inbound.add("users", JsonArray().apply {
+            add(JsonObject().apply {
+                addProperty("username", FLOW_USERNAME)
+                addProperty("password", token)
+            })
+        })
+        return gson.toJson(root)
+    }
+
+    private fun newFlowToken(): String = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+        .joinToString("") { "%02x".format(it.toInt() and 255) }
 
     private val PHASE = Regex("\"phase\"\\s*:\\s*\"([a-z-]+)\"")
     private val gson = GsonBuilder().serializeNulls().setPrettyPrinting().create()
@@ -125,7 +161,7 @@ object RootDaemon {
         return names.filter { exactInterface.matches(it) && it !in internalInterfaces }.distinct()
     }
 
-    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String): String {
+    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String, flowToken: String? = null, matcher: Boolean = false): String {
         val root = JsonObject()
         root.addProperty("schemaVersion", SCHEMA)
         root.addProperty("owner", OWNER)
@@ -176,13 +212,16 @@ object RootDaemon {
             if (mode == Mode.TPROXY) addProperty("transparentPort", tproxyPort) else add("transparentPort", JsonNull.INSTANCE)
             if (mode == Mode.TUN) addProperty("tunnelName", TUN_DEVICE) else add("tunnelName", JsonNull.INSTANCE)
         })
-        root.add("matcher", JsonNull.INSTANCE)
+        root.add("matcher", if (matcher) JsonObject().apply {
+            addProperty("executablePath", matcherBinary.absolutePath)
+        } else JsonNull.INSTANCE)
         root.add("helper", when (mode) {
             Mode.TUN2SOCKS -> JsonObject().apply {
                 addProperty("type", "hev-socks5-tunnel")
                 addProperty("executablePath", hevBinary.absolutePath)
                 addProperty("socksHost", "127.0.0.1")
                 addProperty("socksPort", DataStore.socksPort)
+                if (flowToken != null) addProperty("flowMetadataToken", flowToken)
                 addProperty("tunnelName", HEV_TUN_DEVICE)
                 addProperty("mtu", DataStore.mtu.coerceIn(1280, 65535))
                 addProperty("ipv4Address", "198.18.0.1")
@@ -199,6 +238,7 @@ object RootDaemon {
                 addProperty("bridgePort", DataStore.bpfBridgePort)
                 addProperty("socksHost", "127.0.0.1")
                 addProperty("socksPort", DataStore.socksPort)
+                if (flowToken != null) addProperty("flowMetadataToken", flowToken)
                 addProperty("workerCount", 0)
                 addProperty("tcpBufferSize", 0)
                 addProperty("maxTcpSessions", 4096)
@@ -293,7 +333,7 @@ object RootDaemon {
      * Writes the configs, starts asteriskd and waits until the core is up.
      * @return null on success, otherwise a readable error
      */
-    fun start(mode: Mode, core: RootCore.Active, singBoxConfig: String, tproxyPort: Int, ipv6: Boolean): String? {
+    fun start(mode: Mode, core: RootCore.Active, singBoxConfig: String, tproxyPort: Int, ipv6: Boolean, managed: Boolean = false): String? {
         val startedAt = SystemClock.elapsedRealtime()
         var lastMark = startedAt
         fun mark(stage: String) {
@@ -308,8 +348,16 @@ object RootDaemon {
         RootBoot.stage()
         mark("boot staging")
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
-        val cfg = File(stage, "config.json").apply { writeText(withLogFile(singBoxConfig)) }
-        val dcfg = File(stage, "asteriskd.json").apply { writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, singBoxConfig)) }
+        val useFlow = managed && core.bundled && DataStore.rootFlowMetadata &&
+            mode in listOf(Mode.TUN2SOCKS, Mode.BPF2SOCKS)
+        val flowToken = if (useFlow) newFlowToken() else null
+        val effectiveConfig = if (flowToken != null) withFlowMetadata(singBoxConfig, flowToken) else singBoxConfig
+        if (useFlow) Logs.i("ROOT flow metadata: enabled")
+        val useMatcher = matcherAvailable(mode, ipv6)
+        val cfg = File(stage, "config.json").apply { writeText(withLogFile(effectiveConfig)) }
+        val dcfg = File(stage, "asteriskd.json").apply {
+            writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher))
+        }
         mark("generate configs")
         try {
             val prep = RootShell.run(
@@ -318,7 +366,7 @@ object RootDaemon {
                 "rm -f ${RootShell.q(runDir)}/geoip.db ${RootShell.q(runDir)}/geosite.db",
                 "cp -f ${RootShell.q(cfg)} ${RootShell.q(configPath)} && chmod 600 ${RootShell.q(configPath)}",
                 "cp -f ${RootShell.q(dcfg)} ${RootShell.q(daemonConfigPath)} && chmod 600 ${RootShell.q(daemonConfigPath)}",
-                "chmod 755 ${RootShell.q(binary)} ${RootShell.q(hevBinary)} ${RootShell.q(bpfBinary)} 2>/dev/null; true",
+                "chmod 755 ${RootShell.q(binary)} ${RootShell.q(hevBinary)} ${RootShell.q(bpfBinary)} ${RootShell.q(matcherBinary)} 2>/dev/null; true",
             )
             if (!prep.ok) return prep.err.ifBlank { "cannot prepare $runDir" }
         } finally {

@@ -246,7 +246,7 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
         }
         for (k in listOf("tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet", "tetherCustom",
             "rootTunInterfaces", "rootTunBypassRuleSets", "rootIgnoredInterfaces", "rootDisableSystemIpv6",
-            "rootHevMultiQueue", "rootHevTcpFastOpen")) {
+            "rootHevMultiQueue", "rootHevTcpFastOpen", "rootFlowMetadata", "rootEbpfMatcher")) {
             findPreference<Preference>(k)!!.onPreferenceChangeListener = reloadListener
         }
         findPreference<Preference>("serviceControl")!!.setOnPreferenceClickListener {

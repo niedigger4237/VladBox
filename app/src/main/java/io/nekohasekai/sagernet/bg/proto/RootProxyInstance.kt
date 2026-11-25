@@ -49,13 +49,14 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
             else -> RootDaemon.Mode.TUN
         }
         val ipv6 = DataStore.ipv6Mode != io.nekohasekai.sagernet.IPv6Mode.DISABLE
-        var err = RootDaemon.start(mode, core, config.config, DataStore.rootTproxyPort, ipv6)
+        val managed = !profile.isRawCoreConfig()
+        var err = RootDaemon.start(mode, core, config.config, DataStore.rootTproxyPort, ipv6, managed)
         if (err != null && !core.bundled && RootCore.bundled.exists()) {
             // an installed (unpatched / incompatible) core must not leave the user without root mode
             Logs.w("core ${core.label} failed: $err\nretrying with the bundled core")
             err = RootDaemon.start(
                 mode, RootCore.Active(RootCore.bundled.absolutePath, "bundled", true),
-                config.config, DataStore.rootTproxyPort, ipv6
+                config.config, DataStore.rootTproxyPort, ipv6, managed
             )
         }
         if (err != null) throw IllegalStateException(err)

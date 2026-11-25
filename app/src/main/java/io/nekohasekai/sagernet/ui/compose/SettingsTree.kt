@@ -71,6 +71,8 @@ fun buildSettingsTree(manager: PreferenceManager): PreferenceScreen {
         addPreference(EditTextPreference(ctx).apply { key = "tetherCustom"; setTitle(R.string.tether_custom); setSummary(R.string.tether_custom_sum) })
     }
     category(R.string.root_settings) {
+        addPreference(SwitchPreference(ctx).apply { key = "rootFlowMetadata"; setTitle(R.string.root_flow_metadata); setSummary(R.string.root_flow_metadata_sum); setDefaultValue(true) })
+        addPreference(SwitchPreference(ctx).apply { key = "rootEbpfMatcher"; setTitle(R.string.root_ebpf_matcher); setSummary(R.string.root_ebpf_matcher_sum); setDefaultValue(true) })
         addPreference(SwitchPreference(ctx).apply { key = "rootDisableSystemIpv6"; setTitle(R.string.root_disable_ipv6); setSummary(R.string.root_disable_ipv6_sum); setDefaultValue(true) })
         addPreference(SwitchPreference(ctx).apply { key = "rootHevMultiQueue"; setTitle(R.string.root_hev_multiqueue); setDefaultValue(true) })
         addPreference(SwitchPreference(ctx).apply { key = "rootHevTcpFastOpen"; setTitle(R.string.root_hev_tfo); setDefaultValue(true) })
