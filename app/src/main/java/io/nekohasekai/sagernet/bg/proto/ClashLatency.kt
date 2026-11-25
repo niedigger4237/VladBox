@@ -22,9 +22,9 @@ internal fun io.nekohasekai.sagernet.database.ProxyEntity.isRawCoreConfig(): Boo
 
 internal suspend fun clashDelay(tag: String = TAG_PROXY, url: String = DataStore.connectionTestURL): Int {
     require(url.startsWith("https://", true) || url.startsWith("http://", true)) { "Invalid connection test URL" }
-    val result = kotlinx.coroutines.withTimeout(LATENCY_REQUEST_TIMEOUT_MS) {
+    val result = kotlinx.coroutines.withTimeoutOrNull(LATENCY_REQUEST_TIMEOUT_MS) {
         clashRequest("proxies/" + Uri.encode(tag) + "/delay?timeout=" + LATENCY_TEST_TIMEOUT_MS + "&url=" + Uri.encode(url))
-    }
+    } ?: throw java.net.SocketTimeoutException("Clash API latency request timed out")
     val delay = result.optInt("delay", -1)
     check(delay > 0) { result.optString("message").ifBlank { "No valid latency returned" } }
     return delay
