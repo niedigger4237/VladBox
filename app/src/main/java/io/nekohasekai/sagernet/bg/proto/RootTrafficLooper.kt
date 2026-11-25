@@ -138,7 +138,9 @@ class RootTrafficLooper(private val data: BaseService.Data, private val sc: Coro
     }
 
     private suspend fun loop() {
-        if (DataStore.speedInterval == 0) return
+        val interval = DataStore.speedInterval
+        Logs.d("ROOT traffic: interval=${interval}ms")
+        if (interval <= 0) return
         var txTotal = 0L
         var rxTotal = 0L
         while (sc.isActive) {
