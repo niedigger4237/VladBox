@@ -300,13 +300,25 @@ object TetherVpn {
             }.distinctBy { it.name }
 
             val ordered = downs.sortedBy { it.name }
+            if (ordered.any { TunAddressPlan.intersects(it.ip, it.prefix, plan.cidr4) }) {
+                clearLocked()
+                Logs.w("VPN tether: downstream IPv4 subnet overlaps active TUN; reconnect with a different subnet")
+                return
+            }
             val v6Ready = ipv6 && cm.allNetworks.any { network ->
                 val link = cm.getLinkProperties(network)
                 link != null && link.interfaceName == up && link.linkAddresses.any {
                     it.address == java.net.InetAddress.getByName(plan.ipv6)
                 }
             }
-            val down6 = if (v6Ready) TetherIpv6.discover(names).orEmpty() else emptyList()
+            val discovered6 = if (v6Ready) TetherIpv6.discover(names).orEmpty() else emptyList()
+            val conflict6 = discovered6.any {
+                TunAddressPlan.intersects(it.subnet.substringBefore('/'), it.subnet.substringAfter('/').toInt(), plan.cidr6)
+            }
+            val down6 = if (conflict6) {
+                Logs.w("VPN tether: downstream IPv6 subnet overlaps active TUN; keeping IPv6 blocked")
+                emptyList()
+            } else discovered6
             val dns6 = if (v6Ready) plan.dns6 else null
             val sig = "$up|${ordered.joinToString()}|${plan.dns4}|$down6|$dns6"
             if (sig != lastSeen) {
