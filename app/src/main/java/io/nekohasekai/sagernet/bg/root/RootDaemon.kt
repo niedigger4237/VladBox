@@ -145,17 +145,24 @@ object RootDaemon {
         return interfaceItems(value)
     }
 
-    internal data class DownstreamSnapshot(val names: List<String>, val identity: List<String>)
+    internal data class DownstreamSnapshot(
+        val names: List<String>,
+        val identity: List<String>,
+        val ipv6Enabled: Boolean = false,
+        val ipv6Prefixes: List<TetherIpv6.Down> = emptyList(),
+    )
 
     // Android reports active downstreams explicitly; never guess from all wlan* devices.
-    internal fun resolveDownstreams(mode: Mode, requireReliable: Boolean = false): DownstreamSnapshot? {
+    internal fun resolveDownstreams(mode: Mode, requireReliable: Boolean = false, ipv6: Boolean = false): DownstreamSnapshot? {
+        val trackV6 = mode == Mode.TUN && ipv6
+        fun emptySnapshot() = DownstreamSnapshot(emptyList(), emptyList(), trackV6)
         val manual = if (mode == Mode.TUN) configuredTunInterfaces() else emptyList()
         val selectors = tetherSelectors().toMutableList()
         if (DataStore.tetherWifi) selectors += listOf("swlan+", "wifi+")
         val ignored = ignoredInterfaces()
         fun matches(name: String, selector: String): Boolean =
             if (selector.endsWith("+")) name.startsWith(selector.dropLast(1)) else name == selector
-        if (manual.isEmpty() && selectors.isEmpty()) return DownstreamSnapshot(emptyList(), emptyList())
+        if (manual.isEmpty() && selectors.isEmpty()) return emptySnapshot()
         val shortDump = RootShell.run("dumpsys tethering --short", timeoutMs = 5000)
         val dump = if (shortDump.ok && shortDump.out.contains("TetheredState")) shortDump
             else RootShell.run("dumpsys tethering", timeoutMs = 5000)
@@ -163,7 +170,7 @@ object RootDaemon {
         val routes = RootShell.run("ip -4 route show table all && ip -6 route show table all", timeoutMs = 5000)
         if (!routes.ok) {
             Logs.w("ROOT ${mode.wire}: cannot verify upstream interfaces; skipping unverified downstreams")
-            return if (requireReliable) null else DownstreamSnapshot(emptyList(), emptyList())
+            return if (requireReliable) null else emptySnapshot()
         }
         val state = Regex("""^\s*([A-Za-z0-9_.-]{1,15})\s+-\s+TetheredState\s+-\s+lastError\s*=\s*0\s*$""")
         if (requireReliable) {
@@ -186,13 +193,16 @@ object RootDaemon {
         if (!dump.ok) Logs.w("ROOT ${mode.wire}: Android tethering state unavailable; only verified manual downstreams can be used")
         if (!requireReliable && selectors.isNotEmpty() && result.isEmpty()) Logs.i("ROOT ${mode.wire}: no matching active downstream at startup")
         val names = result.sorted()
-        if (names.isEmpty()) return DownstreamSnapshot(names, emptyList())
+        if (names.isEmpty()) return emptySnapshot()
         val links = RootShell.run("ip -o link show && ip -4 -o addr show", timeoutMs = 5000)
-        if (!links.ok) return if (requireReliable) null else DownstreamSnapshot(names, emptyList())
+        if (!links.ok) return if (requireReliable) null else DownstreamSnapshot(names, emptyList(), trackV6)
         // Include the ifindex and IPv4 gateway/prefix: Android may recreate ap0 using the same name.
         val identity = RootTetherIdentity.parse(names, links.out)
         if (requireReliable && (names - manual.toSet()).any { name -> identity.none { it.substringAfter(':').substringBefore(':') == name } }) return null
-        return DownstreamSnapshot(names, identity)
+        val prefixes = if (trackV6) TetherIpv6.discover(names.toSet()) else emptyList()
+        if (prefixes == null && requireReliable) return null
+        if (prefixes == null) Logs.w("ROOT TUN: cannot discover downstream IPv6 prefixes")
+        return DownstreamSnapshot(names, identity, trackV6, prefixes.orEmpty())
     }
 
     @Volatile internal var appliedDownstreams: DownstreamSnapshot? = null
@@ -206,7 +216,7 @@ object RootDaemon {
     @Synchronized
     internal fun reconcileTunForwarding(snapshot: DownstreamSnapshot) {
         if (appliedDownstreams !== snapshot) return
-        if (!RootTunForwarding.ensure(snapshot.names)) {
+        if (!RootTunForwarding.ensure(snapshot.names, snapshot.ipv6Enabled)) {
             Logs.w("ROOT TUN forwarding: reconciliation pending")
         }
     }
@@ -232,7 +242,8 @@ object RootDaemon {
             }
             val ipv6 = inbound.getAsJsonArray("address")?.any { ':' in it.asString } == true
             val added = listOf("255.255.255.255/32", "169.254.0.0/16", "224.0.0.0/24") +
-                local + if (ipv6) listOf("fe80::/10", "ff02::/16") else emptyList()
+                local + if (ipv6) listOf("fe80::/10", "ff02::/16") +
+                    snapshot?.ipv6Prefixes.orEmpty().map { it.subnet } else emptyList()
             inbound.add("route_exclude_address", strings((existing + added).distinct()))
             Logs.i("ROOT TUN: local tether route exclusions=${added.distinct()}")
         }
@@ -530,7 +541,7 @@ object RootDaemon {
         val flowToken = if (useFlow) newFlowToken() else null
         val dynamicDownstreams = if (managed && (mode != Mode.TUN ||
             managedTunInbound(com.google.gson.JsonParser.parseString(singBoxConfig).asJsonObject) != null))
-            resolveDownstreams(mode) else null
+            resolveDownstreams(mode, ipv6 = ipv6) else null
         val effectiveConfig = when {
             managed && mode == Mode.TUN -> withTunDownstreams(singBoxConfig, dynamicDownstreams)
             flowToken != null -> withFlowMetadata(singBoxConfig, flowToken)
@@ -598,7 +609,7 @@ object RootDaemon {
             if (phase == "running") {
                 mark("wait for readiness")
                 if (mode == Mode.TUN && managed && dynamicDownstreams != null &&
-                    !RootTunForwarding.ensure(dynamicDownstreams.names)) {
+                    !RootTunForwarding.ensure(dynamicDownstreams.names, dynamicDownstreams.ipv6Enabled)) {
                     shutdown()
                     return "ROOT TUN: cannot install Android hotspot forwarding exceptions"
                 }

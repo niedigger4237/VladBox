@@ -23,7 +23,7 @@ internal object RootTunForwarding {
         )
     }
 
-    private fun list(): RootShell.Result = RootShell.run("iptables -w 3 -S $CHAIN", timeoutMs = 5000L)
+    private fun list(tool: String): RootShell.Result = RootShell.run("$tool -w 3 -S $CHAIN", timeoutMs = 5000L)
 
     // Parse only our own tagged rules. Never execute arbitrary text from iptables.
     private fun ownedNames(output: String): Set<String> = output.lineSequence()
@@ -40,31 +40,47 @@ internal object RootTunForwarding {
 
     @Synchronized
     fun clear(): Boolean {
-        val before = list()
+        val v4 = clearFamily("iptables")
+        // IPv6 may be compiled out; only skip a confirmed unsupported tool/table.
+        val v6 = clearFamily("ip6tables", optional = true)
+        return v4 && v6
+    }
+
+    private fun clearFamily(tool: String, optional: Boolean = false): Boolean {
+        val before = list(tool)
         if (!before.ok) {
             // The chain can be absent on a device without Android tethering. Verify
             // against a successful full table listing rather than assuming failure is absence.
-            val full = RootShell.run("iptables -w 3 -S", timeoutMs = 5000L)
-            return full.ok && full.out.lineSequence().none { TAG in it }
+            val full = RootShell.run("$tool -w 3 -S", timeoutMs = 5000L)
+            if (full.ok) return full.out.lineSequence().none { TAG in it }
+            val error = full.err.lowercase(java.util.Locale.ROOT)
+            if (optional && (full.code == 127 || "protocol not supported" in error ||
+                        "address family not supported" in error)) return true
+            return false
         }
         val commands = mutableListOf("set -e")
         for (name in ownedNames(before.out)) {
             for (spec in specs(name)) {
-                commands += "while iptables -w 3 -C $CHAIN $spec 2>/dev/null; do iptables -w 3 -D $CHAIN $spec || exit 1; done"
+                commands += "while $tool -w 3 -C $CHAIN $spec 2>/dev/null; do $tool -w 3 -D $CHAIN $spec || exit 1; done"
             }
         }
         if (commands.size > 1 && !RootShell.run(*commands.toTypedArray(), timeoutMs = 15000L).ok) return false
-        val after = list()
+        val after = list(tool)
         val clean = if (after.ok) after.out.lineSequence().none { TAG in it } else {
-            val full = RootShell.run("iptables -w 3 -S", timeoutMs = 5000L)
+            val full = RootShell.run("$tool -w 3 -S", timeoutMs = 5000L)
             full.ok && full.out.lineSequence().none { TAG in it }
         }
-        if (clean && commands.size > 1) Logs.i("ROOT TUN forwarding: owned exceptions removed")
+        if (clean && commands.size > 1) Logs.i("ROOT TUN forwarding ($tool): owned exceptions removed")
         return clean
     }
 
     @Synchronized
-    fun ensure(names: List<String>): Boolean {
+    fun ensure(names: List<String>, ipv6: Boolean = false): Boolean {
+        if (!ensureFamily("iptables", names)) return false
+        return !ipv6 || ensureFamily("ip6tables", names)
+    }
+
+    private fun ensureFamily(tool: String, names: List<String>): Boolean {
         if (names.isEmpty()) return true
         if (names.any { !valid(it) }) return false
         val commands = mutableListOf("set -e", "ip link show dev $tunnel >/dev/null")
@@ -72,13 +88,13 @@ internal object RootTunForwarding {
             commands += "ip link show dev $name >/dev/null"
             for (spec in specs(name)) {
                 // Same position as the successful device test, before netd's terminal DROP.
-                commands += "if ! iptables -w 3 -C $CHAIN $spec 2>/dev/null; then iptables -w 3 -I $CHAIN 2 $spec; echo installed; fi"
-                commands += "iptables -w 3 -C $CHAIN $spec"
+                commands += "if ! $tool -w 3 -C $CHAIN $spec 2>/dev/null; then $tool -w 3 -I $CHAIN 2 $spec; echo installed; fi"
+                commands += "$tool -w 3 -C $CHAIN $spec"
             }
         }
         val result = RootShell.run(*commands.toTypedArray(), timeoutMs = 15000L)
-        if (!result.ok) Logs.w("ROOT TUN forwarding: cannot verify exceptions: ${result.err.take(500)}")
-        else if (result.out.contains("installed")) Logs.i("ROOT TUN forwarding: exceptions installed for $names")
+        if (!result.ok) Logs.w("ROOT TUN forwarding ($tool): cannot verify exceptions: ${result.err.take(500)}")
+        else if (result.out.contains("installed")) Logs.i("ROOT TUN forwarding ($tool): exceptions installed for $names")
         return result.ok
     }
 }
