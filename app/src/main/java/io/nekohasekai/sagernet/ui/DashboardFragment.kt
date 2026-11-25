@@ -52,9 +52,6 @@ class DashboardFragment : ToolbarFragment() {
                                     Icon(painterResource(if (connected) R.drawable.ic_dashboard_connected else R.drawable.ic_dashboard_idle), null, tint = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(ui.status.ifBlank { "Not connected" }, style = MaterialTheme.typography.headlineSmall)
                                     Text(ui.mode, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Button(onClick = { activity.binding.stats.onPowerClick() }) {
-                                        Text(if (ui.serviceState.canStop) "Disconnect" else "Connect")
-                                    }
                                 }
                             }
                             Text("Live traffic", style = MaterialTheme.typography.titleMedium)
