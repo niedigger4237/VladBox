@@ -157,26 +157,7 @@ class DashboardFragment : ToolbarFragment() {
                                         }
                                     }
                                 }
-                                var used by remember { mutableStateOf(0L) }
-                                val runtime = Runtime.getRuntime()
-                                val limit = runtime.maxMemory()
-                                LaunchedEffect(dashboardVisible) {
-                                    while (dashboardVisible) {
-                                        used = runtime.totalMemory() - runtime.freeMemory()
-                                        delay(1000)
-                                    }
-                                }
-                                val ratio = (used.toFloat() / limit.coerceAtLeast(1)).coerceIn(0f,1f)
-                                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f)), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f))) {
-                                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text("App Java heap", style = MaterialTheme.typography.titleMedium)
-                                            Text((ratio * 100).toInt().toString() + "%")
-                                        }
-                                        Text((used / 1048576).toString() + " MB / " + (limit / 1048576) + " MB")
-                                        LinearProgressIndicator(progress = ratio, modifier = Modifier.fillMaxWidth())
-                                    }
-                                }
+                                DashboardMemory(dashboardVisible)
                             } else if (!dashboardVisible) {
                                 // Remove live tabs from composition while paused.
                             } else if (tab == 2) {
@@ -233,3 +214,66 @@ private fun DashboardTabIcon(index: Int) {
         }
     }
 }
+
+@Composable
+private fun DashboardMemory(visible: Boolean) {
+    var sample by remember { mutableStateOf<DashboardMemorySample?>(null) }
+    LaunchedEffect(visible) {
+        while (visible) {
+            sample = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val info = android.os.Debug.MemoryInfo()
+                android.os.Debug.getMemoryInfo(info)
+                val runtime = Runtime.getRuntime()
+                DashboardMemorySample(info.totalPss.toLong() * 1024,
+                    runtime.totalMemory() - runtime.freeMemory(), runtime.maxMemory(),
+                    android.os.Debug.getNativeHeapAllocatedSize())
+            }
+            delay(2000)
+        }
+    }
+    val colors = MaterialTheme.colorScheme
+    OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.outlinedCardColors(containerColor = colors.surfaceVariant.copy(alpha = .45f)),
+        border = BorderStroke(0.5.dp, colors.outlineVariant.copy(alpha = .55f))) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Canvas(Modifier.size(24.dp)) {
+                    val tint = colors.primary
+                    val stroke = 1.5.dp.toPx()
+                    drawRect(tint, topLeft = Offset(size.width * .22f, size.height * .22f),
+                        size = androidx.compose.ui.geometry.Size(size.width * .56f, size.height * .56f), style = Stroke(stroke))
+                    for (i in 1..3) {
+                        val p = size.width * (.22f + i * .14f)
+                        drawLine(tint, Offset(p, 0f), Offset(p, size.height * .22f), stroke)
+                        drawLine(tint, Offset(p, size.height * .78f), Offset(p, size.height), stroke)
+                        drawLine(tint, Offset(0f, p), Offset(size.width * .22f, p), stroke)
+                        drawLine(tint, Offset(size.width * .78f, p), Offset(size.width, p), stroke)
+                    }
+                }
+                Text("Memory usage", style = MaterialTheme.typography.titleMedium)
+            }
+            val current = sample
+            fun mb(value: Long?): String = value?.let { String.format(java.util.Locale.getDefault(), "%.1f MiB", it / 1048576.0) } ?: "—"
+            val rows = listOf("App process (PSS)" to mb(current?.pss),
+                "Java heap" to (mb(current?.javaUsed) + " / " + mb(current?.javaLimit)),
+                "Native heap (allocated)" to mb(current?.nativeAllocated),
+                "Separate sing-box process" to "Not measured")
+            rows.forEach { (label, value) ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(label, Modifier.weight(1f), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    Text(value, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            if (current != null) {
+                val ratio = (current.javaUsed.toFloat() / current.javaLimit.coerceAtLeast(1)).coerceIn(0f, 1f)
+                LinearProgressIndicator(progress = ratio, modifier = Modifier.fillMaxWidth())
+                Text("Java heap limit · " + String.format(java.util.Locale.getDefault(), "%.1f%%", ratio * 100),
+                    style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+            }
+            Text("Current app process only. Heap values overlap PSS and must not be added.",
+                style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+        }
+    }
+}
+
+private data class DashboardMemorySample(val pss: Long, val javaUsed: Long, val javaLimit: Long, val nativeAllocated: Long)
