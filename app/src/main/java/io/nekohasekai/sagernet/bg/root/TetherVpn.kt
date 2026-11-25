@@ -123,6 +123,7 @@ object TetherVpn {
         journalBoot = boot
         if (journal4.exists() && installed == null) {
             val saved = journal4.read()
+            require(TetherResourceJournal.validBoot(saved.boot))
             val r = saved.rules
             require(TetherResourceJournal.iface(r.up) && TetherResourceJournal.ids(r.table, r.pref) &&
                 TetherResourceJournal.suffix(r.suffix) && TetherResourceJournal.ipv4(r.dns) &&
@@ -134,6 +135,7 @@ object TetherVpn {
         }
         if (journal6.exists() && installed6 == null) {
             val saved = journal6.read()
+            require(TetherResourceJournal.validBoot(saved.boot))
             val r = saved.rules
             require(TetherResourceJournal.iface(r.up) && TetherResourceJournal.ids(r.table, r.pref) &&
                 TetherResourceJournal.suffix(r.suffix) && TetherResourceJournal.ipv6(r.dns) &&

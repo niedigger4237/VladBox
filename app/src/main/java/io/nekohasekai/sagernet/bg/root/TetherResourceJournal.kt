@@ -48,8 +48,10 @@ internal class TetherResourceJournal<T : Any>(name: String, private val type: Cl
     }.getOrDefault(false)
 
     companion object {
+        fun validBoot(value: String): Boolean =
+            value.matches(Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
         fun bootId(): String? = RootShell.run("cat /proc/sys/kernel/random/boot_id", timeoutMs = 5000)
-            .takeIf { it.ok && it.out.matches(Regex("[0-9a-fA-F-]{36}")) }?.out
+            .takeIf { it.ok && validBoot(it.out) }?.out
 
         fun iface(value: String) = value.matches(Regex("[A-Za-z0-9_.-]{1,15}")) && value != "lo"
         fun suffix(value: String) = value.matches(Regex("[0-9a-f]{12}"))

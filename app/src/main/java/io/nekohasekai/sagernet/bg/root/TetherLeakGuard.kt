@@ -21,7 +21,7 @@ internal class TetherLeakGuard {
         if (!journal.exists()) return true
         val saved = journal.read()
         require(saved.tag.matches(Regex("NFV_G_[0-9a-f]{12}")) &&
-            saved.names.size <= 64 && saved.names.all(TetherResourceJournal::iface) &&
+            saved.names.size <= 64 && saved.names.all { TetherResourceJournal.iface(it) } &&
             saved.offloadBefore in listOf(null, "null", "0", "1"))
         tag = saved.tag
         tracked.addAll(saved.names)
@@ -45,8 +45,12 @@ internal class TetherLeakGuard {
     private fun add(name: String): Boolean {
         require(Regex("[A-Za-z0-9_.-]{1,15}").matches(name))
         // Track even a partially installed guard so its exact rules can be removed.
-        tracked += name
-        if (!save()) return false
+        if (tracked.add(name) || !journal.exists()) {
+            if (!save()) {
+                tracked -= name
+                return false
+            }
+        }
         val commands = mutableListOf("set -e")
         for ((tool, rule) in rules(name)) {
             val hook = rule.substringBefore(' ')
@@ -80,7 +84,10 @@ internal class TetherLeakGuard {
             val before = RootShell.run("settings get global tether_offload_disabled", timeoutMs = 5000)
             if (!before.ok || before.out !in listOf("null", "0", "1")) return false
             offloadBefore = before.out
-            if (!save()) return false
+            if (!save()) {
+                offloadBefore = null
+                return false
+            }
         }
         if (names.isNotEmpty()) {
             for (name in names) if (!add(name)) return false
