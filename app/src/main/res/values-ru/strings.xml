@@ -556,7 +556,7 @@
     <string name="socks_port">Порт SOCKS5 (tun2socks / bpf2socks)</string>
     <string name="socks_port_sum">Отдельный SOCKS5-вход для root-помощников</string>
     <string name="bpf_bridge_port">Порт моста BPF2SOCKS</string>
-    <string name="cat_tethering">Тетеринг (root)</string>
+    <string name="cat_tethering">Тетеринг (root; VPN: только IPv4)</string>
     <string name="tether_wifi">Точка доступа Wi-Fi</string>
     <string name="tether_bluetooth">Bluetooth-модем</string>
     <string name="tether_usb">USB-модем</string>
