@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit
 class WarpFragment : NativeWarpFragment()
 
 /** Раздел «Proton VPN» — конвертер WireGuard-конфигов Proton в AmneziaWG и др. */
-class ProtonFragment : WarpGenFragment("proton.html", R.string.menu_proton)
+class ProtonFragment : NativeProtonFragment()
 
 abstract class WarpGenFragment(private val page: String, private val titleRes: Int) :
     ToolbarFragment(R.layout.layout_webview) {
