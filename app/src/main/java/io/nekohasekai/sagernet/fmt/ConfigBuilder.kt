@@ -171,7 +171,7 @@ fun buildConfig(
         val rootMode = DataStore.serviceMode in listOf(
             Key.MODE_ROOT_TUN, Key.MODE_ROOT_TPROXY, Key.MODE_ROOT_TUN2SOCKS, Key.MODE_ROOT_BPF2SOCKS
         )
-        if (!forTest && (DataStore.enableClashAPI || rootMode)) experimental = ExperimentalOptions().apply {
+        if (!forTest && (!forExport || DataStore.enableClashAPI || rootMode)) experimental = ExperimentalOptions().apply {
             clash_api = ClashAPIOptions().apply {
                 external_controller = "127.0.0.1:9090"
                 if (DataStore.enableClashAPI) external_ui = "../files/yacd"
