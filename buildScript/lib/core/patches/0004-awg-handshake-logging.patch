@@ -1,0 +1,52 @@
+diff --git a/transport/wireguard/endpoint.go b/transport/wireguard/endpoint.go
+--- a/transport/wireguard/endpoint.go
++++ b/transport/wireguard/endpoint.go
+@@ -153,15 +153,48 @@
+ 	if err != nil {
+ 		return err
+ 	}
+ 	logger := &device.Logger{
+ 		Verbosef: func(format string, args ...any) {
++			if e.options.Amnezia != nil {
++				// Only promote handshake events, not routine packet/worker logs.
++				// Do not include peer keys or endpoint addresses in the new messages.
++				switch format {
++				case "%v - Sending handshake initiation":
++					e.options.Logger.Info("AWG handshake: sending initiation")
++					return
++				case "%v - Received handshake response":
++					e.options.Logger.Info("AWG handshake: authenticated response received")
++					return
++				case "%s - Handshake did not complete after %d seconds, retrying (try %d)":
++					e.options.Logger.Warn(fmt.Sprintf("AWG handshake: retry after %d s (attempt %d)", args[1], args[2]))
++					return
++				case "%s - Handshake did not complete after %d attempts, giving up":
++					e.options.Logger.Warn(fmt.Sprintf("AWG handshake: retry limit reached (%d attempts)", args[1]))
++					return
++				case "%s - Retrying handshake because we stopped hearing back after %d seconds":
++					e.options.Logger.Warn(fmt.Sprintf("AWG handshake: peer silent for %d s, retrying", args[1]))
++					return
++				}
++			}
+ 			e.options.Logger.Debug(fmt.Sprintf(strings.ToLower(format), args...))
+ 		},
+ 		Errorf: func(format string, args ...any) {
+ 			e.options.Logger.Error(fmt.Sprintf(strings.ToLower(format), args...))
+ 		},
+ 	}
+ 	wgDevice := device.NewDevice(e.options.Context, e.returnDevice, bind, logger, e.options.Workers, e.options.PreallocatedBuffersPerPool, e.options.DisablePauses)
++	if e.options.Amnezia != nil {
++		// Register before IpcSet creates/starts peers. The upstream callback
++		// reports session transitions; an established session is not an HTTP probe.
++		wgDevice.SetSessionStateFunc(func(_ device.NoisePublicKey, state device.PeerSessionState) {
++			switch state {
++			case device.PeerSessionEstablished:
++				e.options.Logger.Info("AWG handshake: session established")
++			case device.PeerSessionExpired:
++				e.options.Logger.Info("AWG handshake: session expired")
++			}
++		})
++	}
+ 	e.tunDevice.SetDevice(wgDevice)
+ 	domainPeers := make(map[device.NoisePublicKey]*peerConfig)
+ 	for peerIndex, peer := range e.peers {
