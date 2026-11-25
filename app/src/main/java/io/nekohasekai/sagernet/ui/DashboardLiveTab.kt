@@ -35,6 +35,7 @@ private fun dashboardDirect(path: String, method: String, body: JSONObject?): JS
         connection.connectTimeout = 1500
         connection.readTimeout = 8000
         connection.requestMethod = method
+        connection.setRequestProperty("Authorization", "Bearer " + io.nekohasekai.sagernet.bg.proto.ClashApiSecret.value)
         if (body != null) {
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
@@ -54,7 +55,7 @@ private fun dashboardRoot(path: String, method: String, body: JSONObject?): JSON
     val q = io.nekohasekai.sagernet.bg.root.RootShell::q
     val url = q("http://127.0.0.1:9090/" + path)
     val payload = body?.let { " -H " + q("Content-Type: application/json") + " --data-binary " + q(it.toString()) }.orEmpty()
-    val command = "curl -fsS --max-time 10 -X " + method + payload + " " + url
+    val command = "curl -fsS --max-time 10 -H " + q("Authorization: Bearer " + io.nekohasekai.sagernet.bg.proto.ClashApiSecret.value) + " -X " + method + payload + " " + url
     val process = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start()
     try {
         val response = process.inputStream.bufferedReader().use { it.readText() }
