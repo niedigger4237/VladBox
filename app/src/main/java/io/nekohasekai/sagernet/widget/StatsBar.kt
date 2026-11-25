@@ -25,6 +25,11 @@ import android.util.AttributeSet
 import android.view.View
 import androidx.appcompat.widget.TooltipCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.isActive
 import androidx.lifecycle.whenStarted
 import com.google.android.material.card.MaterialCardView
 import io.nekohasekai.sagernet.R
@@ -52,6 +57,18 @@ class StatsBar @JvmOverloads constructor(
     private var countryJob: kotlinx.coroutines.Job? = null
     private var countryProfile: Long? = null
     private var countryMode: String? = null
+    private var countryGeneration = 0L
+    private var latencyGeneration = 0L
+
+    // Retry quickly while AWG may be negotiating, then back off to save battery.
+    private fun retryDelay(failures: Int): Long = when (failures) {
+        1, 2 -> 3000L
+        3 -> 10000L
+        else -> 30000L
+    }
+
+    private fun isCurrent(profile: Long, mode: String): Boolean =
+        DataStore.serviceState.connected && DataStore.currentProfile == profile && DataStore.serviceMode == mode
     private val latencyMs = mutableStateOf<Int?>(null)
     private val latencyLoading = mutableStateOf(false)
     private val latencyFailed = mutableStateOf(false)
@@ -59,7 +76,10 @@ class StatsBar @JvmOverloads constructor(
     fun refreshConnectionCountry(force: Boolean = false) {
         val activity = context as MainActivity
         if (!DataStore.serviceState.connected) {
+            countryGeneration++
+            latencyGeneration++
             countryJob?.cancel()
+            countryJob = null
             countryProfile = null
             countryMode = null
             countryCode.value = null
@@ -76,34 +96,46 @@ class StatsBar @JvmOverloads constructor(
         val changed = countryProfile != profile || countryMode != mode
         if (!force && !changed) return
         if (changed) {
+            latencyGeneration++
             connectionTestJob?.cancel()
             connectionTestJob = null
             latencyMs.value = null
             latencyLoading.value = false
             latencyFailed.value = false
         }
+        if (changed || force) startLatencyTest(manual = false, refresh = true)
+        if (!changed && countryLoading.value) return
+        val generation = ++countryGeneration
         countryJob?.cancel()
         countryProfile = profile
         countryMode = mode
         countryCode.value = null
         countryLoading.value = true
-        if (changed) startLatencyTest(manual = false)
         countryJob = activity.lifecycleScope.launch {
-            try {
-                delay(350L)
-                var code = ConnectionCountry.lookup()
-                if (code == null) {
-                    delay(700L)
-                    code = ConnectionCountry.lookup()
+            fun current() = generation == countryGeneration && isCurrent(profile, mode)
+            activity.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                var failures = 0
+                try {
+                    delay(350L)
+                    while (isActive && current() && countryCode.value == null) {
+                        countryLoading.value = true
+                        val code = try {
+                            ConnectionCountry.lookup()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            null
+                        }
+                        if (!current()) break
+                        countryCode.value = code
+                        countryLoading.value = false
+                        if (code != null) break
+                        failures = (failures + 1).coerceAtMost(4)
+                        delay(retryDelay(failures))
+                    }
+                } finally {
+                    if (current()) countryLoading.value = false
                 }
-                if (DataStore.serviceState.connected && DataStore.currentProfile == profile && DataStore.serviceMode == mode) {
-                    countryCode.value = code
-                    countryLoading.value = false
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                if (countryProfile == profile && countryMode == mode) countryLoading.value = false
             }
         }
     }
@@ -293,43 +325,63 @@ class StatsBar @JvmOverloads constructor(
 
     private var connectionTestJob: kotlinx.coroutines.Job? = null
 
-    fun testConnection() = startLatencyTest(manual = true)
+    fun testConnection() = startLatencyTest(manual = true, refresh = true)
 
-    private fun startLatencyTest(manual: Boolean) {
+    private fun startLatencyTest(manual: Boolean, refresh: Boolean = false) {
         val activity = context as MainActivity
-        if (connectionTestJob?.isActive == true || !DataStore.serviceState.connected) return
+        if (!DataStore.serviceState.connected || latencyLoading.value) return
+        if (!refresh && connectionTestJob?.isActive == true) return
         val profile = DataStore.currentProfile
         val mode = DataStore.serviceMode
-        latencyLoading.value = true
+        val generation = ++latencyGeneration
+        connectionTestJob?.cancel()
+        if (refresh) latencyMs.value = null
         latencyFailed.value = false
+        latencyLoading.value = true
         connectionTestJob = activity.lifecycleScope.launch {
-            fun stillCurrent() = DataStore.serviceState.connected && DataStore.currentProfile == profile && DataStore.serviceMode == mode
-            try {
-                val url = DataStore.connectionTestURL
-                val elapsed = kotlinx.coroutines.withTimeout(io.nekohasekai.sagernet.bg.proto.LATENCY_REQUEST_TIMEOUT_MS) {
-                    val raw = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                        io.nekohasekai.sagernet.database.SagerDatabase.proxyDao.getById(profile)?.isRawCoreConfig() == true
+            fun current() = generation == latencyGeneration && isCurrent(profile, mode)
+            var notifyManualFailure = manual
+            activity.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                var failures = 0
+                try {
+                    while (isActive && current() && latencyMs.value == null) {
+                        latencyLoading.value = true
+                        val url = DataStore.connectionTestURL
+                        try {
+                            val elapsed = kotlinx.coroutines.withTimeout(io.nekohasekai.sagernet.bg.proto.LATENCY_REQUEST_TIMEOUT_MS) {
+                                val raw = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                                    io.nekohasekai.sagernet.database.SagerDatabase.proxyDao.getById(profile)?.isRawCoreConfig() == true
+                                }
+                                if (raw) kotlinx.coroutines.withContext(Dispatchers.IO) { activity.urlTest() }
+                                else io.nekohasekai.sagernet.bg.proto.activeProfileDelay(profile, url)
+                            }
+                            check(elapsed > 0) { "No valid latency returned" }
+                            if (!current()) break
+                            latencyMs.value = elapsed
+                            latencyFailed.value = false
+                            if (manual) TooltipCompat.setTooltipText(this@StatsBar, app.getString(
+                                if (url.startsWith("https://", true)) R.string.connection_test_available
+                                else R.string.connection_test_available_http, elapsed))
+                        } catch (e: Exception) {
+                            if (e is CancellationException && e !is TimeoutCancellationException) throw e
+                            if (!isActive || !current()) break
+                            latencyMs.value = null
+                            latencyFailed.value = true
+                            if (failures == 0) Logs.w(e.toString())
+                            if (notifyManualFailure) {
+                                activity.snackbar(app.getString(R.string.connection_test_error, e.readableMessage)).show()
+                                notifyManualFailure = false
+                            }
+                        } finally {
+                            if (current()) latencyLoading.value = false
+                        }
+                        if (latencyMs.value != null) break
+                        failures = (failures + 1).coerceAtMost(4)
+                        delay(retryDelay(failures))
                     }
-                    if (raw) kotlinx.coroutines.withContext(Dispatchers.IO) { activity.urlTest() }
-                    else io.nekohasekai.sagernet.bg.proto.activeProfileDelay(profile, url)
+                } finally {
+                    if (current()) latencyLoading.value = false
                 }
-                if (stillCurrent()) {
-                    latencyMs.value = elapsed.takeIf { it > 0 }
-                    latencyFailed.value = elapsed <= 0
-                    if (manual) TooltipCompat.setTooltipText(this@StatsBar, app.getString(
-                        if (url.startsWith("https://", true)) R.string.connection_test_available
-                        else R.string.connection_test_available_http, elapsed))
-                }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException && e !is kotlinx.coroutines.TimeoutCancellationException) throw e
-                Logs.w(e.toString())
-                if (stillCurrent()) {
-                    latencyMs.value = null
-                    latencyFailed.value = true
-                    if (manual) activity.snackbar(app.getString(R.string.connection_test_error, e.readableMessage)).show()
-                }
-            } finally {
-                if (stillCurrent() && connectionTestJob === coroutineContext[kotlinx.coroutines.Job]) latencyLoading.value = false
             }
         }
     }
