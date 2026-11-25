@@ -164,7 +164,7 @@ class StatsBar @JvmOverloads constructor(
                 R.string.speed, Formatter.formatFileSize(context, rxRate)
             )
         }"
-        model.updateSpeed(tx, rx)
+        model.updateSpeed(tx, rx, txRate, rxRate)
     }
 
     private var connectionTestJob: kotlinx.coroutines.Job? = null
