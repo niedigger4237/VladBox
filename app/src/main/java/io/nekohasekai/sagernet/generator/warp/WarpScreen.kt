@@ -1,6 +1,8 @@
 package io.nekohasekai.sagernet.generator.warp
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import kotlin.random.Random
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -23,8 +25,29 @@ internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
             OutlinedButton(onClick = model::resetAccount, enabled = enabled) { Text("New account") }
         }
         WarpCard("Configuration") {
-            WarpChoice("Format", WarpGenerator.Format.values().toList(), s.format, enabled,
-                { model.settings(s.copy(format = it)) })
+            WarpGenerator.Format.values().toList().chunked(2).forEach { formats ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    formats.forEach { format ->
+                        val selected = s.format == format
+                        Card(Modifier.weight(1f).clickable(enabled = enabled) { model.settings(s.copy(format = format)) },
+                            colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text(when (format) {
+                                    WarpGenerator.Format.AWG -> "AmneziaWG"
+                                    WarpGenerator.Format.WIRESOCK -> "WireSock"
+                                    WarpGenerator.Format.CLASH -> "Clash / Mihomo"
+                                    WarpGenerator.Format.XRAY -> "Xray"
+                                }, style = MaterialTheme.typography.titleSmall)
+                                Text(when (format) {
+                                    WarpGenerator.Format.CLASH -> ".yaml"
+                                    WarpGenerator.Format.XRAY -> ".json"
+                                    else -> ".conf"
+                                }, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            }
             if (s.format == WarpGenerator.Format.AWG)
                 WarpChoice("Variant", WarpConfExporter.Variant.values().toList(), s.variant, enabled,
                     { model.settings(s.copy(variant = it)) })
@@ -65,13 +88,29 @@ internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
                 if (expanded) {
                     val keys = listOf("ContentPaddingAddition", "MaxHandshakeAttempts", "KeepaliveTimeout",
                         "RejectAfterTime", "RekeyAfterTime", "RekeyTimeout")
+                    WarpToggle("AWG 3.0", s.awg3Enabled, enabled) { model.settings(s.copy(awg3Enabled = it)) }
+                    if (s.awg3Enabled) {
                     keys.forEach { key ->
                         WarpField(key, s.awg3[key].orEmpty(), enabled) {
                             model.settings(s.copy(awg3 = s.awg3 + (key to it)))
                         }
                     }
+                    TextButton(enabled = enabled, onClick = {
+                        fun range(a: Int, b: Int, c: Int, d: Int) = "${Random.nextInt(a, b + 1)}-${Random.nextInt(c, d + 1)}"
+                        model.settings(s.copy(awg3 = mapOf(
+                            "ContentPaddingAddition" to range(5,49,50,110),
+                            "MaxHandshakeAttempts" to range(5,24,25,40),
+                            "KeepaliveTimeout" to range(5,10,11,25),
+                            "RejectAfterTime" to range(50,99,100,200),
+                            "RekeyAfterTime" to range(50,99,100,150),
+                            "RekeyTimeout" to range(3,9,10,15))))
+                    }) { Text("Randomize") }
+                    }
+                    WarpToggle("AWG 3.1", s.awg31Enabled, enabled) { model.settings(s.copy(awg31Enabled = it)) }
+                    if (s.awg31Enabled) {
                     WarpToggle("Random trailers", s.randomTrailers, enabled) { model.settings(s.copy(randomTrailers = it)) }
                     WarpToggle("Disable cookies", s.disableCookies, enabled) { model.settings(s.copy(disableCookies = it)) }
+                    }
                 }
             }
         }
