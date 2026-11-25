@@ -487,43 +487,87 @@ object RootDaemon {
         stopLogForward()
         tailer = Thread({
             val offsets = HashMap<String, Long>()
+            val identities = HashMap<String, String>()
             val redactors = HashMap<String, io.nekohasekai.sagernet.ktx.LogRedactor.Stream>()
             val files = listOf(coreLogPath, logPath, "$logDir/error.log") +
                 if (mode == Mode.TUN2SOCKS) listOf("$logDir/tun2socks.log") else emptyList()
             try {
                 val self = Thread.currentThread()
                 val pending = HashMap<String, ByteArray>()
+                val discard = HashSet<String>()
+                var idlePolls = 0
                 fun active() = !self.isInterrupted && tailer === self
                 while (active()) {
-                    for (f in files) {
-                        if (!active()) break
+                    // One su transaction for all files; frame the binary chunks
+                    // with their index, inode and starting byte offset.
+                    val commands = mutableListOf<String>()
+                    for ((index, f) in files.withIndex()) {
                         val off = offsets[f] ?: 0L
-                        // Base64 preserves exact byte offsets despite RootShell's text/trim API.
-                        val r = RootShell.run(
-                            "[ -f ${RootShell.q(f)} ] && tail -c +${off + 1} ${RootShell.q(f)} | head -c 65536 | base64",
-                            timeoutMs = 4_000
-                        )
+                        val inode = identities[f].orEmpty()
+                        commands += """
+                            if [ -f ${RootShell.q(f)} ]; then
+                                meta=${'$'}(stat -c '%i %s' ${RootShell.q(f)} 2>/dev/null) || meta=''
+                                if [ -n "${'$'}meta" ]; then
+                                    set -- ${'$'}meta
+                                    ino=${'$'}1; size=${'$'}2; start=$off
+                                    if [ "${'$'}ino" != ${RootShell.q(inode)} ] || [ "${'$'}size" -lt "${'$'}start" ]; then start=0; fi
+                                    if [ "${'$'}size" -gt "${'$'}start" ] || [ "${'$'}ino" != ${RootShell.q(inode)} ] || [ "${'$'}start" != "$off" ]; then
+                                        printf '%s %s %s ' $index "${'$'}ino" "${'$'}start"
+                                        tail -c +${'$'}((start+1)) ${RootShell.q(f)} | head -c 65536 | base64 | tr -d '\\r\\n'
+                                        printf '\\n'
+                                    fi
+                                fi
+                            fi
+                        """.trimIndent()
+                    }
+                    val result = RootShell.run(*commands.toTypedArray(), timeoutMs = 8000)
+                    if (!active()) break
+                    var received = false
+                    if (result.ok) for (line in result.out.lineSequence()) {
                         if (!active()) break
-                        if (!r.ok || r.out.isBlank()) continue
+                        val parts = line.split(' ', limit = 4)
+                        if (parts.size < 3) continue
+                        val f = files.getOrNull(parts[0].toIntOrNull() ?: -1) ?: continue
+                        val inode = parts[1]
+                        val start = parts[2].toLongOrNull()?.takeIf { it >= 0 } ?: continue
+                        if (inode != identities[f] || start != (offsets[f] ?: 0L)) {
+                            pending.remove(f)
+                            discard.remove(f)
+                            redactors.remove(f)
+                        }
+                        identities[f] = inode
                         val chunk = runCatching {
-                            android.util.Base64.decode(r.out, android.util.Base64.DEFAULT)
+                            android.util.Base64.decode(parts.getOrElse(3) { "" }, android.util.Base64.DEFAULT)
                         }.getOrNull() ?: continue
-                        offsets[f] = off + chunk.size
-                        val data = (pending.remove(f) ?: ByteArray(0)) + chunk
+                        offsets[f] = start + chunk.size
+                        if (chunk.isEmpty()) continue
+                        received = true
+                        var data = (pending.remove(f) ?: ByteArray(0)) + chunk
+                        if (f in discard) {
+                            val firstEnd = data.indexOf(10.toByte())
+                            if (firstEnd < 0) continue
+                            discard.remove(f)
+                            data = data.copyOfRange(firstEnd + 1, data.size)
+                        }
                         val end = data.indexOfLast { it == 10.toByte() } + 1
                         if (end > 0) {
-                            String(data, 0, end, Charsets.UTF_8).lineSequence()
-                                .filter { it.isNotBlank() && (!f.endsWith("/tun2socks.log") || "flow metadata" in it) }.forEach {
-                                    if (active()) Libcore.nekoLogPrintln(redactors.getOrPut(f) { io.nekohasekai.sagernet.ktx.LogRedactor.Stream() }.redact(it))
-                                }
+                            val redactor = redactors.getOrPut(f) { io.nekohasekai.sagernet.ktx.LogRedactor.Stream() }
+                            String(data, 0, end, Charsets.UTF_8).lineSequence().forEach {
+                                // Feed even filtered lines into the stateful redactor.
+                                val safe = redactor.redact(it)
+                                if (active() && it.isNotBlank() && (!f.endsWith("/tun2socks.log") || "flow metadata" in it))
+                                    Libcore.nekoLogPrintln(safe)
+                            }
                         }
-                        // A log line may span chunks (including UTF-8 characters).
-                        // Bound memory for malformed/very large lines.
                         val remainder = data.copyOfRange(end, data.size)
                         if (remainder.size <= 65536) pending[f] = remainder
-                        else if (active()) Libcore.nekoLogPrintln("[oversized native diagnostic omitted]")
+                        else {
+                            discard += f
+                            if (active()) Libcore.nekoLogPrintln("[oversized native diagnostic omitted]")
+                        }
                     }
-                    Thread.sleep(1500)
+                    idlePolls = if (received) 0 else (idlePolls + 1).coerceAtMost(3)
+                    Thread.sleep(1500L * (idlePolls + 1))
                 }
             } catch (_: InterruptedException) {
             } catch (e: Exception) {
