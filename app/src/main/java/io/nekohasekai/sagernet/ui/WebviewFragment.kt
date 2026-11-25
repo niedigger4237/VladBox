@@ -21,6 +21,26 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
 
     lateinit var mWebView: WebView
 
+    private fun loadPanel() {
+        val url = android.net.Uri.parse(DataStore.yacdURL)
+        val local = url.scheme == "http" && url.host == "127.0.0.1" &&
+            url.port == 9090 && url.userInfo == null &&
+            (url.path == "/ui" || url.path?.startsWith("/ui/") == true)
+        if (!local) {
+            mWebView.loadUrl(DataStore.yacdURL)
+            return
+        }
+        val builder = url.buildUpon().clearQuery()
+        for (key in url.queryParameterNames) {
+            if (key in setOf("hostname", "port", "secret")) continue
+            for (value in url.getQueryParameters(key)) builder.appendQueryParameter(key, value)
+        }
+        builder.appendQueryParameter("hostname", "127.0.0.1")
+            .appendQueryParameter("port", "9090")
+            .appendQueryParameter("secret", io.nekohasekai.sagernet.bg.proto.ClashApiSecret.value)
+        mWebView.loadUrl(builder.build().toString())
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -48,7 +68,7 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
                 super.onPageFinished(view, url)
             }
         }
-        mWebView.loadUrl(DataStore.yacdURL)
+        loadPanel()
     }
 
     @SuppressLint("CheckResult")
@@ -63,7 +83,7 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
                     .setView(view)
                     .setPositiveButton(android.R.string.ok) { _, _ ->
                         DataStore.yacdURL = view.text.toString()
-                        mWebView.loadUrl(DataStore.yacdURL)
+                        loadPanel()
                     }
                     .setNegativeButton(android.R.string.cancel, null)
                     .show()
