@@ -157,7 +157,7 @@ class DashboardFragment : ToolbarFragment() {
                                         }
                                     }
                                 }
-                                DashboardMemory(dashboardVisible)
+                                DashboardMemory(dashboardVisible, connected, ui.mode)
                             } else if (!dashboardVisible) {
                                 // Remove live tabs from composition while paused.
                             } else if (tab == 2) {
@@ -216,9 +216,11 @@ private fun DashboardTabIcon(index: Int) {
 }
 
 @Composable
-private fun DashboardMemory(visible: Boolean) {
-    var sample by remember { mutableStateOf<DashboardMemorySample?>(null) }
-    LaunchedEffect(visible) {
+private fun DashboardMemory(visible: Boolean, connected: Boolean, mode: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val rootMode = mode.contains("root", ignoreCase = true) || mode.contains("tproxy", ignoreCase = true)
+    var sample by remember(connected, mode) { mutableStateOf<DashboardMemorySample?>(null) }
+    LaunchedEffect(visible, connected, mode) {
         while (visible) {
             sample = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 val info = android.os.Debug.MemoryInfo()
@@ -226,9 +228,10 @@ private fun DashboardMemory(visible: Boolean) {
                 val runtime = Runtime.getRuntime()
                 DashboardMemorySample(info.totalPss.toLong() * 1024,
                     runtime.totalMemory() - runtime.freeMemory(), runtime.maxMemory(),
-                    android.os.Debug.getNativeHeapAllocatedSize())
+                    android.os.Debug.getNativeHeapAllocatedSize(), dashboardBackgroundPss(context),
+                    if (connected && rootMode) dashboardRootPss() else null)
             }
-            delay(2000)
+            delay(5000)
         }
     }
     val colors = MaterialTheme.colorScheme
@@ -257,7 +260,8 @@ private fun DashboardMemory(visible: Boolean) {
             val rows = listOf("App process (PSS)" to mb(current?.pss),
                 "Java heap" to (mb(current?.javaUsed) + " / " + mb(current?.javaLimit)),
                 "Native heap (allocated)" to mb(current?.nativeAllocated),
-                "Separate sing-box process" to "Not measured")
+                "Background service (PSS)" to mb(current?.backgroundPss),
+                "ROOT core (PSS)" to if (rootMode && connected) mb(current?.rootPss) else "—")
             rows.forEach { (label, value) ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(label, Modifier.weight(1f), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
@@ -270,10 +274,37 @@ private fun DashboardMemory(visible: Boolean) {
                 Text("Java heap limit · " + String.format(java.util.Locale.getDefault(), "%.1f%%", ratio * 100),
                     style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
             }
-            Text("Current app process only. Heap values overlap PSS and must not be added.",
+            Text("Process PSS values are separate; heap values overlap app PSS. — means unavailable or inactive.",
                 style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
         }
     }
 }
 
-private data class DashboardMemorySample(val pss: Long, val javaUsed: Long, val javaLimit: Long, val nativeAllocated: Long)
+private data class DashboardMemorySample(val pss: Long, val javaUsed: Long, val javaLimit: Long, val nativeAllocated: Long, val backgroundPss: Long?, val rootPss: Long?)
+
+private fun dashboardBackgroundPss(context: android.content.Context): Long? = runCatching {
+    val manager = context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+    val process = manager.runningAppProcesses?.firstOrNull {
+        it.uid == android.os.Process.myUid() && it.processName == context.packageName + ":bg"
+    } ?: return@runCatching null
+    manager.getProcessMemoryInfo(intArrayOf(process.pid)).firstOrNull()?.totalPss
+        ?.takeIf { it > 0 }?.toLong()?.times(1024)
+}.getOrNull()
+
+private fun dashboardRootPss(): Long? {
+    val config = io.nekohasekai.sagernet.bg.root.RootDaemon.configPath
+    val quoted = io.nekohasekai.sagernet.bg.root.RootShell.q(config)
+    val script = """
+        for p in /proc/[0-9]*; do
+            [ -r "$p/cmdline" ] || continue
+            exe=$(readlink "$p/exe" 2>/dev/null) || continue
+            case "$exe" in */sing-box|*/libsingbox.so) ;; *) continue ;; esac
+            tr '\000' '\n' < "$p/cmdline" | grep -Fx -- $quoted >/dev/null || continue
+            awk '/^Pss:/ {print $2; exit}' "$p/smaps_rollup" 2>/dev/null
+        done
+    """.trimIndent()
+    val result = io.nekohasekai.sagernet.bg.root.RootShell.run(script, timeoutMs = 3000)
+    if (!result.ok) return null
+    val values = result.out.lines().mapNotNull { it.trim().toLongOrNull()?.takeIf { value -> value > 0 } }
+    return values.singleOrNull()?.times(1024)
+}
