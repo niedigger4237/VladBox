@@ -586,6 +586,11 @@ object RootDaemon {
             val phase = PHASE.find(st)?.groupValues?.get(1)
             if (phase == "running") {
                 mark("wait for readiness")
+                if (mode == Mode.TUN && managed && dynamicDownstreams != null &&
+                    !RootTunForwarding.ensure(dynamicDownstreams.names)) {
+                    shutdown()
+                    return "ROOT TUN: cannot install Android hotspot forwarding exceptions"
+                }
                 appliedDownstreams = dynamicDownstreams
                 startLogForward(mode)
                 if (mode == Mode.TUN && managed) startTunDiagnostics(dynamicDownstreams ?: DownstreamSnapshot(emptyList(), emptyList()), ipv6)
@@ -642,7 +647,7 @@ object RootDaemon {
         stopTunDiagnostics()
         stopLogForward()
         val before = control("status", 5000) ?: return false
-        if (before.get("code")?.asString == "not_running") return true
+        if (before.get("code")?.asString == "not_running") return RootTunForwarding.clear()
         val snapshot = before.get("snapshot")?.takeIf { it.isJsonObject }?.asJsonObject ?: return false
         val pid = snapshot.get("supervisorPid")?.asInt ?: return false
         if (snapshot.get("owner")?.asString != OWNER || pid <= 0) {
@@ -657,6 +662,8 @@ object RootDaemon {
             Logs.w("ROOT supervisor: cannot verify previous process ownership")
             return false
         }
+        // Remove only our tagged exceptions before the native TUN is torn down.
+        val forwardingClean = RootTunForwarding.clear()
         val result = control("shutdown", 30000) ?: return false
         val code = result.get("code")?.asString
         if (code != "ok" && code != "not_running") return false
@@ -665,7 +672,7 @@ object RootDaemon {
         repeat(6) {
             if (control("status", 5000)?.get("code")?.asString == "not_running") {
                 Logs.i("ROOT supervisor: previous session cleaned and stopped")
-                return true
+                return forwardingClean || RootTunForwarding.clear()
             }
             Thread.sleep(250)
         }
