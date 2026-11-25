@@ -98,13 +98,13 @@ class VpnService : BaseVpnService(),
         val builder = Builder().setConfigureIntent(SagerNet.configureIntent(this))
             .setSession(getString(R.string.app_name))
             .setMtu(DataStore.mtu)
-        val ipv6Mode = DataStore.ipv6Mode
 
         // Use the exact immutable plan from the core config for this VPN session.
         val plan = data.proxy!!.config.tunAddressPlan ?: TunAddressPlan.legacy()
-        Logs.i("VPN TUN address: ${plan.cidr4}, IPv6=${if (ipv6Mode != IPv6Mode.DISABLE) plan.cidr6 else "disabled"}")
+        val ipv6Enabled = plan.ipv6Enabled ?: (DataStore.ipv6Mode != IPv6Mode.DISABLE)
+        Logs.i("VPN TUN address: ${plan.cidr4}, IPv6=${if (ipv6Enabled) plan.cidr6 else "disabled"}")
         builder.addAddress(plan.ipv4, plan.ipv4Prefix)
-        if (ipv6Mode != IPv6Mode.DISABLE) {
+        if (ipv6Enabled) {
             builder.addAddress(plan.ipv6, plan.ipv6Prefix)
         }
         builder.addDnsServer(plan.dns4)
@@ -118,12 +118,12 @@ class VpnService : BaseVpnService(),
             builder.addRoute(plan.dns4, 32)
             builder.addRoute(FAKEDNS_VLAN4_CLIENT, 15)
             // https://issuetracker.google.com/issues/149636790
-            if (ipv6Mode != IPv6Mode.DISABLE) {
+            if (ipv6Enabled) {
                 builder.addRoute("2000::", 3)
             }
         } else {
             builder.addRoute("0.0.0.0", 0)
-            if (ipv6Mode != IPv6Mode.DISABLE) {
+            if (ipv6Enabled) {
                 builder.addRoute("::", 0)
             }
         }
@@ -205,7 +205,7 @@ class VpnService : BaseVpnService(),
         conn = builder.establish() ?: throw NullConnectionException()
         // hotspot / USB / Bluetooth tethering through the VPN (root)
         tetherSession = io.nekohasekai.sagernet.bg.root.TetherVpn.start(
-            plan, ipv6Mode != IPv6Mode.DISABLE && data.proxy!!.config.tunAddressPlan != null
+            plan, ipv6Enabled && data.proxy!!.config.tunAddressPlan != null
         )
 
         return conn!!.fd
