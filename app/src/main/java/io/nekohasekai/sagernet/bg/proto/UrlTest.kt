@@ -9,7 +9,7 @@ class UrlTest {
     private val timeout = LATENCY_TEST_TIMEOUT_MS
 
     suspend fun doTest(profile: ProxyEntity): Int {
-        if (DataStore.serviceState.connected && profile.id == DataStore.currentProfile) {
+        if (DataStore.serviceState.connected && profile.id == DataStore.currentProfile && !profile.isRawCoreConfig()) {
             return activeProfileDelay(profile.id, link)
         }
         return TestInstance(profile, link, timeout).doTest()

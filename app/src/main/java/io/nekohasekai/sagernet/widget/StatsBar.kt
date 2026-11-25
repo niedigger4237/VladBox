@@ -28,6 +28,7 @@ import androidx.lifecycle.whenStarted
 import com.google.android.material.card.MaterialCardView
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.bg.BaseService
+import io.nekohasekai.sagernet.bg.proto.isRawCoreConfig
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.ui.MainActivity
@@ -179,7 +180,12 @@ class StatsBar @JvmOverloads constructor(
             try {
                 val url = DataStore.connectionTestURL
                 val elapsed = kotlinx.coroutines.withTimeout(io.nekohasekai.sagernet.bg.proto.LATENCY_REQUEST_TIMEOUT_MS) {
-                    io.nekohasekai.sagernet.bg.proto.activeProfileDelay(url = url)
+                    val id = DataStore.currentProfile
+                    val raw = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        io.nekohasekai.sagernet.database.SagerDatabase.proxyDao.getById(id)?.isRawCoreConfig() == true
+                    }
+                    if (raw) kotlinx.coroutines.withContext(Dispatchers.IO) { activity.urlTest() }
+                    else io.nekohasekai.sagernet.bg.proto.activeProfileDelay(id, url)
                 }
                 if (DataStore.serviceState.connected) {
                     setStatus(app.getString(

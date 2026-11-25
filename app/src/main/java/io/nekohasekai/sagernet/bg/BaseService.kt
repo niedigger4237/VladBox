@@ -13,6 +13,7 @@ import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.aidl.ISagerNetService
 import io.nekohasekai.sagernet.aidl.ISagerNetServiceCallback
 import io.nekohasekai.sagernet.bg.proto.ProxyInstance
+import io.nekohasekai.sagernet.bg.proto.isRawCoreConfig
 import io.nekohasekai.sagernet.Key
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
@@ -142,7 +143,17 @@ class BaseService {
         }
 
         override fun urlTest(): Int {
-            val root = data?.proxy as? io.nekohasekai.sagernet.bg.proto.RootProxyInstance
+            val current = data?.proxy ?: error("core not started")
+            if (data?.state?.connected != true) error("core not started")
+            if (!current.profile.isRawCoreConfig()) {
+                return try {
+                    runBlocking { io.nekohasekai.sagernet.bg.proto.clashDelay() }
+                } catch (e: Exception) {
+                    error(Protocols.genFriendlyMsg(e.readableMessage))
+                }
+            }
+            // Raw JSON configs may not expose our authenticated Clash controller.
+            val root = current as? io.nekohasekai.sagernet.bg.proto.RootProxyInstance
             if (root != null) {
                 try {
                     return root.urlTest(DataStore.connectionTestURL, 8000)

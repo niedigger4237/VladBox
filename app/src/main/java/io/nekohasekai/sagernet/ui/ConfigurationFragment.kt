@@ -892,6 +892,11 @@ class ConfigurationFragment @JvmOverloads constructor(
                         } catch (e: PluginManager.PluginNotFoundException) {
                             profile.status = 2
                             profile.error = e.readableMessage
+                        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                            profile.status = 3
+                            profile.error = getString(R.string.connection_test_timeout)
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             profile.status = 3
                             profile.error = e.readableMessage
