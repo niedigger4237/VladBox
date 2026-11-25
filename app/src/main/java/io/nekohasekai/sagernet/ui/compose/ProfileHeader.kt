@@ -45,6 +45,16 @@ fun installProfileHeader(fragment: ConfigurationFragment, root: View) {
                 } else {
                     Text(stringResource(R.string.app_name),
                         Modifier.weight(1f).clickable { fragment.scrollToSelectedProfile() }, fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val activity = fragment.requireActivity() as MainActivity
+                    val connection by androidx.lifecycle.ViewModelProvider(activity)[ConnectionViewModel::class.java].state.collectAsState()
+                    val connected = connection.serviceState.connected
+                    IconButton(onClick = { activity.openDashboard() }) {
+                        Icon(
+                            painterResource(if (connected) R.drawable.ic_dashboard_connected else R.drawable.ic_dashboard_idle),
+                            contentDescription = "Dashboard",
+                            tint = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     HeaderMenu(profileAddMenu, R.drawable.ic_preview_add, stringResource(R.string.add_profile), fragment)
                     IconButton(onClick = { searching = true }) {
                         Icon(painterResource(R.drawable.ic_hub_search), stringResource(android.R.string.search_go))
