@@ -181,6 +181,8 @@ internal fun DashboardLiveTab(tab: Int, connected: Boolean) {
             delay(if (tab == 1) 2000 else 5000)
         }
     }
+    var selected by remember(tab) { mutableStateOf<DashboardEntry?>(null) }
+    selected?.let { item -> AlertDialog(onDismissRequest = { selected = null }, title = { Text(item.title) }, text = { Text(item.address + "\nDownload: " + item.download + "\nUpload: " + item.upload + "\nRoute: " + item.detail) }, confirmButton = { TextButton(onClick = { selected = null }) { Text("Close") } }) }
     var searching by remember(tab) { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
@@ -189,7 +191,12 @@ internal fun DashboardLiveTab(tab: Int, connected: Boolean) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text("Active connections" + if (loaded && error == null) " (" + entries.size + ")" else "",
                     Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = { searching = !searching; if (!searching) query = "" }) { Text("Search") }
+                IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
+                    androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
+                        drawCircle(colors.onSurface, size.width * .28f, androidx.compose.ui.geometry.Offset(size.width * .4f, size.height * .4f), style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
+                        drawLine(colors.onSurface, androidx.compose.ui.geometry.Offset(size.width * .61f, size.height * .61f), androidx.compose.ui.geometry.Offset(size.width * .87f, size.height * .87f), 2.dp.toPx())
+                    }
+                }
             }
             if (searching) OutlinedTextField(value = query, onValueChange = { query = it },
                 placeholder = { Text("Search connections") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -201,14 +208,13 @@ internal fun DashboardLiveTab(tab: Int, connected: Boolean) {
                 val direct = item.detail.equals("direct", true) || item.detail.equals("bypass", true)
                 val proxy = item.detail.equals("proxy", true)
                 val tint = if (direct) androidx.compose.ui.graphics.Color(0xFF81D99A) else colors.primary
-                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp),
+                OutlinedCard(Modifier.fillMaxWidth(), border = androidx.compose.foundation.BorderStroke(0.5.dp, colors.outlineVariant.copy(alpha = .55f)), shape = RoundedCornerShape(10.dp),
                     colors = CardDefaults.outlinedCardColors(containerColor = colors.surfaceVariant.copy(alpha = .35f))) {
                     Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Surface(shape = RoundedCornerShape(50), color = colors.secondaryContainer) {
-                            Text(item.title.firstOrNull()?.uppercaseChar()?.toString() ?: "?", Modifier.padding(8.dp),
-                                style = MaterialTheme.typography.titleSmall)
+                        Surface(Modifier.size(30.dp), shape = androidx.compose.foundation.shape.CircleShape, color = colors.secondaryContainer) {
+                            Box(contentAlignment = androidx.compose.ui.Alignment.Center) { Text("◎", style = MaterialTheme.typography.titleMedium) }
                         }
                         Column(Modifier.weight(1f)) {
                             Text(item.title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
@@ -225,6 +231,7 @@ internal fun DashboardLiveTab(tab: Int, connected: Boolean) {
                                 Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = tint,
                                 style = MaterialTheme.typography.labelSmall, maxLines = 1)
                         }
+                        TextButton(onClick = { selected = item }, contentPadding = PaddingValues(0.dp), modifier = Modifier.width(24.dp)) { Text("⋮") }
                     }
                 }
             }
