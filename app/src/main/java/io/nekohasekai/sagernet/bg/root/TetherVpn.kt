@@ -5,6 +5,8 @@ import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.bg.TunAddressPlan
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.Logs
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
@@ -421,8 +423,13 @@ object TetherVpn {
         if (requested) session = Session(plan, ipv6, token)
         worker.execute {
             if (token == generation) {
-                if (clearLocked() && !requested) guard.clear()
-                rootGranted = requested && RootShell.isAvailable()
+                if (!requested) {
+                    rootGranted = false
+                    finishStop(token, 0)
+                    return@execute
+                }
+                clearLocked()
+                rootGranted = RootShell.isAvailable()
                 if (requested && !rootGranted) Logs.w("VPN tether: root unavailable")
                 lastSeen = null
                 if (rootGranted) registerMonitor(token)
@@ -431,17 +438,38 @@ object TetherVpn {
         return token
     }
 
-    @Synchronized
-    fun stop(token: Long) {
-        if (token != generation) return
-        val stopped = ++generation
-        stopMonitor()
-        worker.execute { finishStop(stopped, 0) }
+    fun stop(token: Long) = beginStop(token, null)
+
+    // A normal service shutdown waits asynchronously for the first cleanup attempt.
+    // The worker is never blocked by the main thread; timeout does not cancel cleanup.
+    suspend fun stopAndAwait(token: Long): Boolean {
+        val completion = CompletableDeferred<Boolean>()
+        beginStop(token, completion)
+        return withTimeoutOrNull(8_000L) { completion.await() } == true
     }
 
-    private fun finishStop(token: Long, attempt: Int) {
-        if (token != generation) return
-        if (clearLocked() && guard.clear()) {
+    @Synchronized
+    private fun beginStop(token: Long, completion: CompletableDeferred<Boolean>?) {
+        if (token != generation) {
+            completion?.complete(false)
+            return
+        }
+        val stopped = ++generation
+        stopMonitor()
+        worker.execute { finishStop(stopped, 0, completion) }
+    }
+
+    private fun finishStop(token: Long, attempt: Int, completion: CompletableDeferred<Boolean>? = null) {
+        if (token != generation) {
+            completion?.complete(false)
+            return
+        }
+        val clean = runCatching { clearLocked() && guard.clear() }.getOrElse {
+            Logs.w("VPN tether: teardown exception: ${it.message}")
+            false
+        }
+        completion?.complete(clean)
+        if (clean) {
             Logs.i("VPN tether: previous session routes and guards cleared")
             return
         }
