@@ -362,7 +362,7 @@ object RootDaemon {
     @Volatile private var tailer: Thread? = null
 
     /** forwards core/daemon log lines into the in-app log (Logs -> neko.log) while the service runs */
-    fun startLogForward(mode: Mode) {
+    fun startLogForward(mode: Mode? = null) {
         stopLogForward()
         tailer = Thread({
             val offsets = HashMap<String, Long>()
