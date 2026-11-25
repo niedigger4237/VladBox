@@ -6,6 +6,7 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ProxyInfo
+import android.net.Network
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
@@ -213,9 +214,14 @@ class VpnService : BaseVpnService(),
 
     fun updateUnderlyingNetwork(builder: Builder? = null) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-            SagerNet.underlyingNetwork?.let {
-                builder?.setUnderlyingNetworks(arrayOf(SagerNet.underlyingNetwork))
-                    ?: setUnderlyingNetworks(arrayOf(SagerNet.underlyingNetwork))
+            val network = SagerNet.underlyingNetwork
+            if (builder != null) {
+                // Before discovery, leave the builder's default underlying-network policy intact.
+                if (network != null) builder.setUnderlyingNetworks(arrayOf(network))
+            } else {
+                // An empty list explicitly means no underlying network, not the previously lost one.
+                val networks = if (network == null) emptyArray<Network>() else arrayOf(network)
+                if (!setUnderlyingNetworks(networks)) Logs.d("VPN reconnect: underlying network update not applied")
             }
         }
     }
