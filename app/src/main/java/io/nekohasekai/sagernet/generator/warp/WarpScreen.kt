@@ -1,6 +1,10 @@
 package io.nekohasekai.sagernet.generator.warp
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.*
 import androidx.compose.foundation.horizontalScroll
 import kotlin.random.Random
 import androidx.compose.foundation.rememberScrollState
@@ -22,31 +26,31 @@ internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
     val enabled = !state.busy
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        WarpCard("API connection") {
-            WarpTransportChoice(state.transport, enabled, model::transport)
-            state.strategyProgress?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(shape = androidx.compose.foundation.shape.CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
+                Icon(Icons.Filled.Cloud, null, Modifier.padding(14.dp).size(28.dp), tint = MaterialTheme.colorScheme.primary)
+            }
+            Column(Modifier.weight(1f)) {
+                Text("WARP Generator", style = MaterialTheme.typography.headlineSmall)
+                Text("Generate a Cloudflare WARP configuration", style = MaterialTheme.typography.bodyMedium)
+            }
         }
-        WarpCard("Config format") {
-            WarpChoice("Format", WarpGenerator.Format.values().toList(), s.format, enabled,
+        if (state.output == null || state.busy) {
+        WarpTransportChoice(state.transport, enabled, model::transport)
+        state.strategyProgress?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        WarpTileChoice("Config Format", Icons.Filled.Description, WarpGenerator.Format.values().toList(), s.format, enabled,
                 { model.settings(s.copy(format = it)) }, { format -> when (format) {
                     WarpGenerator.Format.AWG -> "AmneziaWG (.conf)"
                     WarpGenerator.Format.WIRESOCK -> "WireSock (.conf)"
                     WarpGenerator.Format.CLASH -> "Clash / Mihomo (.yaml)"
                     WarpGenerator.Format.XRAY -> "Xray (.json)"
                 } })
-        }
-        WarpCard("Endpoint") {
-            WarpChoice("Endpoint", WarpPresets.EndpointMode.values().toList(), s.endpointMode, enabled,
+        WarpTileChoice("Endpoint", Icons.Filled.Dns, WarpPresets.EndpointMode.values().toList(), s.endpointMode, enabled,
                 { model.settings(s.copy(endpointMode = it)) })
             if (s.endpointMode == WarpPresets.EndpointMode.CUSTOM)
                 WarpField("Custom endpoint", s.customEndpoint, enabled) { model.settings(s.copy(customEndpoint = it)) }
-        }
         var advancedExpanded by remember { mutableStateOf(false) }
-        WarpCard("Advanced settings") {
-            TextButton(onClick = { advancedExpanded = !advancedExpanded }) {
-                Text(if (advancedExpanded) "Hide advanced settings" else "Show advanced settings")
-            }
-        }
+        WarpTile("Advanced settings", if (advancedExpanded) "Hide advanced settings" else "Show advanced settings", Icons.Filled.Tune, true, { advancedExpanded = !advancedExpanded }, advancedExpanded)
         if (advancedExpanded) {
         WarpCard("Configuration options") {
             if (s.format == WarpGenerator.Format.AWG)
@@ -129,19 +133,25 @@ internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
         if (state.busy) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             OutlinedButton(onClick = model::cancel) { Text("Cancel") }
-        } else Button(onClick = model::generate, modifier = Modifier.fillMaxWidth()) { Text("Generate configuration") }
+        } else Button(onClick = model::generate, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Icon(Icons.Filled.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Generate Configuration") }
+        }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         state.output?.let { output ->
-            WarpCard("Configuration generated") {
+            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.CheckCircle, null); Spacer(Modifier.width(12.dp)); Column { Text("Configuration generated", style = MaterialTheme.typography.titleMedium); Text("Ready to use") }
+                }
+            }
+            WarpCard("Configuration") {
                 Text(output.fileName)
                 Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
                     Text(output.text, Modifier.padding(12.dp).horizontalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace), softWrap = false)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = { onCopy(output.text) }) { Text("Copy") }
-                    FilledTonalButton(onClick = { onSave(output) }) { Text("Save") }
+                    FilledTonalButton(onClick = { onCopy(output.text) }) { Icon(Icons.Filled.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Copy") }
+                    FilledTonalButton(onClick = { onSave(output) }) { Icon(Icons.Filled.FileDownload, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Save") }
                     if (s.format == WarpGenerator.Format.AWG || s.format == WarpGenerator.Format.WIRESOCK)
-                        FilledTonalButton(onClick = { onImport(output.text) }) { Text("Import") }
+                        FilledTonalButton(onClick = { onImport(output.text) }) { Icon(Icons.Filled.Input, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Import") }
                 }
             }
             OutlinedButton(onClick = model::resetAccount, enabled = enabled, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Reset configuration") }
@@ -150,8 +160,8 @@ internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
 }
 
 @Composable private fun WarpCard(title: String, content: @Composable ColumnScope.() -> Unit) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             content()
         }
@@ -170,8 +180,9 @@ internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
                                        change: (T) -> Unit, display: (T) -> String = { it.toString() }) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
-            Text("$label: ${display(value)}")
+        Row(Modifier.fillMaxWidth().clickable(enabled = enabled) { expanded = true }.heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(display(value), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Icon(Icons.Filled.KeyboardArrowDown, null)
         }
         DropdownMenu(expanded, { expanded = false }) {
             options.forEach { option ->
@@ -188,9 +199,7 @@ private fun WarpTransportChoice(value: WarpViewModel.Transport, enabled: Boolean
     fun label(t: WarpViewModel.Transport) = if (t == WarpViewModel.Transport.BYEDPI) "ByeDPI (automatic)" else if (t == WarpViewModel.Transport.LOCAL_PROXY) "Local proxy" else "Direct"
     Box {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.weight(1f)) {
-                Text(label(value))
-            }
+            Box(Modifier.weight(1f)) { WarpTile("API Connection", label(value), Icons.Filled.AccountTree, enabled, { expanded = true }) }
             if (value == WarpViewModel.Transport.BYEDPI) IconButton(onClick = { settings = true }, enabled = enabled) {
                 Icon(Icons.Filled.Settings, contentDescription = "ByeDPI settings")
             }
@@ -210,4 +219,26 @@ private fun WarpTransportChoice(value: WarpViewModel.Transport, enabled: Boolean
         }
     }
     if (settings && enabled) WarpDpiSettingsDialog { settings = false }
+}
+
+@Composable private fun WarpTile(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean, onClick: () -> Unit, expanded: Boolean = false) {
+    OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(icon, null, Modifier.size(26.dp), tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, null)
+        }
+    }
+}
+@Composable private fun <T> WarpTileChoice(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, options: List<T>, value: T, enabled: Boolean, change: (T) -> Unit, display: (T) -> String = { it.toString() }) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        WarpTile(title, display(value), icon, enabled, { expanded = true }, expanded)
+        DropdownMenu(expanded, { expanded = false }) {
+            options.forEach { option -> DropdownMenuItem(text = { Text(display(option)) }, onClick = { expanded = false; change(option) }) }
+        }
+    }
 }
