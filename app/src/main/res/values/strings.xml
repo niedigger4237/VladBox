@@ -696,4 +696,7 @@
     <string name="srs_source_hint">HTTPS directory or URL template with {name} for the full .srs filename.</string>
     <string name="connection_country_loading">Detecting country…</string>
     <string name="connection_country_unknown">Country unavailable</string>
+    <string name="connection_panel_connected">Connected</string>
+    <string name="connection_panel_location">VPN location</string>
+    <string name="connection_panel_refresh_country">Refresh country</string>
 </resources>

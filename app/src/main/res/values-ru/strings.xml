@@ -596,4 +596,7 @@
     <string name="srs_source_hint">HTTPS-ссылка на каталог или шаблон с {name} для полного имени файла .srs.</string>
     <string name="connection_country_loading">Определение страны…</string>
     <string name="connection_country_unknown">Страна не определена</string>
+    <string name="connection_panel_connected">Подключено</string>
+    <string name="connection_panel_location">Локация VPN</string>
+    <string name="connection_panel_refresh_country">Обновить страну</string>
 </resources>

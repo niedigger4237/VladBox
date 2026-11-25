@@ -10,7 +10,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.res.painterResource
 import io.nekohasekai.sagernet.ui.compose.ConnectionPower
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,11 +56,9 @@ class StatsBar @JvmOverloads constructor(
     private var countryJob: kotlinx.coroutines.Job? = null
     private var countryProfile: Long? = null
     private var countryMode: String? = null
-    private fun countryView(): ComposeView? = (parent as? View)?.findViewById(R.id.connection_country)
-
-    private fun syncCountryVisibility() {
-        countryView()?.visibility = if (allowShow && visibility == View.VISIBLE && DataStore.serviceState.connected) View.VISIBLE else View.GONE
-    }
+    private val latencyMs = mutableStateOf<Int?>(null)
+    private val latencyLoading = mutableStateOf(false)
+    private val latencyFailed = mutableStateOf(false)
 
     fun refreshConnectionCountry(force: Boolean = false) {
         val activity = context as MainActivity
@@ -65,18 +68,30 @@ class StatsBar @JvmOverloads constructor(
             countryMode = null
             countryCode.value = null
             countryLoading.value = false
-            syncCountryVisibility()
+            connectionTestJob?.cancel()
+            connectionTestJob = null
+            latencyMs.value = null
+            latencyLoading.value = false
+            latencyFailed.value = false
             return
         }
         val profile = DataStore.currentProfile
         val mode = DataStore.serviceMode
-        if (!force && countryProfile == profile && countryMode == mode) return
+        val changed = countryProfile != profile || countryMode != mode
+        if (!force && !changed) return
+        if (changed) {
+            connectionTestJob?.cancel()
+            connectionTestJob = null
+            latencyMs.value = null
+            latencyLoading.value = false
+            latencyFailed.value = false
+        }
         countryJob?.cancel()
         countryProfile = profile
         countryMode = mode
         countryCode.value = null
         countryLoading.value = true
-        syncCountryVisibility()
+        if (changed) startLatencyTest(manual = false)
         countryJob = activity.lifecycleScope.launch {
             try {
                 delay(350L)
@@ -104,13 +119,11 @@ class StatsBar @JvmOverloads constructor(
     fun performShow() {
         powerVisible.value = true
         if (allowShow) visibility = View.VISIBLE
-        syncCountryVisibility()
         refreshMode()
     }
 
     fun performHide() {
         visibility = View.GONE
-        syncCountryVisibility()
     }
 
     private fun refreshMode() {
@@ -121,50 +134,54 @@ class StatsBar @JvmOverloads constructor(
         super.setOnClickListener(l)
         if (!composeInitialized) {
             composeInitialized = true
-            countryView()?.apply {
+            setCardBackgroundColor(android.graphics.Color.TRANSPARENT)
+            findViewById<ComposeView>(R.id.stats_compose).apply {
                 setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
                 setContent {
+                    val ui = model.state.collectAsState().value
                     HubTheme {
-                        val code = countryCode.value
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.Center) {
-                            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .65f)) {
-                                Row(Modifier.clickable { refreshConnectionCountry(force = true) }.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                                    if (code != null) {
-                                        Text(ConnectionCountry.flag(code), fontSize = 18.sp)
-                                        Text(ConnectionCountry.name(code), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                                    } else {
-                                        if (countryLoading.value) CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 1.5.dp)
-                                        else Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_dash_symbol_public), contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Text(stringResource(if (countryLoading.value) R.string.connection_country_loading else R.string.connection_country_unknown), style = MaterialTheme.typography.labelMedium)
+                        val colors = MaterialTheme.colorScheme
+                        val accent = if (ui.connected) colors.tertiary else colors.primary
+                        Surface(
+                            shape = RoundedCornerShape(26.dp),
+                            color = colors.surfaceContainerHigh,
+                            border = BorderStroke(1.dp, accent.copy(alpha = .38f))
+                        ) {
+                            Box {
+                                Canvas(Modifier.matchParentSize()) {
+                                    val wave = Path().apply {
+                                        moveTo(0f, size.height * .76f)
+                                        cubicTo(size.width * .35f, size.height * .68f, size.width * .62f, size.height * 1.05f, size.width, size.height * .74f)
+                                        lineTo(size.width, size.height)
+                                        lineTo(0f, size.height)
+                                        close()
+                                    }
+                                    drawPath(wave, brush = Brush.horizontalGradient(listOf(colors.primary.copy(alpha = .09f), colors.tertiary.copy(alpha = .13f))))
+                                }
+                                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    if (ui.connected) CountryStrip()
+                                    Column(Modifier.fillMaxWidth().clickable { performClick() },
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                            if (ui.connected) Icon(painterResource(R.drawable.ic_dash_symbol_check_circle), contentDescription = null, modifier = Modifier.size(18.dp), tint = accent)
+                                            Text(if (ui.connected) stringResource(R.string.connection_panel_connected) else ui.status,
+                                                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                                                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                        }
+                                        Text(ui.mode, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                                    }
+                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        SpeedIndicator("Download", ui.rx, false, Modifier.weight(1f).clickable { performClick() })
+                                        Box(Modifier.size(80.dp)) { if (powerVisible.value) ConnectionPower(ui.serviceState, onPowerClick, tonalRing = true) }
+                                        SpeedIndicator("Upload", ui.tx, true, Modifier.weight(1f).clickable { performClick() })
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-            }
-            val surface = com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface)
-            val foreground = com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface)
-            setCardBackgroundColor(androidx.core.graphics.ColorUtils.blendARGB(surface, foreground, 0.08f))
-            findViewById<ComposeView>(R.id.stats_compose).setContent {
-                val ui = model.state.collectAsState().value
-                HubTheme {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Column(Modifier.fillMaxWidth().clickable { performClick() },
-                            horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text((if (ui.connected) "●  " else "") + ui.status,
-                                fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                            Text(ui.mode, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SpeedIndicator("Download", ui.rx, false, Modifier.weight(1f).clickable { performClick() })
-                            Box(Modifier.size(76.dp)) { if (powerVisible.value) ConnectionPower(ui.serviceState, onPowerClick) }
-                            SpeedIndicator("Upload", ui.tx, true, Modifier.weight(1f).clickable { performClick() })
                         }
                     }
                 }
@@ -173,24 +190,66 @@ class StatsBar @JvmOverloads constructor(
     }
 
     @androidx.compose.runtime.Composable
-    private fun SpeedIndicator(label: String, speed: String, upload: Boolean, modifier: Modifier) {
-        val tint = MaterialTheme.colorScheme.primary
-        Column(modifier, horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Canvas(Modifier.size(20.dp)) {
-                val x = size.width / 2
-                val top = size.height * .2f
-                val bottom = size.height * .8f
-                val tip = if (upload) top else bottom
-                val shoulder = if (upload) size.height * .45f else size.height * .55f
-                val stroke = 2.dp.toPx()
-                drawLine(tint, Offset(x, top), Offset(x, bottom), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
-                drawLine(tint, Offset(x, tip), Offset(size.width * .25f, shoulder), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
-                drawLine(tint, Offset(x, tip), Offset(size.width * .75f, shoulder), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
+    private fun CountryStrip() {
+        val colors = MaterialTheme.colorScheme
+        val code = countryCode.value
+        val accent = colors.tertiary
+        Surface(
+            shape = RoundedCornerShape(22.dp),
+            color = colors.surfaceContainerHighest,
+            border = BorderStroke(1.dp, colors.outlineVariant)
+        ) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.weight(1f).heightIn(min = 42.dp).clickable { refreshConnectionCountry(force = true) },
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Surface(shape = RoundedCornerShape(12.dp), color = colors.secondaryContainer, modifier = Modifier.size(38.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            if (code != null) Text(ConnectionCountry.flag(code), fontSize = 24.sp)
+                            else if (countryLoading.value) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            else Icon(painterResource(R.drawable.ic_dash_symbol_public), contentDescription = null, tint = colors.onSecondaryContainer)
+                        }
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(if (code != null) ConnectionCountry.name(code) else stringResource(if (countryLoading.value) R.string.connection_country_loading else R.string.connection_country_unknown),
+                            style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(stringResource(R.string.connection_panel_location), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                    }
+                    Icon(painterResource(R.drawable.ic_dash_symbol_refresh), contentDescription = stringResource(R.string.connection_panel_refresh_country), modifier = Modifier.size(16.dp), tint = colors.onSurfaceVariant)
+                }
+                Box(Modifier.width(1.dp).height(30.dp).background(colors.outlineVariant))
+                val tint = when {
+                    latencyFailed.value -> colors.error
+                    latencyMs.value != null -> accent
+                    else -> colors.onSurfaceVariant
+                }
+                Surface(onClick = { testConnection() }, enabled = !latencyLoading.value,
+                    shape = RoundedCornerShape(16.dp), color = tint.copy(alpha = .12f), contentColor = tint) {
+                    Row(Modifier.defaultMinSize(minWidth = 68.dp, minHeight = 42.dp).padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)) {
+                        if (latencyLoading.value) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp, color = tint)
+                        else Icon(painterResource(R.drawable.ic_dash_symbol_bolt), contentDescription = stringResource(R.string.connection_test), modifier = Modifier.size(16.dp), tint = tint)
+                        Text(if (latencyFailed.value) "—" else latencyMs.value?.let { "$it ms" } ?: "—",
+                            style = MaterialTheme.typography.labelLarge, color = tint, maxLines = 1, softWrap = false)
+                    }
+                }
             }
-            Text(speed.trimStart('▲', '▼', ' ').ifBlank { "0 B/s" }, fontSize = 13.sp,
-                fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun SpeedIndicator(label: String, speed: String, upload: Boolean, modifier: Modifier) {
+        val colors = MaterialTheme.colorScheme
+        val tint = if (upload) colors.primary else colors.tertiary
+        Surface(modifier = modifier, shape = RoundedCornerShape(18.dp), color = colors.surfaceContainerHighest.copy(alpha = .72f)) {
+            Column(Modifier.padding(horizontal = 4.dp, vertical = 9.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Icon(painterResource(if (upload) R.drawable.ic_dash_symbol_upload else R.drawable.ic_dash_symbol_download),
+                    contentDescription = null, modifier = Modifier.size(22.dp), tint = tint)
+                Text(speed.trimStart('▲', '▼', ' ').ifBlank { "0 B/s" }, style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(label, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+            }
         }
     }
 
@@ -249,38 +308,43 @@ class StatsBar @JvmOverloads constructor(
 
     private var connectionTestJob: kotlinx.coroutines.Job? = null
 
-    fun testConnection() {
+    fun testConnection() = startLatencyTest(manual = true)
+
+    private fun startLatencyTest(manual: Boolean) {
         val activity = context as MainActivity
-        if (connectionTestJob?.isActive == true) return
-        if (!DataStore.serviceState.connected) return
-        isEnabled = false
-        setStatus(app.getText(R.string.connection_test_testing))
+        if (connectionTestJob?.isActive == true || !DataStore.serviceState.connected) return
+        val profile = DataStore.currentProfile
+        val mode = DataStore.serviceMode
+        latencyLoading.value = true
+        latencyFailed.value = false
         connectionTestJob = activity.lifecycleScope.launch {
+            fun stillCurrent() = DataStore.serviceState.connected && DataStore.currentProfile == profile && DataStore.serviceMode == mode
             try {
                 val url = DataStore.connectionTestURL
                 val elapsed = kotlinx.coroutines.withTimeout(io.nekohasekai.sagernet.bg.proto.LATENCY_REQUEST_TIMEOUT_MS) {
-                    val id = DataStore.currentProfile
                     val raw = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                        io.nekohasekai.sagernet.database.SagerDatabase.proxyDao.getById(id)?.isRawCoreConfig() == true
+                        io.nekohasekai.sagernet.database.SagerDatabase.proxyDao.getById(profile)?.isRawCoreConfig() == true
                     }
                     if (raw) kotlinx.coroutines.withContext(Dispatchers.IO) { activity.urlTest() }
-                    else io.nekohasekai.sagernet.bg.proto.activeProfileDelay(id, url)
+                    else io.nekohasekai.sagernet.bg.proto.activeProfileDelay(profile, url)
                 }
-                if (DataStore.serviceState.connected) {
-                    setStatus(app.getString(
+                if (stillCurrent()) {
+                    latencyMs.value = elapsed.takeIf { it > 0 }
+                    latencyFailed.value = elapsed <= 0
+                    if (manual) TooltipCompat.setTooltipText(this@StatsBar, app.getString(
                         if (url.startsWith("https://", true)) R.string.connection_test_available
                         else R.string.connection_test_available_http, elapsed))
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException && e !is kotlinx.coroutines.TimeoutCancellationException) throw e
                 Logs.w(e.toString())
-                if (DataStore.serviceState.connected) {
-                    val message = app.getString(R.string.connection_test_error, e.readableMessage)
-                    setStatus(message)
-                    activity.snackbar(message).show()
+                if (stillCurrent()) {
+                    latencyMs.value = null
+                    latencyFailed.value = true
+                    if (manual) activity.snackbar(app.getString(R.string.connection_test_error, e.readableMessage)).show()
                 }
             } finally {
-                isEnabled = true
+                if (stillCurrent() && connectionTestJob === coroutineContext[kotlinx.coroutines.Job]) latencyLoading.value = false
             }
         }
     }
