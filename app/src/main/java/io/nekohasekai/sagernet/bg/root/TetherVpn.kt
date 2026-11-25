@@ -310,13 +310,13 @@ object TetherVpn {
                 Logs.i("VPN tether discovery: $sig")
             }
             if (token != generation) return
-            if (ordered.isEmpty()) { if (clearLocked()) guard.sync(names); return }
+            if (ordered.isEmpty()) { if (clearLocked()) guard.prune(names); return }
             val current = installed
             if (installedReady && current != null && current.up == up && current.down == ordered && current.dns == plan.dns4 && current.down6 == down6 && current.dns6 == dns6 && routingHealthy(current)) {
-                guard.sync(names)
+                guard.prune(names)
                 return
             }
-            if (!clearLocked() || !guard.sync(names)) return
+            if (!clearLocked() || !guard.prune(names)) return
             val next = allocate(up, ordered, plan.dns4, down6, dns6)
             if (next == null) {
                 Logs.w("VPN tether: unable to reserve routing resources")
@@ -334,12 +334,16 @@ object TetherVpn {
         val active = session ?: return
         if (token != generation || active.token != token || pending != null) return
         pending = worker.schedule({
-            synchronized(this) {
-                if (generation != token) return@schedule
-                pending = null
+            val valid = synchronized(this) {
+                if (generation != token) false else {
+                    pending = null
+                    true
+                }
             }
-            Logs.d("VPN tether refresh: $reason")
-            apply(active.plan, token, active.ipv6)
+            if (valid) {
+                Logs.d("VPN tether refresh: $reason")
+                apply(active.plan, token, active.ipv6)
+            }
         }, delayMs, TimeUnit.MILLISECONDS)
     }
 
@@ -355,27 +359,31 @@ object TetherVpn {
         session = null
     }
 
+    @Synchronized
+    private fun registerMonitor(token: Long) {
+        if (token != generation || session?.token != token) return
+        monitor = TetherNetworkMonitor { reason -> requestRefresh(token, reason) }.also { it.start() }
+        watchdog = worker.scheduleWithFixedDelay({
+            if (token == generation && rootGranted) requestRefresh(token, "watchdog", 0)
+        }, WATCHDOG_SECONDS, WATCHDOG_SECONDS, TimeUnit.SECONDS)
+        requestRefresh(token, "initial snapshot", 0)
+    }
+
     /** A stale stop cannot clear a newer VPN session. Never interrupt a running root transaction. */
     @Synchronized
     fun start(plan: TunAddressPlan, ipv6: Boolean): Long {
         val token = ++generation
         stopMonitor()
         val requested = enabled()
+        if (requested) session = Session(plan, ipv6, token)
         worker.execute {
             if (token == generation) {
                 if (clearLocked() && !requested) guard.clear()
                 rootGranted = requested && RootShell.isAvailable()
                 if (requested && !rootGranted) Logs.w("VPN tether: root unavailable")
                 lastSeen = null
-                if (rootGranted) requestRefresh(token, "initial snapshot", 0)
+                if (rootGranted) registerMonitor(token)
             }
-        }
-        if (requested) {
-            session = Session(plan, ipv6, token)
-            monitor = TetherNetworkMonitor { reason -> requestRefresh(token, reason) }.also { it.start() }
-            watchdog = worker.scheduleWithFixedDelay({
-                if (token == generation && rootGranted) requestRefresh(token, "watchdog", 0)
-            }, WATCHDOG_SECONDS, WATCHDOG_SECONDS, TimeUnit.SECONDS)
         }
         return token
     }
