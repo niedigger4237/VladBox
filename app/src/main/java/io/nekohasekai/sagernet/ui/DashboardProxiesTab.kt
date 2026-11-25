@@ -128,7 +128,6 @@ private fun proxyFlag(countryCode: String?): String {
 internal fun DashboardLiveProxies(connected: Boolean) {
     var groups by remember(connected) { mutableStateOf(emptyList<DashboardProxyGroup>()) }
     var error by remember(connected) { mutableStateOf<String?>(null) }
-    val measured = remember(connected) { mutableStateMapOf<String, Int>() }
     var busy by remember(connected) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     suspend fun refresh() {
@@ -150,7 +149,7 @@ internal fun DashboardLiveProxies(connected: Boolean) {
                 val nodeData = proxies.optJSONObject(tag)
                 val country = sequenceOf(nodeData?.optString("countryCode"), nodeData?.optString("country"))
                     .filterNotNull().map { it.uppercase(java.util.Locale.ROOT) }.firstOrNull { it in java.util.Locale.getISOCountries() }
-                DashboardProxyNode(tag, measured[tag] ?: delay, countryCode = country, displayName = label ?: tag, protocol = protocol)
+                DashboardProxyNode(tag, delay, countryCode = country, displayName = label ?: tag, protocol = protocol)
             }
             DashboardProxyGroup(name, item.optString("type"), item.optString("now"), nodes)
         }.toList()
@@ -166,11 +165,11 @@ internal fun DashboardLiveProxies(connected: Boolean) {
             kotlinx.coroutines.delay(5000)
         }
     }
-    fun action(block: suspend () -> Unit) {
+    fun action(refreshAfter: Boolean = true, block: suspend () -> Unit) {
         if (busy || !connected) return
         busy = true
         scope.launch {
-            try { block(); refresh(); error = null }
+            try { block(); if (refreshAfter) refresh(); error = null }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) { error = e.message?.takeIf { it.startsWith("Delay test failed for ") } ?: "Proxy operation failed" }
             finally { busy = false }
@@ -181,20 +180,17 @@ internal fun DashboardLiveProxies(connected: Boolean) {
             action { dashboardRequest("proxies/" + android.net.Uri.encode(group), "PUT", org.json.JSONObject().put("name", node)) }
         },
         onTest = if (busy) null else { group ->
-            action {
+            action(refreshAfter = false) {
                 val nodes = groups.firstOrNull { it.name == group }?.nodes.orEmpty()
-                val failed = mutableListOf<String>()
-                for (node in nodes) {
-                    try {
-                        val ms = io.nekohasekai.sagernet.bg.proto.clashDelay(node.name)
-                        if (ms > 0) measured[node.name] = ms else { measured.remove(node.name); failed.add(node.name) }
-                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                    catch (_: Exception) { measured.remove(node.name); failed.add(node.name) }
-                }
-                if (failed.isNotEmpty()) {
-                    groups = groups.map { g -> g.copy(nodes = g.nodes.map { n -> if (n.name in failed) n.copy(delay = null) else n }) }
-                    error("Delay test failed for " + failed.size + " server(s)")
-                }
+                val tags = nodes.map { it.name }.distinct()
+                val results = io.nekohasekai.sagernet.bg.proto.clashGroupDelay(group, tags)
+                // Refresh real history/selection from the core, then apply this test's result.
+                refresh()
+                groups = groups.map { g -> g.copy(nodes = g.nodes.map { n ->
+                    if (n.name in tags) n.copy(delay = results[n.name]) else n
+                }) }
+                val failed = tags.count { it !in results }
+                if (failed > 0) error("Delay test failed for $failed server(s)")
             }
         })
     if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
