@@ -51,6 +51,7 @@ private val serviceDomains = listOf(
     "soundcloud" to listOf("soundcloud.com", "sndcdn.com"),
     "deezer" to listOf("deezer.com", "dzcdn.net"),
     "tidal" to listOf("tidal.com"),
+    "yandex-music" to listOf("music.yandex.ru", "music.yandex.com", "music.yandex.kz", "music.yandex.by", "music.yandex.uz"),
     "yandex" to listOf("yandex.ru", "yandex.com", "ya.ru", "yastatic.net"),
     "microsoft-onedrive" to listOf("onedrive.live.com", "onedrive.com"),
     "microsoft-outlook" to listOf("outlook.com", "outlook.office.com", "outlook.live.com"),
