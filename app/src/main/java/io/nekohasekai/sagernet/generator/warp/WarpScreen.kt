@@ -1,7 +1,7 @@
 package io.nekohasekai.sagernet.generator.warp
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import kotlin.random.Random
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -22,34 +22,33 @@ internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
     val enabled = !state.busy
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        WarpCard("WARP account") {
-            Text(state.accountAddress ?: "No account registered")
-            OutlinedButton(onClick = model::resetAccount, enabled = enabled) { Text("New account") }
+        WarpCard("API connection") {
+            WarpTransportChoice(state.transport, enabled, model::transport)
+            state.strategyProgress?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
-        WarpCard("Configuration") {
-            WarpGenerator.Format.values().toList().chunked(2).forEach { formats ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    formats.forEach { format ->
-                        val selected = s.format == format
-                        Card(Modifier.weight(1f).clickable(enabled = enabled) { model.settings(s.copy(format = format)) },
-                            colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
-                            Column(Modifier.padding(16.dp)) {
-                                Text(when (format) {
-                                    WarpGenerator.Format.AWG -> "AmneziaWG"
-                                    WarpGenerator.Format.WIRESOCK -> "WireSock"
-                                    WarpGenerator.Format.CLASH -> "Clash / Mihomo"
-                                    WarpGenerator.Format.XRAY -> "Xray"
-                                }, style = MaterialTheme.typography.titleSmall)
-                                Text(when (format) {
-                                    WarpGenerator.Format.CLASH -> ".yaml"
-                                    WarpGenerator.Format.XRAY -> ".json"
-                                    else -> ".conf"
-                                }, style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
-                }
+        WarpCard("Config format") {
+            WarpChoice("Format", WarpGenerator.Format.values().toList(), s.format, enabled,
+                { model.settings(s.copy(format = it)) }, { format -> when (format) {
+                    WarpGenerator.Format.AWG -> "AmneziaWG (.conf)"
+                    WarpGenerator.Format.WIRESOCK -> "WireSock (.conf)"
+                    WarpGenerator.Format.CLASH -> "Clash / Mihomo (.yaml)"
+                    WarpGenerator.Format.XRAY -> "Xray (.json)"
+                } })
+        }
+        WarpCard("Endpoint") {
+            WarpChoice("Endpoint", WarpPresets.EndpointMode.values().toList(), s.endpointMode, enabled,
+                { model.settings(s.copy(endpointMode = it)) })
+            if (s.endpointMode == WarpPresets.EndpointMode.CUSTOM)
+                WarpField("Custom endpoint", s.customEndpoint, enabled) { model.settings(s.copy(customEndpoint = it)) }
+        }
+        var advancedExpanded by remember { mutableStateOf(false) }
+        WarpCard("Advanced settings") {
+            TextButton(onClick = { advancedExpanded = !advancedExpanded }) {
+                Text(if (advancedExpanded) "Hide advanced settings" else "Show advanced settings")
             }
+        }
+        if (advancedExpanded) {
+        WarpCard("Configuration options") {
             if (s.format == WarpGenerator.Format.AWG)
                 WarpChoice("Variant", WarpConfExporter.Variant.values().toList(), s.variant, enabled,
                     { model.settings(s.copy(variant = it)) })
@@ -67,10 +66,6 @@ internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
             WarpChoice("DNS", model.presets.dns.map { it.id }, s.dnsId, enabled,
                 { model.settings(s.copy(dnsId = it)) },
                 { id -> model.presets.dns.first { it.id == id }.label })
-            WarpChoice("Endpoint", WarpPresets.EndpointMode.values().toList(), s.endpointMode, enabled,
-                { model.settings(s.copy(endpointMode = it)) })
-            if (s.endpointMode == WarpPresets.EndpointMode.CUSTOM)
-                WarpField("Custom endpoint", s.customEndpoint, enabled) { model.settings(s.copy(customEndpoint = it)) }
             WarpField("MTU", s.mtu.toString(), enabled) { it.toIntOrNull()?.let { n -> model.settings(s.copy(mtu = n)) } }
             WarpToggle("IPv6", s.ipv6, enabled) { model.settings(s.copy(ipv6 = it)) }
             WarpToggle("Persistent keepalive", s.keepalive != null, enabled) {
@@ -130,9 +125,6 @@ internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
                 }
             }
         }
-        WarpCard("API connection") {
-            WarpTransportChoice(state.transport, enabled, model::transport)
-            state.strategyProgress?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
         if (state.busy) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -140,16 +132,19 @@ internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
         } else Button(onClick = model::generate, modifier = Modifier.fillMaxWidth()) { Text("Generate configuration") }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         state.output?.let { output ->
-            WarpCard("Result") {
+            WarpCard("Configuration generated") {
                 Text(output.fileName)
-                Text(output.text.take(1200), style = MaterialTheme.typography.bodySmall)
+                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
+                    Text(output.text, Modifier.padding(12.dp).horizontalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace), softWrap = false)
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { onCopy(output.text) }) { Text("Copy") }
-                    TextButton(onClick = { onSave(output) }) { Text("Save") }
+                    FilledTonalButton(onClick = { onCopy(output.text) }) { Text("Copy") }
+                    FilledTonalButton(onClick = { onSave(output) }) { Text("Save") }
                     if (s.format == WarpGenerator.Format.AWG || s.format == WarpGenerator.Format.WIRESOCK)
-                        TextButton(onClick = { onImport(output.text) }) { Text("Import") }
+                        FilledTonalButton(onClick = { onImport(output.text) }) { Text("Import") }
                 }
             }
+            OutlinedButton(onClick = model::resetAccount, enabled = enabled, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Reset configuration") }
         }
     }
 }
@@ -190,10 +185,15 @@ internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
 private fun WarpTransportChoice(value: WarpViewModel.Transport, enabled: Boolean, change: (WarpViewModel.Transport) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
-    fun label(t: WarpViewModel.Transport) = if (t == WarpViewModel.Transport.BYEDPI) "ByeDPI (automatic)" else t.toString()
+    fun label(t: WarpViewModel.Transport) = if (t == WarpViewModel.Transport.BYEDPI) "ByeDPI (automatic)" else if (t == WarpViewModel.Transport.LOCAL_PROXY) "Local proxy" else "Direct"
     Box {
-        OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
-            Text("Transport: ${label(value)}")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.weight(1f)) {
+                Text(label(value))
+            }
+            if (value == WarpViewModel.Transport.BYEDPI) IconButton(onClick = { settings = true }, enabled = enabled) {
+                Icon(Icons.Filled.Settings, contentDescription = "ByeDPI settings")
+            }
         }
         DropdownMenu(expanded, { expanded = false }) {
             WarpViewModel.Transport.values().forEach { option ->
