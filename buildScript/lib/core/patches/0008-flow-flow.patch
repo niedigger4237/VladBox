@@ -2,7 +2,7 @@ diff --git a/protocol/socks/flow.go b/protocol/socks/flow.go
 new file mode 100644
 --- /dev/null
 +++ b/protocol/socks/flow.go
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,168 @@
 +// Copyright 2026, Asterisk4Magisk contributors
 +// SPDX-License-Identifier: LGPL-3.0
 +
@@ -11,6 +11,7 @@ new file mode 100644
 +import (
 +	"context"
 +	"net"
++	"sync/atomic"
 +	"time"
 +
 +	"github.com/sagernet/sing-box/adapter"
@@ -33,6 +34,10 @@ new file mode 100644
 +	listener *listener.Listener
 +	nat      *udpnat.Service
 +	token    string
++	tcpAccepted atomic.Bool
++	tcpRejected atomic.Bool
++	udpAccepted atomic.Bool
++	udpRejected atomic.Bool
 +}
 +
 +type flowPacketInfo struct {
@@ -98,9 +103,18 @@ new file mode 100644
 +	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 +	h, err := flowmeta.Read(conn, i.token)
 +	if err != nil {
++		if i.tcpRejected.CompareAndSwap(false, true) {
++			i.logger.Warn("flow metadata TCP header rejected: ", err)
++		} else {
++			i.logger.DebugContext(ctx, "flow metadata TCP header rejected: ", err)
++		}
 +		N.CloseOnHandshakeFailure(conn, onClose, err)
 +		return
 +	}
++	if i.tcpAccepted.CompareAndSwap(false, true) {
++		i.logger.Info("flow metadata TCP header authenticated")
++	}
++	i.logger.DebugContext(ctx, "flow metadata TCP destination: ", h.Destination)
 +	_ = conn.SetReadDeadline(time.Time{})
 +	if h.UID == 0 || h.UID == flowmeta.UnknownUID {
 +		ctx = flowmeta.ContextWithHeader(ctx, h)
@@ -111,7 +125,13 @@ new file mode 100644
 +func (i *flowInbound) NewPacket(buffer *buf.Buffer, source M.Socksaddr) {
 +	h, n, err := flowmeta.Parse(buffer.Bytes(), i.token, true)
 +	if err != nil {
++		if i.udpRejected.CompareAndSwap(false, true) {
++			i.logger.Warn("flow metadata UDP header rejected: ", err)
++		}
 +		return
++	}
++	if i.udpAccepted.CompareAndSwap(false, true) {
++		i.logger.Info("flow metadata UDP header authenticated")
 +	}
 +	i.nat.NewPacket([][]byte{buffer.Bytes()[n:]}, M.SocksaddrFromNet(h.Addr(true)), M.SocksaddrFromNet(h.Addr(false)), flowPacketInfo{h, source})
 +}
@@ -144,6 +164,7 @@ new file mode 100644
 +	n, err := w.info.header.Reverse(source.AddrPort()).MarshalTo(output.Extend(flowmeta.MaxHeader), w.i.token)
 +	if err != nil {
 +		output.Release()
++		w.i.logger.Debug("flow metadata UDP response encode failed: ", err)
 +		return err
 +	}
 +	output.Truncate(n)
