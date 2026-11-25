@@ -9,23 +9,24 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
 /**
- * The external sing-box reads include_interface at start. Reconcile changes via the normal
- * service lifecycle, not by injecting a second set of routing rules over auto_redirect.
+ * Core-managed TUN and daemon-managed root modes use verified downstream snapshots.
+ * Refresh the published config via the normal service lifecycle on a stable change.
  */
 internal class RootTunNetworkMonitor(
-    private val applied: List<String>,
-    private val restart: (List<String>) -> Boolean,
+    private val mode: RootDaemon.Mode,
+    private val applied: RootDaemon.DownstreamSnapshot,
+    private val restart: (RootDaemon.DownstreamSnapshot) -> Boolean,
 ) {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadScheduledExecutor { task ->
-        Thread(task, "root-tun-network").apply { isDaemon = true }
+        Thread(task, "root-tether-network").apply { isDaemon = true }
     }
     private val monitor = TetherNetworkMonitor { reason -> request(reason) }
     private var pending: ScheduledFuture<*>? = null
     private var watchdog: ScheduledFuture<*>? = null
     @Volatile private var closed = false
     @Volatile private var restartPending = false
-    private var candidate: List<String>? = null
+    private var candidate: RootDaemon.DownstreamSnapshot? = null
     private var candidateSince = 0L
 
     companion object {
@@ -56,7 +57,7 @@ internal class RootTunNetworkMonitor(
     }
 
     private fun reconcile(reason: String) {
-        val observed = RootDaemon.resolveTunDownstreams(requireReliable = true)
+        val observed = RootDaemon.resolveDownstreams(mode, requireReliable = true)
         if (observed == null || observed == applied) {
             candidate = null
             return
@@ -77,7 +78,7 @@ internal class RootTunNetworkMonitor(
         // Do not undo a stop initiated by asteriskd's own service-control policy.
         if (!RootDaemon.isRunning() || closed) return
         restartPending = true
-        Logs.i("ROOT TUN downstream changed: $applied -> $observed ($reason)")
+        Logs.i("ROOT ${mode.wire} downstream changed: $applied -> $observed ($reason)")
         main.post {
             if (!closed) {
                 val cooldown = MIN_RESTART_INTERVAL_MS - (SystemClock.elapsedRealtime() - lastRestart)
