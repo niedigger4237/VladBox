@@ -52,8 +52,8 @@ internal class TetherLeakGuard {
         return true
     }
 
-    fun sync(names: Set<String>): Boolean {
-        // Do not replace or remove existing guards before their replacement is installed.
+    fun sync(names: Set<String>, retainExisting: Boolean = false): Boolean {
+        // During route changes preserve guards until old forwarding rules have been removed.
         if (names.isNotEmpty() && offloadBefore == null) {
             val before = RootShell.run("settings get global tether_offload_disabled", timeoutMs = 5000)
             if (!before.ok || before.out !in listOf("null", "0", "1")) return false
@@ -65,6 +65,7 @@ internal class TetherLeakGuard {
             val offload = RootShell.run("set -e", "if [ \"\$(settings get global tether_offload_disabled)\" != 1 ]; then settings put global tether_offload_disabled 1; fi", "test \"\$(settings get global tether_offload_disabled)\" = 1", timeoutMs = 5000)
             if (!offload.ok) return false
         }
+        if (retainExisting) return true
         for (name in (tracked - names).toList()) if (!remove(name)) return false
         if (names.isEmpty()) {
             val before = offloadBefore
