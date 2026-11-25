@@ -14,6 +14,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.preference.*
 import io.nekohasekai.sagernet.R
+import io.nekohasekai.sagernet.bg.root.RootShell.Access
+import androidx.compose.ui.res.stringResource
 
 fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: SettingsViewModel, changed: () -> Unit) {
     host.setContent {
@@ -23,10 +25,13 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
             val query = state.query
             val mode = screen.findPreference<ListPreference>("serviceMode")
             val modeValue = remember(state.revision) { mode?.value ?: "vpn" }
-            fun isShown(pref: Preference) = pref.isVisible && settingVisible(pref.key, modeValue)
-            val groups = remember(state.revision) {
+            fun isShown(pref: Preference) = pref.isVisible && settingVisible(pref.key, modeValue, state.rootAccess)
+            val groups = remember(state.revision, state.rootAccess) {
                 (0 until screen.preferenceCount).mapNotNull { screen.getPreference(it) as? PreferenceCategory }
                     .filter { group -> (0 until group.preferenceCount).any { isShown(group.getPreference(it)) } }
+            }
+            LaunchedEffect(category, groups) {
+                if (category != null && groups.none { it.title.toString() == category }) model.select(null)
             }
             Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
                 if (category != null) {
@@ -39,7 +44,7 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
                 }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
                     if (category == null && query.isBlank()) {
-                        if (mode != null) item { SettingTile(mode, changed, true, state.revision) }
+                        if (mode != null) item { SettingTile(mode, changed, true, state.revision, state.rootAccess, state.checkingRoot) }
                         items(groups.size) { index ->
                             val group = groups[index]
                             Card(Modifier.fillMaxWidth().clickable { model.select(group.title.toString()) }, shape = RoundedCornerShape(22.dp)) {
@@ -62,7 +67,7 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
                         val visible = groups.filter { category == null || category == it.title.toString() }.flatMap { group ->
                             (0 until group.preferenceCount).map { group.getPreference(it) }
                         }.filter { isShown(it) && (query.isBlank() || it.title.toString().contains(query, true) || it.key.orEmpty().contains(query, true) || it.summary.toString().contains(query, true)) }
-                        items(visible, key = { it.key }) { pref -> SettingTile(pref, changed, revision = state.revision) }
+                        items(visible, key = { it.key }) { pref -> SettingTile(pref, changed, revision = state.revision, rootAccess = state.rootAccess, checkingRoot = state.checkingRoot) }
                     }
                 }
             }
@@ -70,7 +75,10 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
     }
 }
 
-@Composable private fun SettingTile(pref: Preference, changed: () -> Unit, featured: Boolean = false, revision: Int = 0) {
+@Composable private fun SettingTile(
+    pref: Preference, changed: () -> Unit, featured: Boolean = false, revision: Int = 0,
+    rootAccess: Access = Access.UNKNOWN, checkingRoot: Boolean = false,
+) {
     var expanded by remember(pref.key) { mutableStateOf(false) }
     var edit by remember(pref.key) { mutableStateOf(false) }
     var extra by remember(pref.key) { mutableStateOf(false) }
@@ -165,6 +173,10 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
                 Text(pref.title.toString(), style = MaterialTheme.typography.titleMedium)
                 val summary = pref.summary?.toString().orEmpty()
                 if (summary.isNotBlank()) Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (pref.key == "serviceMode" && (checkingRoot || rootAccess == Access.UNKNOWN)) {
+                    Text(stringResource(if (checkingRoot) R.string.root_access_checking else R.string.root_access_unknown),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             if (pref is TwoStatePreference) {
                 Switch(checked, { value -> if (pref.callChangeListener(value)) { pref.isChecked = value; changed() } }, enabled = pref.isEnabled)
@@ -180,11 +192,16 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
                                 extra = true
                             })
                         pref.entries.orEmpty().forEachIndexed { index, entry ->
-                            DropdownMenuItem(text = { Text(entry.toString()) }, onClick = {
-                                expanded = false
-                                val value = pref.entryValues?.getOrNull(index)?.toString()
-                                if (value != null && pref.callChangeListener(value)) { pref.value = value; changed() }
-                            })
+                            val value = pref.entryValues?.getOrNull(index)?.toString()
+                            val rootMode = pref.key == "serviceMode" && value?.startsWith("root_") == true
+                            if (!rootMode || rootAccess != Access.UNAVAILABLE) {
+                                DropdownMenuItem(text = { Text(entry.toString()) },
+                                    enabled = !rootMode || rootAccess == Access.GRANTED,
+                                    onClick = {
+                                        expanded = false
+                                        if (value != null && pref.callChangeListener(value)) { pref.value = value; changed() }
+                                    })
+                            }
                         }
                     }
                 }
