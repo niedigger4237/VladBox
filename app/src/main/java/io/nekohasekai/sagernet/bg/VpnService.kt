@@ -32,6 +32,7 @@ class VpnService : BaseVpnService(),
     }
 
     var conn: ParcelFileDescriptor? = null
+    private var tetherSession: Long? = null
 
     private var metered = false
 
@@ -52,9 +53,10 @@ class VpnService : BaseVpnService(),
 
     @Suppress("EXPERIMENTAL_API_USAGE")
     override fun killProcesses() {
+        tetherSession?.let { io.nekohasekai.sagernet.bg.root.TetherVpn.stop(it) }
+        tetherSession = null
         conn?.close()
         conn = null
-        Thread({ io.nekohasekai.sagernet.bg.root.TetherVpn.clear() }, "tether-vpn-clear").start()
         super.killProcesses()
     }
 
@@ -202,7 +204,7 @@ class VpnService : BaseVpnService(),
         if (Build.VERSION.SDK_INT >= 29) builder.setMetered(metered)
         conn = builder.establish() ?: throw NullConnectionException()
         // hotspot / USB / Bluetooth tethering through the VPN (root)
-        io.nekohasekai.sagernet.bg.root.TetherVpn.start(plan)
+        tetherSession = io.nekohasekai.sagernet.bg.root.TetherVpn.start(plan)
 
         return conn!!.fd
     }
