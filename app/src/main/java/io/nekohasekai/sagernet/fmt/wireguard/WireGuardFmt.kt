@@ -51,7 +51,7 @@ private fun String.asPrefix(): String {
  *
  * Note: sing-box-extended's endpoint has no `reserved` (Cloudflare WARP) support.
  */
-fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean): SingBoxOptions.Endpoint_WireGuardOptions {
+fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean, fastHandshakeRetry: Boolean = false): SingBoxOptions.Endpoint_WireGuardOptions {
     return SingBoxOptions.Endpoint_WireGuardOptions().apply {
         type = "wireguard"
         address = bean.localAddress.listByLineOrComma().map { it.asPrefix() }
@@ -67,6 +67,10 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean): SingBoxOptions.Endpo
             if (bean.peerPreSharedKey.isNotBlank()) pre_shared_key = bean.peerPreSharedKey
             allowed_ips = listOf("0.0.0.0/0", "::/0")
             if (bean.persistentKeepalive > 0) persistent_keepalive_interval = bean.persistentKeepalive
+            else if (fastHandshakeRetry && bean.isAmnezia && bean.serverAddress.isNotBlank() && bean.serverPort > 0) {
+                // A configured client peer must initiate a handshake even before user traffic.
+                persistent_keepalive_interval = 25
+            }
         })
         if (!bean.isAmnezia) {
             if (bean.wgDialer.isNotBlank()) {
@@ -149,7 +153,11 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean): SingBoxOptions.Endpo
                 bean.awgHpk.trim().takeIf { it.isNotEmpty() }?.let { header_protection_key = it }
                 bean.awgCpa.trim().takeIf { it.isNotEmpty() }?.let { content_padding_addition = it }
                 bean.awgRekeyAfter.trim().takeIf { it.isNotEmpty() }?.let { rekey_after_time = it }
+                // The core accepts whole seconds and adds up to 333ms of jitter.
+                // Use 2s for an approximately 2–2.33s retry (within the 3s target).
+                // Preserve explicit advanced AWG timing settings and exported configs.
                 bean.awgRekeyTimeout.trim().takeIf { it.isNotEmpty() }?.let { rekey_timeout = it }
+                    ?: run { if (fastHandshakeRetry) rekey_timeout = "2" }
                 bean.awgRejectAfter.trim().takeIf { it.isNotEmpty() }?.let { reject_after_time = it }
                 bean.awgKeepaliveTimeout.trim().takeIf { it.isNotEmpty() }?.let { keepalive_timeout = it }
                 bean.awgMaxHandshake.trim().takeIf { it.isNotEmpty() }?.let { max_handshake_attempts = it }

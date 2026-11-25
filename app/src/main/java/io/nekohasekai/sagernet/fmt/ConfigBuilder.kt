@@ -389,7 +389,7 @@ fun buildConfig(
                             buildSingBoxOutboundShadowsocksBean(bean)
 
                         is WireGuardBean -> // WireGuard / AmneziaWG: endpoint (1.13+)
-                            buildSingBoxEndpointWireguardBean(bean)
+                            buildSingBoxEndpointWireguardBean(bean, fastHandshakeRetry = !forExport)
 
                         is SSHBean ->
                             buildSingBoxOutboundSSHBean(bean)
