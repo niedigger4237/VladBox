@@ -15,6 +15,9 @@ data class TunAddressPlan(
 ) {
     val cidr4 get() = "$ipv4/$ipv4Prefix"
     val cidr6 get() = "$ipv6/$ipv6Prefix"
+    val dns6 get() = InetAddress.getByAddress(InetAddress.getByName(ipv6).address.apply {
+        this[lastIndex] = (this[lastIndex].toInt() + 1).toByte()
+    }).hostAddress!!
 
     companion object {
         fun legacy() = TunAddressPlan("172.19.0.1", "172.19.0.2", "fdfe:dcba:9876::1", 30)
@@ -35,9 +38,51 @@ data class TunAddressPlan(
             return true
         }
 
+        const val DEFAULT_IPV4_SUBNET = "172.19.0.0/28"
+        const val DEFAULT_IPV6_SUBNET = "fdfe:dcba:9876::/126"
+
+        // Strict numeric literals only. No DNS lookups for user-supplied hostnames.
+        private fun parseSubnet(text: String, v6: Boolean): Prefix {
+            val parts = text.trim().split('/')
+            require(parts.size == 2) { "Use a network CIDR, including prefix length" }
+            val ip = parts[0]
+            val bits = parts[1].toIntOrNull() ?: error("Invalid subnet prefix")
+            require(bits in (if (v6) 64..126 else 24..30)) {
+                if (v6) "IPv6 prefix must be /64 through /126" else "IPv4 prefix must be /24 through /30"
+            }
+            val address = if (v6) {
+                require(ip.contains(':') && ip.matches(Regex("[0-9a-fA-F:]+"))) { "Invalid IPv6 literal" }
+                InetAddress.getByName(ip).also { require(it.address.size == 16) { "Invalid IPv6 address" } }
+            } else {
+                val octets = ip.split('.')
+                require(octets.size == 4 && octets.all { it.matches(Regex("0|[1-9][0-9]{0,2}")) && it.toInt() in 0..255 }) {
+                    "Invalid IPv4 literal"
+                }
+                InetAddress.getByAddress(octets.map { it.toInt().toByte() }.toByteArray())
+            }
+            val privateRanges = if (v6) listOf("fd00::" to 8) else
+                listOf("10.0.0.0" to 8, "172.16.0.0" to 12, "192.168.0.0" to 16)
+            require(privateRanges.any { (base, length) ->
+                bits >= length && overlaps(Prefix(address, bits), Prefix(InetAddress.getByName(base), length))
+            }) { "Use a private subnet (RFC1918 IPv4 or fd00::/8 IPv6)" }
+            val bytes = address.address
+            for (i in bytes.indices) {
+                val keep = (bits - i * 8).coerceIn(0, 8)
+                val hostMask = 0xff ushr keep
+                require((bytes[i].toInt() and hostMask) == 0) { "Enter the network address, not a host address" }
+            }
+            return Prefix(address, bits)
+        }
+
+        fun validationError(text: String, v6: Boolean): String? =
+            runCatching { parseSubnet(text, v6) }.exceptionOrNull()?.let { it.message ?: "Invalid CIDR" }
+
+        private fun host(prefix: Prefix, number: Int): String =
+            InetAddress.getByAddress(prefix.address.address.apply { this[lastIndex] = (this[lastIndex].toInt() or number).toByte() }).hostAddress!!
+
         /** Observe connected networks and non-default routes without requiring root. */
         @Suppress("DEPRECATION")
-        fun select(includeIpv6: Boolean): TunAddressPlan {
+        private fun occupiedPrefixes(): List<Prefix> {
             val occupied = mutableListOf<Prefix>()
             val cm = SagerNet.connectivity
             for (network in cm.allNetworks) {
@@ -61,6 +106,20 @@ data class TunAddressPlan(
                     }
                 }
             }
+            return occupied
+        }
+
+        fun manual(ipv4Subnet: String, ipv6Subnet: String, includeIpv6: Boolean): TunAddressPlan {
+            val v4 = parseSubnet(ipv4Subnet, false)
+            val v6 = parseSubnet(if (includeIpv6) ipv6Subnet else DEFAULT_IPV6_SUBNET, true)
+            val occupied = occupiedPrefixes()
+            require(occupied.none { overlaps(v4, it) }) { "Manual IPv4 TUN subnet overlaps a connected network: $ipv4Subnet" }
+            require(!includeIpv6 || occupied.none { overlaps(v6, it) }) { "Manual IPv6 TUN subnet overlaps a connected network: $ipv6Subnet" }
+            return TunAddressPlan(host(v4, 1), host(v4, 2), host(v6, 1), v4.bits, v6.bits)
+        }
+
+        fun select(includeIpv6: Boolean): TunAddressPlan {
+            val occupied = occupiedPrefixes()
             fun free(ip: String, bits: Int): Boolean {
                 val candidate = Prefix(InetAddress.getByName(ip), bits)
                 return occupied.none { overlaps(candidate, it) }
