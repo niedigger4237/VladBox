@@ -15,4 +15,5 @@ go mod edit \
   -require=github.com/miekg/dns@v1.1.67 \
   -require=github.com/ulikunitz/xz@v0.5.15 \
   -require=golang.org/x/mobile@v0.0.0-20231108233038-35478a0c49da
+go mod edit -replace=github.com/metacubex/utls=../../utls-lx
 go mod tidy
