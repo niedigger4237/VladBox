@@ -43,6 +43,9 @@ object TetherVpn {
     private var installedReady = false
     private val guard = TetherLeakGuard()
     private var installed6: TetherIpv6.Rules? = null
+    private var ipv6Ready = false
+    private var ipv6RetryAt = 0L
+    private const val IPV6_RETRY_MS = 60_000L
     private var lastSeen: String? = null
     private var rootGranted = false
 
@@ -106,17 +109,22 @@ object TetherVpn {
 
     private fun clearLocked(): Boolean {
         installedReady = false
+        ipv6Ready = false
+        ipv6RetryAt = 0L
+        var clean = true
         installed6?.let {
-            if (!TetherIpv6.cleanup(it)) {
+            if (TetherIpv6.cleanup(it)) installed6 = null
+            else {
                 Logs.w("VPN tether: IPv6 cleanup incomplete; keeping guard")
-                return false
+                clean = false
             }
-            installed6 = null
         }
-        val r = installed ?: return true
-        if (!cleanup(r)) return false
-        installed = null
-        return true
+        // Failure in one address family must not leave the other family's routes installed.
+        installed?.let {
+            if (cleanup(it)) installed = null
+            else clean = false
+        }
+        return clean
     }
 
     private fun allocate(up: String, down: List<Addr>, dns: String, down6: List<TetherIpv6.Down>, dns6: String?): RuleSet? {
@@ -182,24 +190,38 @@ object TetherVpn {
             clearLocked()
             return false
         }
-        if (r.dns6 != null && r.down6.isNotEmpty()) {
-            val nat = RootShell.run("ip6tables -w 3 -t nat -S", timeoutMs = 5000)
-            if (nat.ok) {
-                val v6 = TetherIpv6.Rules(r.up, r.down6, r.dns6, r.table, r.pref, r.suffix)
-                installed6 = v6
-                if (!TetherIpv6.install(v6)) {
-                    if (TetherIpv6.cleanup(v6)) installed6 = null
-                    else {
-                        Logs.w("VPN tether: incomplete IPv6 rollback")
-                        clearLocked()
-                        return false
-                    }
-                }
-            } else Logs.w("VPN tether: NAT66 unavailable; IPv6 forwarding remains blocked")
-        } else Logs.i("VPN tether: IPv6 forwarding blocked (disabled or no eligible prefix)")
+        reconcileIpv6(r)
         installedReady = true
         Logs.i("VPN tether: ${r.down.map { it.name }} -> ${r.up}, table=${r.table}, pref=${r.pref}, chains=${r.suffix}")
         return true
+    }
+
+    /**
+     * Optional IPv6 must not force a healthy IPv4 session to be rebuilt.
+     * Keep its guard on failures, retry on a bounded interval, and retain partial ownership.
+     */
+    private fun reconcileIpv6(r: RuleSet) {
+        val dns = r.dns6 ?: return
+        if (r.down6.isEmpty() || ipv6Ready) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now < ipv6RetryAt) return
+        ipv6RetryAt = now + IPV6_RETRY_MS
+        installed6?.let {
+            if (!TetherIpv6.cleanup(it)) {
+                Logs.w("VPN tether: IPv6 rollback still incomplete; guard retained")
+                return
+            }
+            installed6 = null
+        }
+        val nat = RootShell.run("ip6tables -w 3 -t nat -S", timeoutMs = 5000)
+        if (!nat.ok) {
+            Logs.w("VPN tether: NAT66 unavailable; IPv6 forwarding remains blocked")
+            return
+        }
+        val rules = TetherIpv6.Rules(r.up, r.down6, dns, r.table, r.pref, r.suffix)
+        installed6 = rules
+        ipv6Ready = TetherIpv6.install(rules)
+        if (!ipv6Ready && TetherIpv6.cleanup(rules)) installed6 = null
     }
 
     /** Check hooks and owned routing entries before treating an unchanged snapshot as healthy. */
@@ -229,9 +251,13 @@ object TetherVpn {
             }
         }
         if (!family("iptables", "ip -4", r.forward, r.prerouting, r.postrouting, r.down.map { it.name })) return false
-        return installed6?.let { v6 ->
-            family("ip6tables", "ip -6", v6.forward, v6.prerouting, v6.postrouting, v6.down.map { it.name }.distinct())
-        } ?: true
+        installed6?.takeIf { ipv6Ready }?.let { v6 ->
+            if (!family("ip6tables", "ip -6", v6.forward, v6.prerouting, v6.postrouting, v6.down.map { it.name }.distinct())) {
+                ipv6Ready = false
+                ipv6RetryAt = 0L
+            }
+        }
+        return true
     }
 
     private fun apply(plan: TunAddressPlan, token: Long, ipv6: Boolean) {
@@ -329,7 +355,7 @@ object TetherVpn {
             if (ordered.isEmpty()) { if (clearLocked()) guard.prune(names); return }
             val current = installed
             if (installedReady && current != null && current.up == up && current.down == ordered && current.dns == plan.dns4 && current.down6 == down6 && current.dns6 == dns6 && routingHealthy(current)) {
-                guard.prune(names)
+                if (guard.prune(names)) reconcileIpv6(current)
                 return
             }
             if (!clearLocked() || !guard.prune(names)) return
