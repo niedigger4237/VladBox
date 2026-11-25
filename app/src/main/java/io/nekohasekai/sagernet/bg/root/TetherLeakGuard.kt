@@ -65,7 +65,11 @@ internal class TetherLeakGuard {
             val offload = RootShell.run("set -e", "if [ \"\$(settings get global tether_offload_disabled)\" != 1 ]; then settings put global tether_offload_disabled 1; fi", "test \"\$(settings get global tether_offload_disabled)\" = 1", timeoutMs = 5000)
             if (!offload.ok) return false
         }
-        if (retainExisting) return true
+        return retainExisting || prune(names)
+    }
+
+    /** Only remove stale guards; do not repeat the checks just performed by sync(). */
+    fun prune(names: Set<String>): Boolean {
         for (name in (tracked - names).toList()) if (!remove(name)) return false
         if (names.isEmpty()) {
             val before = offloadBefore
