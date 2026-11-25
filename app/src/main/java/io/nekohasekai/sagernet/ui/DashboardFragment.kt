@@ -145,12 +145,7 @@ class DashboardFragment : ToolbarFragment() {
                                     }
                                 }
                             } else {
-                                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
-                                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text(listOf("", "Active connections", "Proxy groups", "Routing rules")[tab], style = MaterialTheme.typography.titleMedium)
-                                        Text(if (!connected) "Service is not running" else "Live data source not connected yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
+                                DashboardLiveTab(tab, connected)
                             }
                         }
                     }
