@@ -362,11 +362,12 @@ object RootDaemon {
     @Volatile private var tailer: Thread? = null
 
     /** forwards core/daemon log lines into the in-app log (Logs -> neko.log) while the service runs */
-    fun startLogForward() {
+    fun startLogForward(mode: Mode) {
         stopLogForward()
         tailer = Thread({
             val offsets = HashMap<String, Long>()
-            val files = listOf(coreLogPath, logPath, "$logDir/error.log")
+            val files = listOf(coreLogPath, logPath, "$logDir/error.log") +
+                if (mode == Mode.TUN2SOCKS) listOf("$logDir/tun2socks.log") else emptyList()
             try {
                 val self = Thread.currentThread()
                 val pending = HashMap<String, ByteArray>()
@@ -390,7 +391,7 @@ object RootDaemon {
                         val end = data.indexOfLast { it == 10.toByte() } + 1
                         if (end > 0) {
                             String(data, 0, end, Charsets.UTF_8).lineSequence()
-                                .filter { it.isNotBlank() }.forEach {
+                                .filter { it.isNotBlank() && (!f.endsWith("/tun2socks.log") || "flow metadata" in it) }.forEach {
                                     if (active()) Libcore.nekoLogPrintln(it)
                                 }
                         }
@@ -466,7 +467,7 @@ object RootDaemon {
                 "set -e",
                 "umask 077",
                 "mkdir -p ${RootShell.q(logDir)}",
-                "rm -f ${RootShell.q(coreLogPath)} ${RootShell.q(logPath)} ${RootShell.q("$logDir/error.log")}",
+                "rm -f ${RootShell.q(coreLogPath)} ${RootShell.q(logPath)} ${RootShell.q("$logDir/error.log")} ${RootShell.q("$logDir/tun2socks.log")}",
                 "rm -f ${RootShell.q(runDir)}/geoip.db ${RootShell.q(runDir)}/geosite.db",
                 "cp -f ${RootShell.q(cfg)} ${RootShell.q("$configPath.new")} && chmod 600 ${RootShell.q("$configPath.new")} && mv -f ${RootShell.q("$configPath.new")} ${RootShell.q(configPath)} || exit 1",
                 "cp -f ${RootShell.q(dcfg)} ${RootShell.q("$daemonConfigPath.new")} && chmod 600 ${RootShell.q("$daemonConfigPath.new")} && mv -f ${RootShell.q("$daemonConfigPath.new")} ${RootShell.q(daemonConfigPath)} || exit 1",
@@ -508,7 +509,7 @@ object RootDaemon {
             if (phase == "running") {
                 mark("wait for readiness")
                 appliedDownstreams = dynamicDownstreams
-                startLogForward()
+                startLogForward(mode)
                 return null
             }
             if (phase == "failed") break
