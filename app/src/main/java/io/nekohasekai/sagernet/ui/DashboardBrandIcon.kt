@@ -16,6 +16,11 @@ import kotlinx.coroutines.withContext
 import com.caverock.androidsvg.SVG
 
 private val serviceDomains = listOf(
+    "zerotier" to listOf("zerotier.com"),
+    "nextdns" to listOf("nextdns.io"),
+    "ookla-speedtest" to listOf("speedtest.net", "ookla.com"),
+    "android" to listOf("android.com"),
+    "max" to listOf("max.com", "hbomax.com"),
     "icloud" to listOf("icloud.com", "icloud-content.com"),
     "sing-box" to listOf("sing-box.sagernet.org", "sing-box.app"),
     "xray" to listOf("xtls.github.io"),
