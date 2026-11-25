@@ -51,7 +51,7 @@ diff --git a/src/hev-socks5-session-udp.c b/src/hev-socks5-session-udp.c
      if (self->type == HEV_SOCKS5_TYPE_UDP_IN_UDP) {
          ssize_t res;
          char buf;
-@@ -99,7 +103,10 @@
+@@ -100,7 +104,10 @@
              msgv[i].addr = &frame->addr;
          }
  
@@ -63,7 +63,7 @@ diff --git a/src/hev-socks5-session-udp.c b/src/hev-socks5-session-udp.c
          if (res <= 0) {
              LOG_D ("%p socks5 session udp fwd f send", self);
              return -1;
-@@ -190,7 +197,10 @@
+@@ -191,7 +198,10 @@
          msgv[i].len = size;
      }
  
@@ -84,11 +84,10 @@ diff --git a/src/hev-socks5-session-udp.c b/src/hev-socks5-session-udp.c
          pbuf_free (p);
          return;
      }
-
 diff --git a/src/hev-config.c b/src/hev-config.c
 --- a/src/hev-config.c
 +++ b/src/hev-config.c
-@@ -493,6 +493,17 @@ hev_config_parse_doc (yaml_document_t *doc)
+@@ -493,6 +493,17 @@
              return -1;
      }
  
