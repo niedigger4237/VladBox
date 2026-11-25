@@ -56,9 +56,12 @@ class VpnService : BaseVpnService(),
     override fun killProcesses() {
         tetherSession?.let { io.nekohasekai.sagernet.bg.root.TetherVpn.stop(it) }
         tetherSession = null
-        conn?.close()
-        conn = null
-        super.killProcesses()
+        try {
+            conn?.close()
+        } finally {
+            conn = null
+            super.killProcesses()
+        }
     }
 
     override fun onBind(intent: Intent) = when (intent.action) {
