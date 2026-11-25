@@ -31,7 +31,13 @@ object TetherVpn {
     private val worker = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "tether-vpn").apply { isDaemon = true }
     }
-    private var polling: ScheduledFuture<*>? = null
+    private var monitor: TetherNetworkMonitor? = null
+    private var pending: ScheduledFuture<*>? = null
+    private var watchdog: ScheduledFuture<*>? = null
+    private data class Session(val plan: TunAddressPlan, val ipv6: Boolean, val token: Long)
+    private var session: Session? = null
+    private const val EVENT_DELAY_MS = 250L
+    private const val WATCHDOG_SECONDS = 15L
     @Volatile private var generation = 0L
     private var installed: RuleSet? = null
     private var installedReady = false
@@ -287,20 +293,55 @@ object TetherVpn {
         }
     }
 
+    /** Coalesce bursts without postponing the first event indefinitely. */
+    @Synchronized
+    private fun requestRefresh(token: Long, reason: String, delayMs: Long = EVENT_DELAY_MS) {
+        val active = session ?: return
+        if (token != generation || active.token != token || pending != null) return
+        pending = worker.schedule({
+            synchronized(this) {
+                if (generation != token) return@schedule
+                pending = null
+            }
+            Logs.d("VPN tether refresh: $reason")
+            apply(active.plan, token, active.ipv6)
+        }, delayMs, TimeUnit.MILLISECONDS)
+    }
+
+    /** Callbacks are hints; watchdog covers lost events and OEM-specific tethering behavior. */
+    @Synchronized
+    private fun stopMonitor() {
+        monitor?.close()
+        monitor = null
+        pending?.cancel(false)
+        pending = null
+        watchdog?.cancel(false)
+        watchdog = null
+        session = null
+    }
+
     /** A stale stop cannot clear a newer VPN session. Never interrupt a running root transaction. */
     @Synchronized
     fun start(plan: TunAddressPlan, ipv6: Boolean): Long {
         val token = ++generation
-        polling?.cancel(false)
+        stopMonitor()
+        val requested = enabled()
         worker.execute {
             if (token == generation) {
-                if (clearLocked() && !enabled()) guard.clear()
-                rootGranted = enabled() && RootShell.isAvailable()
-                if (enabled() && !rootGranted) Logs.w("VPN tether: root unavailable")
+                if (clearLocked() && !requested) guard.clear()
+                rootGranted = requested && RootShell.isAvailable()
+                if (requested && !rootGranted) Logs.w("VPN tether: root unavailable")
                 lastSeen = null
+                if (rootGranted) requestRefresh(token, "initial snapshot", 0)
             }
         }
-        polling = if (enabled()) worker.scheduleWithFixedDelay({ apply(plan, token, ipv6) }, 0, 3, TimeUnit.SECONDS) else null
+        if (requested) {
+            session = Session(plan, ipv6, token)
+            monitor = TetherNetworkMonitor { reason -> requestRefresh(token, reason) }.also { it.start() }
+            watchdog = worker.scheduleWithFixedDelay({
+                if (token == generation && rootGranted) requestRefresh(token, "watchdog", 0)
+            }, WATCHDOG_SECONDS, WATCHDOG_SECONDS, TimeUnit.SECONDS)
+        }
         return token
     }
 
@@ -308,8 +349,7 @@ object TetherVpn {
     fun stop(token: Long) {
         if (token != generation) return
         val stopped = ++generation
-        polling?.cancel(false)
-        polling = null
+        stopMonitor()
         worker.execute {
             if (stopped == generation && !(clearLocked() && guard.clear())) {
                 // Retain the failed transaction and retry on the same worker, never a newer session.
