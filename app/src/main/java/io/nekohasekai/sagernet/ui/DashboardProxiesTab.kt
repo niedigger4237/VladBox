@@ -1,6 +1,9 @@
 package io.nekohasekai.sagernet.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -10,7 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-internal data class DashboardProxyNode(val name: String, val delay: Int? = null)
+internal data class DashboardProxyNode(val name: String, val delay: Int? = null, val countryCode: String? = null)
 internal data class DashboardProxyGroup(val name: String, val type: String, val selected: String, val nodes: List<DashboardProxyNode>)
 
 @Composable
@@ -26,7 +29,7 @@ internal fun DashboardProxiesTab(
     val colors = MaterialTheme.colorScheme
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant.copy(alpha = .45f))) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Proxy groups", style = MaterialTheme.typography.titleMedium)
             OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -38,7 +41,7 @@ internal fun DashboardProxiesTab(
                     }
                     if (group != null) {
                         Box {
-                            TextButton(onClick = { expanded = true }) { Text(group.type + " ▾") }
+                            TextButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text((if (group.type.equals("URLTest", true)) "Auto" else group.type) + " ▾") }
                             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                                 groups.forEach { item ->
                                     DropdownMenuItem(text = { Text(item.name) }, onClick = { selectedGroup = item.name; expanded = false })
@@ -65,10 +68,16 @@ internal fun DashboardProxiesTab(
                             Surface(color = if (active) colors.secondaryContainer else colors.surface,
                                 shape = RoundedCornerShape(10.dp),
                                 border = if (active) BorderStroke(1.dp, colors.primary.copy(alpha = .5f)) else null) {
-                                Row(Modifier.fillMaxWidth().padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    RadioButton(selected = active, enabled = connected && onSelect != null,
-                                        onClick = { onSelect?.invoke(group.name, node.name) })
-                                    Text(node.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                Row(Modifier.fillMaxWidth().heightIn(min = 42.dp)
+                                    .selectable(selected = active, enabled = connected && onSelect != null && group.type.equals("Selector", true),
+                                        role = Role.RadioButton, onClick = { onSelect?.invoke(group.name, node.name) })
+                                    .padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    RadioButton(selected = active, onClick = null)
+                                    val flag = proxyFlag(node.countryCode)
+                                    if (flag.isNotEmpty() && !node.name.startsWith(flag)) Text(flag)
+                                    Text(node.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     ProxyDelay(node.delay)
                                 }
                             }
@@ -90,7 +99,13 @@ private fun ProxyDelay(delay: Int?) {
         else -> MaterialTheme.colorScheme.error
     }
     Surface(color = tint.copy(alpha = .18f), shape = RoundedCornerShape(20.dp)) {
-        Text(if (delay != null && delay > 0) "$delay ms" else "—", Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        Text(if (delay != null && delay > 0) "$delay ms" else "—", Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
             color = tint, style = MaterialTheme.typography.labelMedium)
     }
+}
+
+private fun proxyFlag(countryCode: String?): String {
+    val code = countryCode?.uppercase(java.util.Locale.ROOT) ?: return ""
+    if (code.length != 2 || code.any { it !in 'A'..'Z' }) return ""
+    return code.map { String(Character.toChars(0x1F1E6 + (it - 'A'))) }.joinToString("")
 }
