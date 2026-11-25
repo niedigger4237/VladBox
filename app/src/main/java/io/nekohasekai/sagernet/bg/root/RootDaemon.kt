@@ -169,7 +169,7 @@ object RootDaemon {
             val recognizable = Regex("""(?:TetheredState|AvailableState|UnavailableState|LocalHotspotState|Tether state:)""", RegexOption.IGNORE_CASE)
             if (!recognizable.containsMatchIn(dump.out)) return null
             // Never mistake an unsupported active-interface line for a disconnect.
-            if (dump.out.lineSequence().any { " - TetheredState" in it && "lastError = 0" in it && !state.matches(it) }) return null
+            if (dump.out.lineSequence().any { " - TetheredState" in it && !state.matches(it) }) return null
         }
         val active = if (dump.ok) dump.out.lineSequence()
             .mapNotNull { state.matchEntire(it)?.groupValues?.get(1) }.distinct().toList() else emptyList()
@@ -180,9 +180,9 @@ object RootDaemon {
         val result = (manual + auto).distinct().filter { name ->
             name !in internalInterfaces && name !in upstream && ignored.none { matches(name, it) }
         }
-        Logs.i("ROOT TUN downstream: active=$active selected=$result upstream=$upstream dumpOk=${dump.ok} routesOk=${routes.ok}")
+        if (!requireReliable) Logs.i("ROOT TUN downstream: active=$active selected=$result upstream=$upstream dumpOk=${dump.ok} routesOk=${routes.ok}")
         if (!dump.ok) Logs.w("ROOT TUN: Android tethering state unavailable; only verified manual downstreams can be used")
-        if (selectors.isNotEmpty() && result.isEmpty()) Logs.w("ROOT TUN: no matching active downstream; enable tethering before connecting or enter an exact interface name")
+        if (!requireReliable && selectors.isNotEmpty() && result.isEmpty()) Logs.i("ROOT TUN: no matching active downstream at startup")
         return result.sorted()
     }
 
@@ -193,12 +193,14 @@ object RootDaemon {
 
     internal fun isRunning(): Boolean = PHASE.find(status())?.groupValues?.get(1) == "running"
 
-    private fun withTunDownstreams(json: String): String {
-        val root = com.google.gson.JsonParser.parseString(json).asJsonObject
-        val inbound = root.getAsJsonArray("inbounds")?.firstOrNull {
+    private fun managedTunInbound(root: JsonObject): JsonObject? = root.getAsJsonArray("inbounds")?.firstOrNull {
             it.isJsonObject && it.asJsonObject.get("type")?.asString == "tun" &&
                 it.asJsonObject.get("interface_name")?.asString == TUN_DEVICE
-        }?.asJsonObject ?: return json
+        }?.asJsonObject
+
+    private fun withTunDownstreams(json: String): String {
+        val root = com.google.gson.JsonParser.parseString(json).asJsonObject
+        val inbound = managedTunInbound(root) ?: return json
         inbound.add("include_interface", strings(listOf("lo") + resolveTunDownstreams().orEmpty()))
         return gson.toJson(root)
     }
@@ -474,7 +476,9 @@ object RootDaemon {
             val phase = PHASE.find(st)?.groupValues?.get(1)
             if (phase == "running") {
                 mark("wait for readiness")
-                appliedTunDownstreams = if (managed && mode == Mode.TUN) tunInterfacesFromConfig(effectiveConfig).sorted() else null
+                appliedTunDownstreams = if (managed && mode == Mode.TUN &&
+                    managedTunInbound(com.google.gson.JsonParser.parseString(effectiveConfig).asJsonObject) != null)
+                    tunInterfacesFromConfig(effectiveConfig).sorted() else null
                 startLogForward()
                 return null
             }
