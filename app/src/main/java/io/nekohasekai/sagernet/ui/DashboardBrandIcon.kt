@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 import com.caverock.androidsvg.SVG
 
 private val serviceDomains = listOf(
+    "messenger" to listOf("messenger.com", "m.me"),
     "youtube" to listOf("youtube.com", "youtu.be", "googlevideo.com", "ytimg.com"),
     "gmail" to listOf("mail.google.com", "gmail.com"),
     "google-drive" to listOf("drive.google.com", "drivefrontend-pa.clients6.google.com", "docs.google.com"),
