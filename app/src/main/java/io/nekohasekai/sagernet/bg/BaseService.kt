@@ -222,6 +222,9 @@ class BaseService {
         fun newProxyInstance(profile: ProxyEntity): ProxyInstance = ProxyInstance(profile, this)
 
         fun canReloadSelector(): Boolean {
+            // ROOT runs an external core; the in-process selector API cannot switch its outbound.
+            // Use the normal service restart instead of silently treating the selection as applied.
+            if (data.proxy is io.nekohasekai.sagernet.bg.proto.RootProxyInstance) return false
             if ((data.proxy?.config?.selectorGroupId ?: -1L) < 0) return false
             val ent = SagerDatabase.proxyDao.getById(DataStore.selectedProxy) ?: return false
             val tmpBox = ProxyInstance(ent)
