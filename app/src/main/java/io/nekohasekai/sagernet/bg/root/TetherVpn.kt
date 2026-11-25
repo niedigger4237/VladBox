@@ -33,6 +33,7 @@ object TetherVpn {
     private var polling: ScheduledFuture<*>? = null
     @Volatile private var generation = 0L
     private var installed: RuleSet? = null
+    private var installedReady = false
     private var lastSeen: String? = null
     private var rootGranted = false
 
@@ -78,12 +79,17 @@ object TetherVpn {
 
     private fun clearLocked(): Boolean {
         val r = installed ?: return true
+        installedReady = false
         if (!cleanup(r)) return false
         installed = null
         return true
     }
 
     private fun allocate(up: String, down: List<Addr>, dns: String): RuleSet? {
+        if (down.map { network(it.ip, it.prefix) }.distinct().size != down.size) {
+            Logs.w("VPN tether: duplicate downstream subnet")
+            return null
+        }
         val rules = RootShell.run("ip -4 rule show", timeoutMs = 5000)
         val routes = RootShell.run("ip -4 route show table all", timeoutMs = 5000)
         val offload = RootShell.run("settings get global tether_offload_disabled", timeoutMs = 5000)
@@ -134,12 +140,14 @@ object TetherVpn {
         s += "settings put global tether_offload_disabled 1"
         for (d in r.down) s += "ip -4 rule add pref ${r.pref} iif ${d.name} lookup ${r.table}"
         installed = r // remember partial installation for rollback
+        installedReady = false
         val result = RootShell.run(*s.toTypedArray(), timeoutMs = 20000)
         if (!result.ok) {
             Logs.w("VPN tether install failed: ${result.err}")
             clearLocked()
             return false
         }
+        installedReady = true
         Logs.i("VPN tether: ${r.down.map { it.name }} -> ${r.up}, table=${r.table}, pref=${r.pref}, chains=${r.suffix}")
         return true
     }
@@ -198,7 +206,7 @@ object TetherVpn {
             if (token != generation) return
             if (ordered.isEmpty()) { clearLocked(); return }
             val current = installed
-            if (current != null && current.up == up && current.down == ordered && current.dns == plan.dns4) return
+            if (installedReady && current != null && current.up == up && current.down == ordered && current.dns == plan.dns4) return
             if (!clearLocked()) return
             val next = allocate(up, ordered, plan.dns4)
             if (next == null) {
@@ -224,7 +232,7 @@ object TetherVpn {
                 lastSeen = null
             }
         }
-        polling = worker.scheduleWithFixedDelay({ apply(plan, token) }, 0, 3, TimeUnit.SECONDS)
+        polling = if (enabled()) worker.scheduleWithFixedDelay({ apply(plan, token) }, 0, 3, TimeUnit.SECONDS) else null
         return token
     }
 
@@ -235,7 +243,10 @@ object TetherVpn {
         polling?.cancel(false)
         polling = null
         worker.execute {
-            if (stopped == generation) clearLocked()
+            if (stopped == generation && !clearLocked()) {
+                // Retain the failed transaction and retry on the same worker, never a newer session.
+                worker.schedule({ if (stopped == generation) clearLocked() }, 3, TimeUnit.SECONDS)
+            }
         }
     }
 }
