@@ -119,7 +119,7 @@ private fun dashboardRoot(path: String, method: String, body: JSONObject?, handl
     }
 }
 
-private data class DashboardEntry(val title: String, val subtitle: String, val detail: String)
+private data class DashboardEntry(val title: String, val subtitle: String, val detail: String, val address: String = "", val download: String = "", val upload: String = "")
 
 private fun dashboardEntries(tab: Int, data: JSONObject): List<DashboardEntry> {
     val entries = mutableListOf<DashboardEntry>()
@@ -133,9 +133,10 @@ private fun dashboardEntries(tab: Int, data: JSONObject): List<DashboardEntry> {
                 val port = metadata.optString("destinationPort")
                 val chains = item.optJSONArray("chains")
                 val route = if (chains != null && chains.length() > 0) chains.optString(0) else item.optString("rule")
-                entries.add(DashboardEntry(host + if (port.isBlank()) "" else ":" + port,
-                    "↓ " + (item.optLong("download").toString() + " B") +
-                    "  ↑ " + (item.optLong("upload").toString() + " B"), route))
+                val ip = metadata.optString("destinationIP").ifBlank { host }
+                val address = (if (ip.contains(':')) "[$ip]" else ip) + if (port.isBlank()) "" else ":$port"
+                entries.add(DashboardEntry(host.ifBlank { "Unknown destination" }, address, route,
+                    address, dashboardBytes(item.optLong("download")), dashboardBytes(item.optLong("upload"))))
             }
         }
         2 -> {
@@ -180,20 +181,62 @@ internal fun DashboardLiveTab(tab: Int, connected: Boolean) {
             delay(if (tab == 1) 2000 else 5000)
         }
     }
-    Text(listOf("", "Active connections", "Proxies", "Routing rules")[tab] + if (loaded && error == null) " (" + entries.size + ")" else "", style = MaterialTheme.typography.titleMedium)
-    OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Search") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-    if (!connected || error != null || !loaded || entries.isEmpty()) {
-        Text(if (!connected) "Service is not running" else error ?: if (!loaded) "Loading…" else "No entries", color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    entries.filter { (it.title + " " + it.subtitle + " " + it.detail).contains(query, ignoreCase = true) }.forEach { item ->
-        OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
-            Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text(item.title, style = MaterialTheme.typography.titleSmall)
-                    Text(item.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    var searching by remember(tab) { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant.copy(alpha = .35f))) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Active connections" + if (loaded && error == null) " (" + entries.size + ")" else "",
+                    Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { searching = !searching; if (!searching) query = "" }) { Text("Search") }
+            }
+            if (searching) OutlinedTextField(value = query, onValueChange = { query = it },
+                placeholder = { Text("Search connections") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            if (!connected || error != null || !loaded || entries.isEmpty()) {
+                Text(if (!connected) "Service is not running" else error ?: if (!loaded) "Loading…" else "No connections",
+                    color = colors.onSurfaceVariant)
+            }
+            entries.filter { (it.title + " " + it.subtitle + " " + it.detail).contains(query, ignoreCase = true) }.forEach { item ->
+                val direct = item.detail.equals("direct", true) || item.detail.equals("bypass", true)
+                val proxy = item.detail.equals("proxy", true)
+                val tint = if (direct) androidx.compose.ui.graphics.Color(0xFF81D99A) else colors.primary
+                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.outlinedCardColors(containerColor = colors.surfaceVariant.copy(alpha = .35f))) {
+                    Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(shape = RoundedCornerShape(50), color = colors.secondaryContainer) {
+                            Text(item.title.firstOrNull()?.uppercaseChar()?.toString() ?: "?", Modifier.padding(8.dp),
+                                style = MaterialTheme.typography.titleSmall)
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(item.title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(item.address, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+                                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                        Column {
+                            Text("↓ " + item.download, style = MaterialTheme.typography.labelSmall)
+                            Text("↑ " + item.upload, style = MaterialTheme.typography.labelSmall)
+                        }
+                        Surface(shape = RoundedCornerShape(20.dp), color = tint.copy(alpha = .18f)) {
+                            Text(if (direct) "Direct" else if (proxy) "Proxy" else item.detail.ifBlank { "—" },
+                                Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = tint,
+                                style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        }
+                    }
                 }
-                Text(item.detail, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
             }
         }
     }
+}
+
+private fun dashboardBytes(bytes: Long): String {
+    val units = listOf("B", "KB", "MB", "GB", "TB")
+    var value = bytes.coerceAtLeast(0).toDouble()
+    var index = 0
+    while (value >= 1024 && index < units.lastIndex) { value /= 1024; index++ }
+    return if (index == 0) "${value.toLong()} B" else
+        String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[index])
 }
