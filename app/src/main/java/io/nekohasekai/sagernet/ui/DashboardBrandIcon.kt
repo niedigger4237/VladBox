@@ -16,6 +16,11 @@ import kotlinx.coroutines.withContext
 import com.caverock.androidsvg.SVG
 
 private val serviceDomains = listOf(
+    "deepseek" to listOf("deepseek.com"),
+    "grok" to listOf("grok.com", "x.ai"),
+    "perplexity" to listOf("perplexity.ai"),
+    "mistral-ai" to listOf("mistral.ai"),
+    "microsoft-copilot" to listOf("copilot.microsoft.com", "copilot.com"),
     "vk" to listOf("vk.com", "vk.ru", "vkontakte.ru", "vkuseraudio.net", "vkuser.net"),
     "mail-ru" to listOf("mail.ru", "mycdn.me"),
     "battle-net" to listOf("battle.net", "blizzard.com", "blzstatic.cn"),
