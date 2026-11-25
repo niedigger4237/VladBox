@@ -4,7 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import io.nekohasekai.sagernet.ktx.Logs
-import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
@@ -18,8 +18,11 @@ internal class RootTunNetworkMonitor(
     private val restart: (RootDaemon.DownstreamSnapshot) -> Boolean,
 ) {
     private val main = Handler(Looper.getMainLooper())
-    private val worker = Executors.newSingleThreadScheduledExecutor { task ->
+    private val worker = ScheduledThreadPoolExecutor(1) { task ->
         Thread(task, "root-tether-network").apply { isDaemon = true }
+    }.apply {
+        removeOnCancelPolicy = true
+        setExecuteExistingDelayedTasksAfterShutdownPolicy(false)
     }
     private val monitor = TetherNetworkMonitor { reason -> request(reason) }
     private var pending: ScheduledFuture<*>? = null

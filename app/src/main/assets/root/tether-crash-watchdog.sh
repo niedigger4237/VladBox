@@ -27,7 +27,8 @@ case "$started" in ""|*[!0-9]*) exit 1;; esac
 [ "$(cat /proc/sys/kernel/random/boot_id)" = "$boot" ] || exit 1
 
 same_lease() {
-    [ "$(cat "$DIR/lease" 2>/dev/null || true)" = "$token $boot $pid $started" ]
+    IFS= read -r lease_line < "$DIR/lease" 2>/dev/null || return 1
+    [ "$lease_line" = "$token $boot $pid $started" ]
 }
 # Return 0: original process alive; 1: positively gone or PID reused;
 # 2: unknown. Never mistake inaccessible /proc for process death.
@@ -36,8 +37,16 @@ owner_state() {
         if kill -0 "$pid" 2>/dev/null; then return 2; fi
         return 1
     fi
-    stat=$(cat "/proc/$pid/stat" 2>/dev/null) || return 2
-    actual=$(printf '%s\n' "$stat" | sed 's/^.*) //' | awk '{print $20}')
+    IFS= read -r stat < "/proc/$pid/stat" 2>/dev/null || return 2
+    # comm (field 2) can contain spaces and closing parentheses; remove
+    # everything through its final delimiter before reading starttime (22).
+    rest=${stat##*) }
+    [ "$rest" != "$stat" ] || return 2
+    set -f
+    set -- $rest
+    [ "$#" -ge 20 ] || return 2
+    shift 19
+    actual=$1
     case "$actual" in ""|*[!0-9]*) return 2;; esac
     [ "$actual" = "$started" ] || return 1
     return 0
@@ -49,7 +58,11 @@ mv -f "$DIR/ready.new" "$DIR/ready"
 dead=0
 while same_lease; do
     # Graceful disarm is accepted only after the caller verified cleanup.
-    if [ "$(cat "$DIR/release" 2>/dev/null || true)" = "$token" ] &&
+    release_token=
+    if [ -f "$DIR/release" ]; then
+        IFS= read -r release_token < "$DIR/release" 2>/dev/null || release_token=
+    fi
+    if [ "$release_token" = "$token" ] &&
         [ ! -e "$DIR/ipv4" ] && [ ! -e "$DIR/ipv6" ] && [ ! -e "$DIR/guard" ]; then
         rm -f "$DIR/ready" "$DIR/release"
         exit 0

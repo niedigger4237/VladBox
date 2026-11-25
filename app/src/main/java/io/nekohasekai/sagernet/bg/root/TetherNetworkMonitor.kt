@@ -23,6 +23,7 @@ internal class TetherNetworkMonitor(private val changed: (String) -> Unit) {
     private var callbackRegistered = false
     private var receiverRegistered = false
     @Volatile private var closed = false
+    private val lastLinks = HashMap<Network, LinkProperties>()
 
     private fun notifyChange(reason: String) {
         if (!closed) changed(reason)
@@ -30,9 +31,22 @@ internal class TetherNetworkMonitor(private val changed: (String) -> Unit) {
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = notifyChange("network available")
-        override fun onLost(network: Network) = notifyChange("network lost")
-        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) =
-            notifyChange("link properties")
+        override fun onLost(network: Network) {
+            synchronized(lastLinks) { lastLinks.remove(network) }
+            notifyChange("network lost")
+        }
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+            // Android may deliver identical snapshots repeatedly. Keep full
+            // LinkProperties equality, including addresses, routes and DNS.
+            val changed = synchronized(lastLinks) {
+                if (closed || lastLinks[network] == linkProperties) false
+                else {
+                    lastLinks[network] = LinkProperties(linkProperties)
+                    true
+                }
+            }
+            if (changed) notifyChange("link properties")
+        }
     }
 
     private val receiver = object : BroadcastReceiver() {
@@ -75,6 +89,7 @@ internal class TetherNetworkMonitor(private val changed: (String) -> Unit) {
 
     fun close() {
         closed = true
+        synchronized(lastLinks) { lastLinks.clear() }
         if (callbackRegistered) {
             try { cm.unregisterNetworkCallback(callback) } catch (e: Exception) { Logs.w(e) }
             callbackRegistered = false

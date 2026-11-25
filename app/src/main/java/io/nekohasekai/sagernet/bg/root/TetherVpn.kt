@@ -8,7 +8,7 @@ import io.nekohasekai.sagernet.ktx.Logs
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
-import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
@@ -31,8 +31,11 @@ object TetherVpn {
         val postrouting get() = "NFV_N_$suffix"
     }
 
-    private val worker = Executors.newSingleThreadScheduledExecutor { task ->
+    private val worker = ScheduledThreadPoolExecutor(1) { task ->
         Thread(task, "tether-vpn").apply { isDaemon = true }
+    }.apply {
+        removeOnCancelPolicy = true
+        setExecuteExistingDelayedTasksAfterShutdownPolicy(false)
     }
     private var monitor: TetherNetworkMonitor? = null
     private var pending: ScheduledFuture<*>? = null
@@ -343,14 +346,16 @@ object TetherVpn {
                 recoveryReady = recoverLocked()
                 if (!recoveryReady) return
             }
-            if (!enabled()) { if (clearLocked()) guard.clear(); return }
-            if (!TetherCrashWatchdog.healthy()) {
-                // No unjournaled new mutations if the independent worker failed.
+            if (!enabled()) {
+                if (clearLocked() && guard.clear() && TetherCrashWatchdog.armed())
+                    TetherCrashWatchdog.release()
+                return
+            }
+            // Do not start a root watchdog until a selected downstream exists.
+            // If an already armed watchdog disappears, clean up before any
+            // further discovery or mutation.
+            if (TetherCrashWatchdog.armed() && !TetherCrashWatchdog.healthy()) {
                 if (!clearLocked() || !guard.clear() || !TetherCrashWatchdog.release()) return
-                if (!TetherCrashWatchdog.arm(journalBoot ?: return)) {
-                    Logs.w("VPN tether: independent recovery unavailable; no new rules installed")
-                    return
-                }
             }
             val addresses = RootShell.run("ip -4 -o addr show", timeoutMs = 5000)
             if (!addresses.ok) { clearLocked(); return }
@@ -401,6 +406,18 @@ object TetherVpn {
                 name !in uplinks && !skip.matches(name) &&
                     sel.any { c -> if (c.endsWith("+")) name.startsWith(c.dropLast(1)) else name == c }
             }.toSet()
+            if (token != generation) return
+            if (names.isEmpty()) {
+                // A verified empty snapshot permits cleanup and release.
+                // Ambiguous snapshots return earlier and keep existing guards.
+                if (clearLocked() && guard.clear() && TetherCrashWatchdog.armed())
+                    TetherCrashWatchdog.release()
+                return
+            }
+            if (!TetherCrashWatchdog.armed() && !TetherCrashWatchdog.arm(journalBoot ?: return)) {
+                Logs.w("VPN tether: independent recovery unavailable; no new rules installed")
+                return
+            }
             if (token != generation) return
             if (!guard.sync(names, retainExisting = true)) {
                 clearLocked()
