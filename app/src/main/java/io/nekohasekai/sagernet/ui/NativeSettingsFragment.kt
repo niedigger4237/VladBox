@@ -295,8 +295,9 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
             runOnMainDispatcher {
                 model.finishRootCheck(access)
                 if (!isAdded) return@runOnMainDispatcher
-                if (access == RootShell.Access.UNAVAILABLE && !DataStore.serviceState.started &&
-                    DataStore.serviceMode.startsWith("root_")) {
+                val inactive = DataStore.serviceState == io.nekohasekai.sagernet.bg.BaseService.State.Idle ||
+                    DataStore.serviceState == io.nekohasekai.sagernet.bg.BaseService.State.Stopped
+                if (access == RootShell.Access.UNAVAILABLE && inactive && DataStore.serviceMode.startsWith("root_")) {
                     // Recover an inactive configuration, but never stop a live session from a UI probe.
                     findPreference<ListPreference>(Key.SERVICE_MODE)?.value = Key.MODE_VPN
                     model.refresh()
