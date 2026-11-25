@@ -659,7 +659,14 @@ object RootDaemon {
                     ).asJsonObject.apply {
                         addProperty("coreConfigPath", RootBoot.bootCoreConfigPath)
                     }
-                    val bootError = runCatching { RootBoot.publish(withLogFile(bootCore), gson.toJson(bootDaemon)) }
+                    val bootPolicy = if (managed) buildString {
+                        val selectors = tetherSelectors() + if (DataStore.tetherWifi) listOf("swlan+", "wifi+") else emptyList()
+                        (selectors + if (mode == Mode.TUN) configuredTunInterfaces() else emptyList())
+                            .filter { interfaceSelector.matches(it) && it.removeSuffix("+") !in internalInterfaces }
+                            .distinct().forEach { appendLine("select $it") }
+                        ignoredInterfaces().forEach { appendLine("ignore $it") }
+                    } else null
+                    val bootError = runCatching { RootBoot.publish(withLogFile(bootCore), gson.toJson(bootDaemon), bootPolicy) }
                         .getOrElse { it.message ?: "boot snapshot write failed" }
                     bootError?.let { Logs.w("ROOT boot: snapshot not published: $it") }
                     if (managed && mode == Mode.TUN)

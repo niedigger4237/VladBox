@@ -38,7 +38,7 @@ object RootBoot {
         }
         val result = RootShell.run(*cmds.toTypedArray(), timeoutMs = 60_000)
         if (!result.ok) return result.err.ifBlank { "Cannot stage ROOT executables" }
-        return installScript()
+        return installMonitor()?.let { it } ?: installScript()
     }
 
     private fun script(): String = """#!/system/bin/sh
@@ -53,8 +53,30 @@ mkdir -p "${'$'}BASE/run/logs" || exit 1
 STATUS="${'$'}("${'$'}BASE/bin/libasteriskd.so" status 2>&1)"
 printf '%s\n' "${'$'}STATUS" | grep -Eq '"code"[[:space:]]*:[[:space:]]*"not_running"' || exit 0
 [ -f "${'$'}BASE/boot/ready" ] || exit 0
+GEN="${'$'}(cat "${'$'}BASE/boot/ready")"
+[ -n "${'$'}GEN" ] || exit 0
 nohup "${'$'}BASE/bin/libasteriskd.so" boot --config "${'$'}BASE/boot/asteriskd.json" </dev/null >"${'$'}BASE/run/logs/boot.out" 2>&1 &
+if [ -f "${'$'}BASE/boot/tether-policy" ]; then
+    nohup sh "${'$'}BASE/bin/boot-tether-monitor.sh" "${'$'}BASE" "${'$'}GEN" </dev/null >/dev/null 2>&1 &
+fi
 """
+
+    private fun installMonitor(): String? {
+        val tmp = File.createTempFile("boot-monitor-", ".sh", SagerNet.application.noBackupFilesDir)
+        return try {
+            SagerNet.application.assets.open("root/boot-tether-monitor.sh").use { input ->
+                tmp.outputStream().use { input.copyTo(it) }
+            }
+            val target = "$BIN/boot-tether-monitor.sh"
+            val r = RootShell.run("set -e", "umask 077",
+                "cp ${RootShell.q(tmp)} ${RootShell.q(target + ".new")}",
+                "chmod 700 ${RootShell.q(target + ".new")}",
+                "mv -f ${RootShell.q(target + ".new")} ${RootShell.q(target)}")
+            if (r.ok) null else r.err.ifBlank { "Cannot install ROOT boot monitor" }
+        } finally {
+            tmp.delete()
+        }
+    }
 
     private fun installScript(): String? {
         val tmp = File.createTempFile("niefigger-boot-", ".sh", SagerNet.application.noBackupFilesDir)
@@ -75,13 +97,17 @@ nohup "${'$'}BASE/bin/libasteriskd.so" boot --config "${'$'}BASE/boot/asteriskd.
     /** Publish only after the interactive daemon has passed readiness. A missing
      * marker prevents the boot script from consuming an incomplete pair. */
     @Synchronized
-    internal fun publish(coreJson: String, daemonJson: String): String? {
+    internal fun publish(coreJson: String, daemonJson: String, tetherPolicy: String? = null): String? {
         if (!DataStore.configurationStore.getBoolean("startOnBoot", false)) return null
         val core = File.createTempFile("boot-core-", ".json", SagerNet.application.noBackupFilesDir)
         val daemon = File.createTempFile("boot-daemon-", ".json", SagerNet.application.noBackupFilesDir)
+        val policy = File.createTempFile("boot-tether-", ".txt", SagerNet.application.noBackupFilesDir)
         return try {
             core.writeText(coreJson)
             daemon.writeText(daemonJson)
+            policy.writeText(tetherPolicy.orEmpty())
+            val policyPath = "$BOOT/tether-policy"
+            val generation = java.util.UUID.randomUUID().toString()
             val result = RootShell.run(
                 "set -e", "umask 077",
                 "mkdir -p ${RootShell.q(BOOT)} && chmod 700 ${RootShell.q(BOOT)}",
@@ -91,12 +117,16 @@ nohup "${'$'}BASE/bin/libasteriskd.so" boot --config "${'$'}BASE/boot/asteriskd.
                 "chmod 600 ${RootShell.q(bootCoreConfigPath + ".new")} ${RootShell.q(bootConfigPath + ".new")}",
                 "mv -f ${RootShell.q(bootCoreConfigPath + ".new")} ${RootShell.q(bootCoreConfigPath)}",
                 "mv -f ${RootShell.q(bootConfigPath + ".new")} ${RootShell.q(bootConfigPath)}",
-                "touch ${RootShell.q(ready)}",
+                "rm -f ${RootShell.q("$BOOT/downstream-status")} ${RootShell.q(policyPath)}",
+                if (tetherPolicy != null) "cp ${RootShell.q(policy)} ${RootShell.q(policyPath)} && chmod 600 ${RootShell.q(policyPath)}" else "true",
+                "printf '%s\\n' ${RootShell.q(generation)} > ${RootShell.q(ready + ".new")}",
+                "mv -f ${RootShell.q(ready + ".new")} ${RootShell.q(ready)}",
             )
             if (result.ok) null else result.err.ifBlank { "Cannot publish ROOT boot config" }
         } finally {
             core.delete()
             daemon.delete()
+            policy.delete()
         }
     }
 
