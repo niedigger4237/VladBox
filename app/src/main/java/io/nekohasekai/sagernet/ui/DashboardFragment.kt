@@ -78,7 +78,7 @@ class DashboardFragment : ToolbarFragment() {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             listOf("Overview", "Connections", "Proxies", "Rules").forEachIndexed { index, label ->
                                 Surface(modifier = Modifier.weight(1f).clickable { tab = index }, shape = RoundedCornerShape(18.dp),
-                                    color = if (tab == index) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent) {
+                                    color = androidx.compose.animation.animateColorAsState(if (tab == index) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent).value) {
                                     Column(Modifier.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                         DashboardTabIcon(index)
                                         Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
@@ -101,12 +101,15 @@ class DashboardFragment : ToolbarFragment() {
                                     }
                                 }
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    DashboardMetric("↓  Download", ui.rx, Modifier.weight(1f))
-                                    DashboardMetric("↑  Upload", ui.tx, Modifier.weight(1f))
+                                    DashboardMetric("Download", ui.rx, Modifier.weight(1f))
+                                    DashboardMetric("Upload", ui.tx, Modifier.weight(1f))
                                 }
                                 OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f)), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f))) {
                                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        Text("Traffic (last 60 s)", style = MaterialTheme.typography.titleMedium)
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            DashboardOverviewIcon(2, MaterialTheme.colorScheme.primary)
+                                            Text("Traffic (last 60 s)", style = MaterialTheme.typography.titleMedium)
+                                        }
                                         val primary = MaterialTheme.colorScheme.primary
                                         val grid = MaterialTheme.colorScheme.outlineVariant
                                         val samples = history.toList()
@@ -120,7 +123,7 @@ class DashboardFragment : ToolbarFragment() {
                                             Canvas(Modifier.weight(1f).height(120.dp)) {
                                             for (i in 0..4) {
                                                 val y = size.height * i / 4
-                                                drawLine(grid, Offset(0f,y), Offset(size.width,y))
+                                                drawLine(grid.copy(alpha = .5f), Offset(0f,y), Offset(size.width,y))
                                             }
                                             for (series in 0..1) {
                                                 val tint = if (series == 0) green else primary
@@ -179,7 +182,10 @@ class DashboardFragment : ToolbarFragment() {
 private fun DashboardMetric(label: String, value: String, modifier: Modifier) {
     OutlinedCard(modifier, shape = RoundedCornerShape(12.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f)), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f))) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                DashboardOverviewIcon(if (label == "Download") 0 else 1, if (label == "Download") Color(0xFF81D99A) else MaterialTheme.colorScheme.primary)
+                Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
+            }
             Text(value.trimStart('▲', '▼', ' ').ifBlank { "0 B/s" }, style = MaterialTheme.typography.titleLarge, color = if (label.contains("Download")) Color(0xFF81D99A) else MaterialTheme.colorScheme.primary)
         }
     }
@@ -307,4 +313,23 @@ private fun dashboardRootPss(): Long? {
     if (!result.ok) return null
     val values = result.out.lines().mapNotNull { it.trim().toLongOrNull()?.takeIf { value -> value > 0 } }
     return values.singleOrNull()?.times(1024)
+}
+
+@Composable
+private fun DashboardOverviewIcon(kind: Int, tint: Color) {
+    Canvas(Modifier.size(22.dp)) {
+        val s = size.width / 24f
+        fun line(x: Float, y: Float, a: Float, b: Float) =
+            drawLine(tint, Offset(x*s,y*s), Offset(a*s,b*s), 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        if (kind == 2) {
+            line(3f,20f,3f,4f); line(3f,20f,21f,20f)
+            line(6f,15f,10f,10f); line(10f,10f,14f,13f); line(14f,13f,21f,5f)
+        } else {
+            val tip = if (kind == 0) 17f else 4f
+            val tail = if (kind == 0) 4f else 17f
+            val wing = if (kind == 0) 11f else 10f
+            line(12f,tail,12f,tip); line(6f,wing,12f,tip); line(18f,wing,12f,tip)
+            line(5f,21f,19f,21f)
+        }
+    }
 }
