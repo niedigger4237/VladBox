@@ -26,7 +26,7 @@ import org.json.JSONArray
 import java.util.concurrent.TimeUnit
 
 /** Раздел «Cloudflare WARP» — генератор конфигов (регистрация напрямую, без прокси). */
-class WarpFragment : WarpGenFragment("warp.html", R.string.menu_warp)
+class WarpFragment : NativeWarpFragment()
 
 /** Раздел «Proton VPN» — конвертер WireGuard-конфигов Proton в AmneziaWG и др. */
 class ProtonFragment : WarpGenFragment("proton.html", R.string.menu_proton)
