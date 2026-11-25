@@ -57,6 +57,11 @@ internal class RootTunNetworkMonitor(
     }
 
     private fun reconcile(reason: String) {
+        // No rule installation while native traffic is paused or being cleaned up.
+        if (RootDaemon.health() != RootHealth.RUNNING) {
+            candidate = null
+            return
+        }
         val observed = RootDaemon.resolveDownstreams(mode, requireReliable = true, ipv6 = applied.serviceIpv6)
         if (!closed && applied.blockIpv6) RootDaemon.reconcileTetherIpv6Guard(applied, observed)
         if (observed == null || observed == applied) {

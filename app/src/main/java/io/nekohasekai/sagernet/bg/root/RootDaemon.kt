@@ -217,14 +217,18 @@ object RootDaemon {
     @Volatile internal var appliedDownstreams: DownstreamSnapshot? = null
         private set
 
-    internal fun isRunning(): Boolean = PHASE.find(status())?.groupValues?.get(1) == "running"
+    internal fun isRunning(): Boolean = health() == RootHealth.RUNNING
+
+    // Never treat an inaccessible control socket, su timeout, or malformed
+    // response as a confirmed crash. Paused service-control sessions are not failures.
+    internal fun health(): RootHealth = RootHealth.parse(control("status", 5000), OWNER)
 
     // Use the same lock as shutdown so a late watchdog cannot reinstall rules
     // after the session has been invalidated. Identity distinguishes restarts
     // whose downstream names and addresses happen to be unchanged.
     @Synchronized
     internal fun reconcileTunForwarding(snapshot: DownstreamSnapshot) {
-        if (appliedDownstreams !== snapshot) return
+        if (appliedDownstreams !== snapshot || health() != RootHealth.RUNNING) return
         if (!RootTunForwarding.ensure(snapshot.names, snapshot.ipv6Enabled)) {
             Logs.w("ROOT TUN forwarding: reconciliation pending")
         }
@@ -232,7 +236,7 @@ object RootDaemon {
 
     @Synchronized
     internal fun reconcileTetherIpv6Guard(applied: DownstreamSnapshot, observed: DownstreamSnapshot?) {
-        if (appliedDownstreams !== applied || !applied.blockIpv6) return
+        if (appliedDownstreams !== applied || !applied.blockIpv6 || health() != RootHealth.RUNNING) return
         // Keep earlier rules until the normal restart transaction finishes.
         val names = (applied.names + observed?.names.orEmpty()).distinct()
         if (!RootTetherIpv6Guard.ensure(names)) Logs.w("ROOT tether IPv6 guard: reconciliation failed")

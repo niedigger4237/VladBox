@@ -4,6 +4,12 @@ import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.root.RootCore
 import io.nekohasekai.sagernet.bg.root.RootDaemon
 import io.nekohasekai.sagernet.bg.root.RootShell
+import io.nekohasekai.sagernet.bg.root.RootHealth
+import io.nekohasekai.sagernet.bg.root.RootHealthConfirmation
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import io.nekohasekai.sagernet.bg.root.RootTunNetworkMonitor
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
@@ -73,6 +79,7 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         super.launch()
         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
         rootScope = scope
+        if (started) scope.launch { monitorHealth() }
         rootLooper = service?.let { RootTrafficLooper(it.data, scope) }
         rootLooper?.start()
         val initial = RootDaemon.appliedDownstreams
@@ -95,6 +102,28 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
                     true
                 } else false
             }.also { it.start() }
+        }
+    }
+
+    private suspend fun monitorHealth() {
+        val confirmation = RootHealthConfirmation()
+        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+            delay(10000)
+            val state = RootDaemon.health()
+            if (!confirmation.observe(state)) continue
+            // Never automatically resurrect a crashing core/helper, including
+            // an experimental Flow Metadata session.
+            val stopped = withContext(kotlinx.coroutines.Dispatchers.Main) {
+                val owner = service
+                if (owner != null && owner.data.proxy === this@RootProxyInstance &&
+                    started && owner.data.state == BaseService.State.Connected) {
+                    Logs.w("ROOT supervisor health: confirmed terminal state $state")
+                    owner.stopRunner(restart = false, msg = "ROOT supervisor stopped or failed")
+                    true
+                } else false
+            }
+            if (stopped) return
+            confirmation.reset()
         }
     }
 
