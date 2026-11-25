@@ -104,17 +104,18 @@ class DashboardFragment : ToolbarFragment() {
                                     DashboardMetric("↓  Download", ui.rx, Modifier.weight(1f))
                                     DashboardMetric("↑  Upload", ui.tx, Modifier.weight(1f))
                                 }
-                                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f))) {
+                                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f)), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f))) {
                                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                         Text("Traffic (last 60 s)", style = MaterialTheme.typography.titleMedium)
                                         val primary = MaterialTheme.colorScheme.primary
                                         val grid = MaterialTheme.colorScheme.outlineVariant
                                         val samples = history.toList()
-                                        val peak = maxOf(1L, samples.maxOfOrNull { maxOf(it.first, it.second) } ?: 0L)
-                                        Text(String.format(java.util.Locale.getDefault(), "%.1f Mbps", peak * 8.0 / 1000000), style = MaterialTheme.typography.labelSmall)
+                                        val peak = maxOf(125L, samples.maxOfOrNull { maxOf(it.first, it.second) } ?: 0L)
+                                        val divisor = if (peak >= 125000) 1000000.0 else 1000.0
+                                        Text(if (divisor == 1000.0) "Kbps" else "Mbps", style = MaterialTheme.typography.labelSmall)
                                         Row(Modifier.fillMaxWidth()) {
                                             Column(Modifier.width(54.dp).height(120.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                                                for (i in 4 downTo 0) Text(String.format(java.util.Locale.getDefault(), "%.1f", peak * 8.0 / 1000000 * i / 4), style = MaterialTheme.typography.labelSmall)
+                                                for (i in 4 downTo 0) Text(String.format(java.util.Locale.getDefault(), "%.1f", peak * 8.0 / divisor * i / 4), style = MaterialTheme.typography.labelSmall)
                                             }
                                             Canvas(Modifier.weight(1f).height(120.dp)) {
                                             for (i in 0..4) {
@@ -122,7 +123,7 @@ class DashboardFragment : ToolbarFragment() {
                                                 drawLine(grid, Offset(0f,y), Offset(size.width,y))
                                             }
                                             for (series in 0..1) {
-                                                val tint = if (series == 0) primary else green
+                                                val tint = if (series == 0) green else primary
                                                 val path = Path()
                                                 samples.forEachIndexed { index, pair ->
                                                     val x = size.width * (60 - samples.size + index) / 59f
@@ -150,9 +151,9 @@ class DashboardFragment : ToolbarFragment() {
                                         }
                                         }
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                                            Text("● Download", color = primary)
+                                            Text("● Download", color = green)
                                             Spacer(Modifier.width(20.dp))
-                                            Text("● Upload", color = green)
+                                            Text("● Upload", color = primary)
                                         }
                                     }
                                 }
@@ -166,7 +167,7 @@ class DashboardFragment : ToolbarFragment() {
                                     }
                                 }
                                 val ratio = (used.toFloat() / limit.coerceAtLeast(1)).coerceIn(0f,1f)
-                                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f))) {
+                                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f)), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f))) {
                                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             Text("App Java heap", style = MaterialTheme.typography.titleMedium)
@@ -195,10 +196,10 @@ class DashboardFragment : ToolbarFragment() {
 
 @Composable
 private fun DashboardMetric(label: String, value: String, modifier: Modifier) {
-    OutlinedCard(modifier, shape = RoundedCornerShape(12.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f))) {
+    OutlinedCard(modifier, shape = RoundedCornerShape(12.dp), colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f)), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f))) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value.trimStart('▲', '▼', ' ').ifBlank { "0 B/s" }, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+            Text(value.trimStart('▲', '▼', ' ').ifBlank { "0 B/s" }, style = MaterialTheme.typography.titleLarge, color = if (label.contains("Download")) Color(0xFF81D99A) else MaterialTheme.colorScheme.primary)
         }
     }
 }
