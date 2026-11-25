@@ -144,6 +144,8 @@ class DashboardFragment : ToolbarFragment() {
                                         LinearProgressIndicator(progress = ratio, modifier = Modifier.fillMaxWidth())
                                     }
                                 }
+                            } else if (tab == 2) {
+                                DashboardProxiesTab(connected)
                             } else {
                                 DashboardLiveTab(tab, connected)
                             }
