@@ -213,8 +213,8 @@ internal fun DashboardLiveTab(tab: Int, connected: Boolean) {
                     Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Surface(Modifier.size(30.dp), shape = androidx.compose.foundation.shape.CircleShape, color = colors.secondaryContainer) {
-                            Box(contentAlignment = androidx.compose.ui.Alignment.Center) { DashboardServiceIcon(item.title) }
+                        Surface(Modifier.size(32.dp), shape = androidx.compose.foundation.shape.CircleShape, color = colors.secondaryContainer) {
+                            Box(contentAlignment = androidx.compose.ui.Alignment.Center) { DashboardBrandIcon(item.title) { DashboardServiceIcon("") } }
                         }
                         Column(Modifier.weight(1f)) {
                             Text(item.title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
