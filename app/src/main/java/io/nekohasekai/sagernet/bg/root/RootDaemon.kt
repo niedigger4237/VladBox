@@ -162,7 +162,7 @@ object RootDaemon {
         // Both families must succeed; a partial route dump cannot prove that an interface is not WAN.
         val routes = RootShell.run("ip -4 route show table all && ip -6 route show table all", timeoutMs = 5000)
         if (!routes.ok) {
-            Logs.w("ROOT TUN: cannot verify upstream interfaces; skipping all downstreams for this start")
+            Logs.w("ROOT ${mode.wire}: cannot verify upstream interfaces; skipping unverified downstreams")
             return if (requireReliable) null else DownstreamSnapshot(emptyList(), emptyList())
         }
         val state = Regex("""^\s*([A-Za-z0-9_.-]{1,15})\s+-\s+TetheredState\s+-\s+lastError\s*=\s*0\s*$""")
@@ -182,9 +182,9 @@ object RootDaemon {
         val result = (manual + auto).distinct().filter { name ->
             name !in internalInterfaces && name !in upstream && ignored.none { matches(name, it) }
         }
-        if (!requireReliable) Logs.i("ROOT TUN downstream: active=$active selected=$result upstream=$upstream dumpOk=${dump.ok} routesOk=${routes.ok}")
-        if (!dump.ok) Logs.w("ROOT TUN: Android tethering state unavailable; only verified manual downstreams can be used")
-        if (!requireReliable && selectors.isNotEmpty() && result.isEmpty()) Logs.i("ROOT TUN: no matching active downstream at startup")
+        if (!requireReliable) Logs.i("ROOT ${mode.wire} downstream: active=$active selected=$result upstream=$upstream dumpOk=${dump.ok} routesOk=${routes.ok}")
+        if (!dump.ok) Logs.w("ROOT ${mode.wire}: Android tethering state unavailable; only verified manual downstreams can be used")
+        if (!requireReliable && selectors.isNotEmpty() && result.isEmpty()) Logs.i("ROOT ${mode.wire}: no matching active downstream at startup")
         val names = result.sorted()
         if (names.isEmpty()) return DownstreamSnapshot(names, emptyList())
         val links = RootShell.run("ip -o link show && ip -4 -o addr show", timeoutMs = 5000)
@@ -201,8 +201,6 @@ object RootDaemon {
         if (requireReliable && (names - manual.toSet()).any { name -> identity.none { it.substringAfter(':').substringBefore(':') == name } }) return null
         return DownstreamSnapshot(names, identity)
     }
-
-    internal fun hasTethering(mode: Mode): Boolean = (mode == Mode.TUN && configuredTunInterfaces().isNotEmpty()) || tetherSelectors().isNotEmpty()
 
     @Volatile internal var appliedDownstreams: DownstreamSnapshot? = null
         private set
@@ -446,8 +444,12 @@ object RootDaemon {
         if (useFlow) Logs.i("ROOT flow metadata: enabled")
         val useMatcher = matcherAvailable(mode, ipv6)
         val cfg = File(stage, "config.json").apply { writeText(withLogFile(effectiveConfig)) }
+        // A boot-started native daemon has no Android app monitor. Keep its native prefix
+        // selectors for daemon-managed modes when start-on-boot is enabled.
+        val daemonDownstreams = if (mode != Mode.TUN &&
+            DataStore.configurationStore.getBoolean("startOnBoot", false)) null else dynamicDownstreams?.names
         val dcfg = File(stage, "asteriskd.json").apply {
-            writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, dynamicDownstreams?.names))
+            writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, daemonDownstreams))
         }
         mark("generate configs")
         try {
