@@ -107,7 +107,9 @@ int hev_flow_recvmmsg(HevSocks5SessionUDP *self, HevSocks5UDPMsg *msgv, unsigned
     }
     int fd = hev_socks5_udp_get_fd(HEV_SOCKS5_UDP(self));
     if (fd < 0) return -1;
-    res = hev_task_io_socket_recvmmsg(fd, messages, count, 1, hev_socks5_task_io_yielder, self);
+    // The task-system API takes actual recv flags, unlike the socks5 wrapper's
+    // boolean nonblock argument. Passing 1 would request MSG_OOB on Linux.
+    res = hev_task_io_socket_recvmmsg(fd, messages, count, MSG_DONTWAIT, hev_socks5_task_io_yielder, self);
     for (i = 0; i < res; i++) {
         struct sockaddr_storage source, destination;
         size_t n = flow_metadata_decode(msgv[i].buf, messages[i].msg_len, &source, &destination,
