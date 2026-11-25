@@ -381,13 +381,13 @@ object RootDaemon {
                     if (active() && line.isNotBlank()) Logs.i("ROOT TUN diagnostic [$label] ${line.take(1000)}")
                 }
                 if (result.out.lineSequence().count() > 180) Logs.i("ROOT TUN diagnostic [$label] output truncated")
-                if (!result.ok && result.err.isNotBlank()) Logs.w("ROOT TUN diagnostic [$label] ${result.err.take(500)}")
+                if (result.err.isNotBlank()) Logs.w("ROOT TUN diagnostic [$label] ${result.err.take(500)}")
             }
             try {
                 Thread.sleep(2000L)
                 if (!active()) return@Thread
                 Logs.i("ROOT TUN diagnostic: begin downstream=$names")
-                capture("forwarding", "cat /proc/sys/net/ipv4/ip_forward; cat /proc/sys/net/ipv4/conf/all/rp_filter; settings get global tether_offload_disabled")
+                capture("forwarding", "echo ip_forward; cat /proc/sys/net/ipv4/ip_forward; echo rp_filter; cat /proc/sys/net/ipv4/conf/all/rp_filter; echo tether_offload_disabled; settings get global tether_offload_disabled")
                 capture("IPv4 rules", "ip -4 rule show")
                 capture("IPv4 routes", "ip -4 route show table all")
                 if (ipv6) {
@@ -400,8 +400,8 @@ object RootDaemon {
                 capture("offload", "dumpsys tethering | grep -iE 'offload|TetheredState|LocalHotspotState|current upstream' | head -n 80")
                 for (name in names) {
                     val dev = RootShell.q(name)
-                    capture("$name TC ingress", "tc filter show dev $dev ingress")
-                    capture("$name TC egress", "tc filter show dev $dev egress")
+                    capture("$name TC ingress", "tc -s filter show dev $dev ingress")
+                    capture("$name TC egress", "tc -s filter show dev $dev egress")
                     capture("$name client routes", "ip -4 neigh show dev $dev | awk '/lladdr/ {print \$1}' | head -n 8 | while read -r client; do echo client=\$client; ip -4 route get 1.1.1.1 from \"\$client\" iif $dev; ip -4 route get \"\$client\"; done")
                 }
                 val devices = names + TUN_DEVICE
