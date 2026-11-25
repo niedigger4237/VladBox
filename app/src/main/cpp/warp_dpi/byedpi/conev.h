@@ -58,6 +58,7 @@ struct buffer {
     size_t size;
     unsigned int offset;
     ssize_t lock;
+    bool transformed;
     struct buffer *next;
     char data[];
 };

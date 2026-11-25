@@ -207,7 +207,7 @@ static ssize_t send_fake(struct eval *val, const char *buffer,
     ssize_t ret = -1;
 
     val->restore_orig = buffer;
-    val->restore_orig_len = pos;
+    val->restore_orig_len = 0;
 
     while (1) {
         char *p = pkt.data + pkt.off;
@@ -548,8 +548,17 @@ ssize_t desync(struct poolhd *pool,
             LOG(LOG_S, "bytes: %s (%zd)\n", HEX_STR, *np);
         }
     }
-    if (!skip) {
+    if (val->restore_fake || val->restore_md5 || val->restore_ttl) {
+        if (sock_has_notsent(sfd)) {
+            set_timer(pool, val, params.await_int);
+            *wait = true;
+            return 0;
+        }
+        restore_state(val);
+    }
+    if (!skip && !buff->transformed) {
         tamp(buffer, bfsize, np, &dp, &info);
+        buff->transformed = true;
     }
     ssize_t n = *np;
 
@@ -639,8 +648,6 @@ ssize_t desync(struct poolhd *pool,
         }
         LOG(LOG_S, "split: pos=%ld-%ld (%zd), m: %s\n", lp, pos, s, demode_str[part.m]);
         }
-        val->pair->part_sent = curr_part;
-
         if (s == ERR_WAIT) {
             set_timer(pool, val, params.await_int);
             *wait = true;
@@ -657,6 +664,7 @@ ssize_t desync(struct poolhd *pool,
             return lp + s - offset;
         }
 
+        val->pair->part_sent = curr_part;
         if (sock_has_notsent(sfd)
                 || (params.wait_send
                     && curr_part > part_skip)) {
@@ -672,15 +680,17 @@ ssize_t desync(struct poolhd *pool,
     // send all/rest
     if (lp < n) {
         LOG((lp ? LOG_S : LOG_L), "send: pos=%ld-%zd\n", lp, n);
-        if (send(sfd, buffer + lp, n - lp, 0) < 0) {
+        ssize_t sent = send(sfd, buffer + lp, n - lp, 0);
+        if (sent < 0) {
             if (get_e() == EAGAIN) {
                 return lp - offset;
             }
             uniperror("send");
             return -1;
         }
+        return lp + sent - offset;
     }
-    return n - offset;
+    return lp - offset;
 }
 
 

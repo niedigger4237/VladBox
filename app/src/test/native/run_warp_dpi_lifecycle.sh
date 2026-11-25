@@ -27,7 +27,7 @@ for preset in presets + imported:
 print("};")
 PY
 
-"${CC:-cc}" -D_GNU_SOURCE -std=c11 -O1 -g -pthread -Wl,--wrap=getaddrinfo,--wrap=connect,--wrap=getsockopt,--wrap=create_conn \
+"${CC:-cc}" -D_GNU_SOURCE -std=c11 -O1 -g -pthread -Wl,--wrap=getaddrinfo,--wrap=connect,--wrap=getsockopt,--wrap=create_conn,--wrap=send \
     -I"$output" -I"$native_dir" \
     "$test_dir/warp_dpi_lifecycle.c" "$native_dir/warp_dpi_engine.c" \
     "$native_dir/warp_dpi_arguments.c" "$native_dir/private_stream.c" "$native_dir"/byedpi/*.c \

@@ -372,6 +372,7 @@ void buff_push(struct poolhd *pool, struct buffer *buff)
     }
     buff->lock = 0;
     buff->offset = 0;
+    buff->transformed = false;
     buff->next = pool->root_buff;
 
     pool->root_buff = buff;

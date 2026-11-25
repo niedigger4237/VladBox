@@ -212,17 +212,15 @@ int on_tunnel(struct poolhd *pool, struct eval *val, int etype)
         if (etype & POLLHUP) {
             return -1;
         }
-        n = val->buff->lock - val->buff->offset;
-
         bool wait = false;
         ssize_t sn = tcp_send_hook(pool, pair, val->buff, &val->buff->lock, &wait);
         if (sn < 0) {
             uniperror("send");
             return -1;
         }
-        if (sn < n || wait) {
+        if (sn < val->buff->lock - val->buff->offset || wait) {
             val->buff->offset += sn;
-            return 0;
+            return mod_etype(pool, pair, wait ? 0 : POLLOUT);
         }
         buff_push(pool, val->buff);
         val->buff = 0;

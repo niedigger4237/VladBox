@@ -78,6 +78,26 @@ int __wrap_getsockopt(int fd, int level, int option, void *value, socklen_t *len
     return __real_getsockopt(fd, level, option, value, len);
 }
 
+static size_t short_write_at;
+static size_t short_write_count;
+static bool would_block;
+
+ssize_t __real_send(int fd, const void *buf, size_t len, int flags);
+
+ssize_t __wrap_send(int fd, const void *buf, size_t len, int flags)
+{
+    if (short_write_at && len >= short_write_at && !flags) {
+        short_write_at = 0;
+        short_write_count++;
+        if (would_block) {
+            errno = EAGAIN;
+            return -1;
+        }
+        return __real_send(fd, buf, 1, flags);
+    }
+    return __real_send(fd, buf, len, flags);
+}
+
 static int count_entries(const char *path)
 {
     DIR *dir = opendir(path);
@@ -176,6 +196,93 @@ static void check_tls_replay(int listener)
 
     warp_dpi_stop(engine);
     close(client);
+}
+
+static void check_short_write(int listener, char *strategy)
+{
+    static const char request[] = "abcdefghijkl";
+    short_write_at = 4;
+    short_write_count = 0;
+    void *engine = warp_dpi_start_args(1, &strategy);
+    assert(engine);
+    int client = warp_dpi_open_stream(engine);
+    assert(client >= 0);
+    assert(write(client, request, sizeof(request)) == sizeof(request));
+    readable(listener);
+    int server = accept(listener, NULL, NULL);
+    assert(server >= 0);
+    struct timeval timeout = {.tv_sec = 3};
+    assert(!setsockopt(server, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
+    char received[sizeof(request)];
+    assert(recv(server, received, sizeof(received), MSG_WAITALL) == sizeof(received));
+    assert(!memcmp(received, request, sizeof(request)));
+    warp_dpi_stop(engine);
+    close(server);
+    close(client);
+    assert(short_write_count == 1);
+}
+
+static void check_tls_would_block(int listener)
+{
+    char *strategy[] = {"-r10"};
+    would_block = true;
+    short_write_at = 1;
+    short_write_count = 0;
+    void *engine = warp_dpi_start_args(1, strategy);
+    assert(engine);
+    int client = warp_dpi_open_stream(engine);
+    assert(client >= 0);
+    assert(write(client, fake_tls.data, fake_tls.size) == fake_tls.size);
+    readable(listener);
+    int server = accept(listener, NULL, NULL);
+    assert(server >= 0);
+    struct timeval timeout = {.tv_sec = 3};
+    assert(!setsockopt(server, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
+
+    // One TLS record split adds exactly one five-byte header.
+    unsigned char wire[16384];
+    size_t expected = fake_tls.size + 5;
+    assert(expected < sizeof(wire));
+    assert(recv(server, wire, expected, MSG_WAITALL) == (ssize_t)expected);
+    size_t first_record = ((size_t)wire[3] << 8) | wire[4];
+    size_t second_header = 5 + first_record;
+    assert(first_record && second_header + 5 < expected);
+    assert(!memcmp(wire + 5, fake_tls.data + 5, first_record));
+    assert(!memcmp(wire + second_header + 5, fake_tls.data + second_header,
+        fake_tls.size - second_header));
+    assert(recv(server, wire, 1, MSG_DONTWAIT) == -1 && errno == EAGAIN);
+    warp_dpi_stop(engine);
+    close(server);
+    close(client);
+    assert(short_write_count == 1);
+    would_block = false;
+}
+
+static void check_closed_client_does_not_retry(int listener)
+{
+    char *strategy[] = {"-As,c"};
+    void *engine = warp_dpi_start_args(1, strategy);
+    assert(engine);
+    int client = warp_dpi_open_stream(engine);
+    assert(client >= 0);
+    assert(write(client, fake_tls.data, fake_tls.size) == fake_tls.size);
+    readable(listener);
+    int server = accept(listener, NULL, NULL);
+    assert(server >= 0);
+    struct timeval timeout = {.tv_sec = 3};
+    assert(!setsockopt(server, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
+    char request[16384];
+    assert(fake_tls.size <= sizeof(request));
+    assert(recv(server, request, fake_tls.size, MSG_WAITALL) == fake_tls.size);
+    close(client);
+    assert(recv(server, request, 1, 0) == 0);
+    fd_set pending;
+    FD_ZERO(&pending);
+    FD_SET(listener, &pending);
+    struct timeval grace = {.tv_usec = 100000};
+    assert(select(listener + 1, &pending, NULL, NULL, &grace) == 0);
+    warp_dpi_stop(engine);
+    close(server);
 }
 
 int main(void)
@@ -323,6 +430,10 @@ int main(void)
     check_connect_trigger(listener, ETIMEDOUT, false, true);
     check_connect_trigger(listener, ECONNREFUSED, false, false);
     check_tls_replay(listener);
+    check_short_write(listener, "-s1");
+    check_short_write(listener, "-s8");
+    check_tls_would_block(listener);
+    check_closed_client_does_not_retry(listener);
     close(listener);
 
     no_address = true;

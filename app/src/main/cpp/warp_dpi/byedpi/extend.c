@@ -175,6 +175,7 @@ static int reconnect(struct poolhd *pool, struct eval *val)
         client->buff->lock = client->sq_buff->lock;
         memcpy(client->buff->data, client->sq_buff->data, client->buff->lock);
         client->buff->offset = 0;
+        client->buff->transformed = false;
     }
 
     if (connect_hook(pool, client, &val->addr, &on_private_connect))
@@ -545,10 +546,7 @@ ssize_t tcp_recv_hook(struct poolhd *pool,
     ssize_t n = recv(val->fd, buff->data, buff->size, 0);
     if (n < 1) {
         if (!n) {
-            if (val->flag != FLAG_CONN) {
-                val = val->pair;
-            }
-            return on_fin(pool, val);
+            return val->flag == FLAG_CONN ? on_fin(pool, val) : -1;
         }
         if (get_e() == EAGAIN) {
             return 0;
@@ -561,8 +559,7 @@ ssize_t tcp_recv_hook(struct poolhd *pool,
             case EHOSTUNREACH:
                 if (val->flag == FLAG_CONN)
                     return on_torst(pool, val);
-                else
-                    return on_fin(pool, val->pair);
+                return -1;
         }
         return -1;
     }
