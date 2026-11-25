@@ -15,7 +15,7 @@ import java.net.URL
 import java.net.HttpURLConnection
 import java.net.Proxy
 
-private suspend fun dashboardGet(path: String): JSONObject = withContext(Dispatchers.IO) {
+internal suspend fun dashboardGet(path: String): JSONObject = withContext(Dispatchers.IO) {
     val connection = URL("http://127.0.0.1:9090/" + path).openConnection(Proxy.NO_PROXY) as HttpURLConnection
     try {
         connection.connectTimeout = 1500
