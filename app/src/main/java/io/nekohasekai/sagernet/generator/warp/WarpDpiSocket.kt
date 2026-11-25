@@ -4,7 +4,6 @@ import android.os.ParcelFileDescriptor
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
-import android.system.StructTimeval
 import java.io.IOException
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -102,14 +101,7 @@ internal class WarpDpiSocketFactory(private val engine: NativeByeDpi) : SocketFa
         }
 
         private fun applyTimeout() {
-            descriptor?.let {
-                try {
-                    Os.setsockoptTimeval(it.fileDescriptor, OsConstants.SOL_SOCKET,
-                        OsConstants.SO_RCVTIMEO, StructTimeval.fromMillis(timeout.toLong()))
-                } catch (e: ErrnoException) {
-                    throw SocketException(e.message).apply { initCause(e) }
-                }
-            }
+            descriptor?.let { NativeByeDpi.setReadTimeout(it, timeout) }
         }
     }
 

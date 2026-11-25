@@ -25,6 +25,13 @@ internal class NativeByeDpi private constructor(private var handle: Long) : Clos
         @JvmStatic private external fun nativeStart(arguments: Array<String>): Long
         @JvmStatic private external fun nativeOpenWarpStream(handle: Long): Int
         @JvmStatic private external fun nativeStop(handle: Long)
+        @JvmStatic private external fun nativeSetReadTimeout(fd: Int, timeoutMillis: Int): Boolean
+
+        fun setReadTimeout(stream: ParcelFileDescriptor, timeoutMillis: Int) {
+            if (!nativeSetReadTimeout(stream.fd, timeoutMillis)) {
+                throw IOException("Unable to set private WARP stream timeout")
+            }
+        }
     }
 
     /** Returns an owned descriptor for a private connected stream, not a listener. */

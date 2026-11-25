@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <sys/time.h>
 
 #include "warp_dpi_engine.h"
 
@@ -58,4 +60,20 @@ Java_io_nekohasekai_sagernet_generator_warp_NativeByeDpi_nativeStop(
     (void)env;
     (void)clazz;
     if (handle) warp_dpi_stop((void *)(intptr_t)handle);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_io_nekohasekai_sagernet_generator_warp_NativeByeDpi_nativeSetReadTimeout(
+    JNIEnv *env, jclass clazz, jint fd, jint timeout_ms)
+{
+    (void)env;
+    (void)clazz;
+    if (fd < 0 || timeout_ms < 0)
+        return JNI_FALSE;
+    struct timeval timeout = {
+        .tv_sec = timeout_ms / 1000,
+        .tv_usec = (timeout_ms % 1000) * 1000
+    };
+    return setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == 0
+        ? JNI_TRUE : JNI_FALSE;
 }
