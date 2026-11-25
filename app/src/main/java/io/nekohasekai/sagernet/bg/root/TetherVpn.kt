@@ -1,6 +1,8 @@
 package io.nekohasekai.sagernet.bg.root
 
-import io.nekohasekai.sagernet.bg.VpnService
+import android.net.NetworkCapabilities
+import io.nekohasekai.sagernet.SagerNet
+import io.nekohasekai.sagernet.bg.TunAddressPlan
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.Logs
 
@@ -16,6 +18,7 @@ object TetherVpn {
     private data class Addr(val name: String, val ip: String, val prefix: Int)
 
     private var lastUp: String? = null
+    private var lastDns = TunAddressPlan.legacy().dns4
     private var lastSig: String? = null
     private var lastSeen: String? = null
     @Volatile
@@ -34,7 +37,7 @@ object TetherVpn {
         return "${(v ushr 24) and 255}.${(v ushr 16) and 255}.${(v ushr 8) and 255}.${v and 255}/$prefix"
     }
 
-    private fun cleanupScript(up: String?, down: List<String>): List<String> {
+    private fun cleanupScript(up: String?, down: List<String>, dns: String): List<String> {
         val l = ArrayList<String>()
         l += "for i in 1 2 3 4 5 6 7 8; do ip rule del pref $PREF 2>/dev/null; ip rule del pref ${PREF - 1} 2>/dev/null; done"
         l += "ip route flush table $TABLE 2>/dev/null"
@@ -42,7 +45,7 @@ object TetherVpn {
             l += "while iptables -w -t nat -D POSTROUTING -o $up -j MASQUERADE 2>/dev/null; do :; done"
             for (d in down) {
                 for (proto in listOf("udp", "tcp"))
-                    l += "while iptables -w -t nat -D PREROUTING -i $d -p $proto --dport 53 -j DNAT --to-destination ${VpnService.PRIVATE_VLAN4_ROUTER}:53 2>/dev/null; do :; done"
+                    l += "while iptables -w -t nat -D PREROUTING -i $d -p $proto --dport 53 -j DNAT --to-destination ${dns}:53 2>/dev/null; do :; done"
                 l += "while iptables -w -D FORWARD -i $d -o $up -j ACCEPT 2>/dev/null; do :; done"
                 l += "while iptables -w -D FORWARD -i $up -o $d -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null; do :; done"
             }
@@ -51,27 +54,43 @@ object TetherVpn {
     }
 
     @Synchronized
-    fun apply() {
+    fun apply(plan: TunAddressPlan = TunAddressPlan.legacy()) {
         try {
             if (!enabled()) { clearLocked(); return }
             if (!RootShell.isAvailable()) { Logs.w("tethering through VPN needs root"); return }
             val addrs = Regex("^\\d+:\\s+(\\S+)\\s+inet\\s+(\\d+\\.\\d+\\.\\d+\\.\\d+)/(\\d+)", RegexOption.MULTILINE)
                 .findAll(RootShell.run("ip -4 -o addr show").out)
                 .map { Addr(it.groupValues[1], it.groupValues[2], it.groupValues[3].toInt()) }.toList()
-            val up = addrs.firstOrNull { it.ip == VpnService.PRIVATE_VLAN4_CLIENT }?.name
-            if (up == null) { Logs.w("tethering: VPN interface not found"); return }
+            // Resolve the Android VPN network, then confirm its actual interface in the root view.
+            val cm = SagerNet.connectivity
+            @Suppress("DEPRECATION")
+            val vpnNames = cm.allNetworks.mapNotNull { network ->
+                if (cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true)
+                    return@mapNotNull null
+                val link = cm.getLinkProperties(network) ?: return@mapNotNull null
+                if (link.linkAddresses.none { it.address.hostAddress == plan.ipv4 }) return@mapNotNull null
+                link.interfaceName
+            }.distinct()
+            val up = vpnNames.singleOrNull()?.takeIf { name ->
+                Regex("[A-Za-z0-9_.-]{1,15}").matches(name) &&
+                    addrs.any { it.name == name && it.ip == plan.ipv4 }
+            }
+            if (up == null) { clearLocked(); Logs.w("tethering: current VPN interface not confirmed"); return }
             // interfaces carrying a default route are uplinks (e.g. wlan0 when the phone itself is on Wi-Fi)
             val uplinks = Regex("^default .*?dev (\\S+)", RegexOption.MULTILINE)
                 .findAll(RootShell.run("ip -4 route show table all").out).map { it.groupValues[1] }.toSet() + up
-            val sel = RootDaemon.tetherSelectors()
+            val sel = RootDaemon.tetherSelectors().toMutableList()
+            if (DataStore.tetherWifi) sel += listOf("swlan+", "wifi+")
             val skip = Regex("(lo|tun\\d*|rmnet.*|r_rmnet.*|ccmni.*|dummy.*|ifb.*|p2p.*|clat.*|v4-.*)")
             // the gateway address is not always x.x.x.1 (e.g. 10.242.217.50/24), so match by interface name
-            fun candidates(byName: Boolean) = addrs.filter { a ->
+            val state = RootShell.run("dumpsys tethering", timeoutMs = 5000)
+            val active = if (state.ok) state.out.lineSequence().mapNotNull {
+                Regex("""^\s*([A-Za-z0-9_.-]{1,15})\s+-\s+TetheredState\s+-\s+lastError\s*=\s*0\s*$""").matchEntire(it)?.groupValues?.get(1)
+            }.toSet() else emptySet()
+            val downs = addrs.filter { a ->
                 a.name !in uplinks && !skip.matches(a.name) && a.prefix in 16..30 &&
-                    (!byName || sel.any { c -> if (c.endsWith("+")) a.name.startsWith(c.dropLast(1)) else a.name == c })
+                    a.name in active && sel.any { c -> if (c.endsWith("+")) a.name.startsWith(c.dropLast(1)) else a.name == c }
             }.distinctBy { it.name }
-            // by the selected tethering types first; if nothing matches, any non-uplink interface with a private address
-            val downs = candidates(true).ifEmpty { candidates(false) }
             val sig = up + "|" + downs.joinToString(",") { "${it.name}/${it.ip}/${it.prefix}" }
             if (sig != lastSeen) {
                 lastSeen = sig
@@ -85,7 +104,8 @@ object TetherVpn {
             clearLocked()
 
             val s = ArrayList<String>()
-            s += cleanupScript(up, downs.map { it.name })
+            s += cleanupScript(up, downs.map { it.name }, plan.dns4)
+            s += "set -e"
             s += "echo 1 > /proc/sys/net/ipv4/ip_forward"
             s += "ip route add default dev $up table $TABLE"
             for (d in downs) {
@@ -99,14 +119,15 @@ object TetherVpn {
             s += "iptables -w -t nat -I POSTROUTING 1 -o $up -j MASQUERADE"
             // clients' DNS goes to the VPN resolver (sing-box hijack-dns), not to the system one
             for (d in downs) for (proto in listOf("udp", "tcp")) {
-                s += "iptables -w -t nat -I PREROUTING 1 -i ${d.name} -p $proto --dport 53 -j DNAT --to-destination ${VpnService.PRIVATE_VLAN4_ROUTER}:53"
+                s += "iptables -w -t nat -I PREROUTING 1 -i ${d.name} -p $proto --dport 53 -j DNAT --to-destination ${plan.dns4}:53"
             }
             // hardware tethering offload bypasses ip rules/NAT
             if (prevOffload == null) prevOffload = RootShell.run("settings get global tether_offload_disabled").out.trim()
             s += "settings put global tether_offload_disabled 1"
             val r = RootShell.run(*s.toTypedArray(), timeoutMs = 20_000)
             lastUp = up
-            lastSig = sig
+            lastDns = plan.dns4
+            lastSig = if (r.ok) sig else null
             lastDown = downs.map { it.name }
             Logs.i("tethering via VPN: $lastDown -> $up (exit ${r.code}${if (r.err.isNotBlank()) ", " + r.err.take(300) else ""})")
         } catch (e: Exception) {
@@ -116,11 +137,11 @@ object TetherVpn {
 
     /** Keeps the rules in sync while the VPN is up: the hotspot may be switched on (or get a new subnet) later. */
     @Synchronized
-    fun start() {
+    fun start(plan: TunAddressPlan = TunAddressPlan.legacy()) {
         if (!enabled() || watcher?.isAlive == true) return
         val t = Thread({
             while (!Thread.currentThread().isInterrupted) {
-                apply()
+                apply(plan)
                 try { Thread.sleep(3_000) } catch (e: InterruptedException) { break }
             }
         }, "tether-vpn")
@@ -140,7 +161,7 @@ object TetherVpn {
 
     private fun clearLocked() {
         val up = lastUp ?: return
-        RootShell.run(*cleanupScript(up, lastDown).toTypedArray(), timeoutMs = 10_000)
+        RootShell.run(*cleanupScript(up, lastDown, lastDns).toTypedArray(), timeoutMs = 10_000)
         prevOffload?.let { p ->
             RootShell.run(if (p.isBlank() || p == "null") "settings delete global tether_offload_disabled"
                 else "settings put global tether_offload_disabled $p")
