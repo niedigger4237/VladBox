@@ -56,9 +56,9 @@ class DashboardFragment : ToolbarFragment() {
                     var searchOpen by rememberSaveable { mutableStateOf(false) }
                     var menuOpen by remember { mutableStateOf(false) }
                     val history = remember { mutableStateListOf<Pair<Long, Long>>() }
-                    LaunchedEffect(connected, dashboardVisible) {
+                    LaunchedEffect(connected, dashboardVisible, tab) {
                         history.clear()
-                        while (connected && dashboardVisible) {
+                        while (connected && dashboardVisible && tab == 0) {
                             val current = model.state.value
                             if (history.size >= 60) history.removeAt(0)
                             history.add(current.rxBytes to current.txBytes)
@@ -226,7 +226,7 @@ private fun DashboardMemory(visible: Boolean, connected: Boolean, mode: String) 
     val rootMode = mode.contains("root", ignoreCase = true) || mode.contains("tproxy", ignoreCase = true)
     var sample by remember(connected, mode) { mutableStateOf<DashboardMemorySample?>(null) }
     var expanded by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(visible, connected, mode) {
+    LaunchedEffect(visible, connected, mode, expanded) {
         while (visible) {
             sample = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 val info = android.os.Debug.MemoryInfo()
@@ -237,7 +237,7 @@ private fun DashboardMemory(visible: Boolean, connected: Boolean, mode: String) 
                     android.os.Debug.getNativeHeapAllocatedSize(), dashboardBackgroundPss(context),
                     if (connected && rootMode) dashboardRootPss() else null)
             }
-            delay(5000)
+            delay(if (expanded) 5000L else 15000L)
         }
     }
     val colors = MaterialTheme.colorScheme

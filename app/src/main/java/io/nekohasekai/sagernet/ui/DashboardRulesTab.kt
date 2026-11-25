@@ -98,6 +98,7 @@ internal fun DashboardLiveRules(connected: Boolean, searchOpen: Boolean = false,
     var status by remember(connected) { mutableStateOf<String?>("Loading…") }
     LaunchedEffect(connected) {
         if (!connected) return@LaunchedEffect
+        var retryMs = 5000L
         while (true) {
             try {
                 val array = dashboardGet("rules").getJSONArray("rules")
@@ -106,13 +107,14 @@ internal fun DashboardLiveRules(connected: Boolean, searchOpen: Boolean = false,
                     DashboardRule(item.optString("type"), item.optString("payload"), item.optString("proxy"))
                 }
                 status = null
+                retryMs = 30000L
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                rules = emptyList()
-                status = "Rules unavailable from local API"
+                status = if (rules.isEmpty()) "Rules unavailable from local API" else "Rules refresh failed; showing last snapshot"
+                retryMs = (retryMs * 2).coerceIn(5000L, 30000L)
             }
-            kotlinx.coroutines.delay(5000)
+            kotlinx.coroutines.delay(retryMs)
         }
     }
     DashboardRulesTab(connected, rules, status, searchOpen, onSearchChange)
