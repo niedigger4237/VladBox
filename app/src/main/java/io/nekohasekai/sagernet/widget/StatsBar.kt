@@ -9,9 +9,6 @@ import androidx.compose.material3.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.Canvas
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Path
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.res.painterResource
@@ -147,16 +144,6 @@ class StatsBar @JvmOverloads constructor(
                             border = BorderStroke(1.dp, accent.copy(alpha = .38f))
                         ) {
                             Box {
-                                Canvas(Modifier.matchParentSize()) {
-                                    val wave = Path().apply {
-                                        moveTo(0f, size.height * .76f)
-                                        cubicTo(size.width * .35f, size.height * .68f, size.width * .62f, size.height * 1.05f, size.width, size.height * .74f)
-                                        lineTo(size.width, size.height)
-                                        lineTo(0f, size.height)
-                                        close()
-                                    }
-                                    drawPath(wave, brush = Brush.horizontalGradient(listOf(colors.primary.copy(alpha = .09f), colors.tertiary.copy(alpha = .13f))))
-                                }
                                 Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
