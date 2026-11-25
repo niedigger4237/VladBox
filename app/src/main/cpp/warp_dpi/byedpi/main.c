@@ -649,7 +649,7 @@ static bool valid_modifier_list(int option, const char *value)
 {
     const char *letters;
     switch (option) {
-        case 'A': letters = "trasn"; break;
+        case 'A': letters = "trasnc"; break;
         case 'L': letters = "0123psr"; break;
         case 'K': letters = "thui"; break;
         case 'M': letters = "rhd"; break;
@@ -888,6 +888,9 @@ int byedpi_configure(int argc, char **argv, bool runtime, char *error)
                     case 'a':
                     case 's':
                         dp->detect |= DETECT_TLS_ERR;
+                        break;
+                    case 'c':
+                        dp->detect |= DETECT_CONNECT;
                         break;
                     case 'n':
                         break;

@@ -6,6 +6,8 @@
 #include "proxy.h"
 #include "params.h"
 
+int on_connerr(struct poolhd *pool, struct eval *val);
+
 int socket_mod(int fd);
 
 int connect_hook(struct poolhd *pool, struct eval *val,

@@ -168,13 +168,11 @@ int create_conn(struct poolhd *pool,
     if (status == 0 && params.tfo) {
         LOG(LOG_S, "TFO supported!\n");
     }
-    if (status < 0 &&
-            get_e() != EINPROGRESS && get_e() != EAGAIN) {
-        uniperror("connect");
-        close(sfd);
-        return -1;
-    }
-    struct eval *pair = add_event(pool, next, sfd, POLLOUT);
+    int error = status < 0 ? get_e() : 0;
+    if (error == EINPROGRESS || error == EAGAIN)
+        error = 0;
+    // Link the pair before dispatching a synchronous connect failure.
+    struct eval *pair = add_event(pool, next, sfd, error ? 0 : POLLOUT);
     if (!pair) {
         close(sfd);
         return -1;
@@ -192,6 +190,9 @@ int create_conn(struct poolhd *pool,
     pair->addr = *dst;
     #endif
     pair->flag = FLAG_CONN;
+    pair->connect_error = error;
+    if (error)
+        set_timer(pool, pair, 0);
     val->cb = &on_ignore;
     return 0;
 }
@@ -284,18 +285,24 @@ int on_ignore(struct poolhd *pool, struct eval *val, int etype)
 }
 
 
-static int on_private_connect(struct poolhd *pool, struct eval *val, int et)
+int on_private_connect(struct poolhd *pool, struct eval *val, int et)
 {
-    int error = 0;
+    int error = val->connect_error;
     socklen_t len = sizeof(error);
-    if (getsockopt(val->fd, SOL_SOCKET, SO_ERROR, &error, &len)
-            || error || !(et & POLLOUT)
-            || mod_etype(pool, val, POLLIN)
-            || mod_etype(pool, val->pair, POLLIN))
+    if (!error && getsockopt(val->fd, SOL_SOCKET, SO_ERROR, &error, &len))
+        return -1;
+    if (!error && (et & POLLERR))
+        error = ECONNREFUSED;
+    if (error == ECONNRESET || error == ECONNREFUSED || error == ETIMEDOUT)
+        return on_connerr(pool, val);
+    if (error || !(et & POLLOUT))
         return -1;
     val->cb = &on_tunnel;
     val->pair->cb = &on_tunnel;
-    return 0;
+    // Keep write interest until on_tunnel has flushed a replay buffer.
+    if (val->pair->buff)
+        return on_tunnel(pool, val, POLLOUT);
+    return mod_etype(pool, val, POLLIN) || mod_etype(pool, val->pair, POLLIN) ? -1 : 0;
 }
 
 static int on_private_stop(struct poolhd *pool, struct eval *val, int et)

@@ -166,25 +166,22 @@ static int reconnect(struct poolhd *pool, struct eval *val)
 
     struct eval *client = val->pair;
 
-    if (!client->buff) {
-        client->buff = buff_pop(pool, client->sq_buff->size);
+    if (client->sq_buff) {
         if (!client->buff) {
-            return -1;
+            client->buff = buff_pop(pool, client->sq_buff->size);
+            if (!client->buff)
+                return -1;
         }
+        client->buff->lock = client->sq_buff->lock;
+        memcpy(client->buff->data, client->sq_buff->data, client->buff->lock);
+        client->buff->offset = 0;
     }
 
-    if (connect_hook(pool, client, &val->addr, &on_tunnel)) {
+    if (connect_hook(pool, client, &val->addr, &on_private_connect))
         return -1;
-    }
-    val->pair = 0;
+    val->pair = NULL;
     del_event(pool, val);
 
-    client->cb = &on_tunnel;
-
-    client->buff->lock = client->sq_buff->lock;
-    memcpy(client->buff->data, client->sq_buff->data, client->buff->lock);
-
-    client->buff->offset = 0;
     client->round_sent = 0;
     client->part_sent = 0;
     return 0;
@@ -311,9 +308,9 @@ static int on_trigger(int type, struct poolhd *pool, struct eval *val)
 {
     struct eval *lav = val->pair;
 
-    bool can_reconn = (lav->sq_buff
-        && (params.auto_level & AUTO_RECONN)
-    );
+    // Before the first write, the private stream still holds the request.
+    bool before_request = type == DETECT_CONNECT && !lav->recv_count && !val->recv_count;
+    bool can_reconn = (lav->sq_buff || before_request) && (params.auto_level & AUTO_RECONN);
     if (!can_reconn && !(params.auto_level & AUTO_POST)) {
         return -1;
     }
@@ -397,6 +394,12 @@ static int on_fin(struct poolhd *pool, struct eval *val)
 }
 
 
+int on_connerr(struct poolhd *pool, struct eval *val)
+{
+    return on_trigger(DETECT_CONNECT, pool, val);
+}
+
+
 static int on_response(struct poolhd *pool, struct eval *val,
         const char *resp, ssize_t sn)
 {
@@ -413,16 +416,13 @@ static int on_response(struct poolhd *pool, struct eval *val,
         }
         if ((dp->detect & DETECT_HTTP_LOCAT)
                 && is_http_redirect(req, qn, resp, sn)) {
-            break;
+            return on_trigger(dp->detect & ~DETECT_CONNECT, pool, val);
         }
         else if ((dp->detect & DETECT_TLS_ERR)
                 && ((is_tls_chello(req, qn) && !is_tls_shello(resp, sn))
                     || neq_tls_sid(req, qn, resp, sn))) {
-            break;
+            return on_trigger(dp->detect & ~DETECT_CONNECT, pool, val);
         }
-    }
-    if (dp) {
-        return on_trigger(dp->detect, pool, val);
     }
     return -1;
 }

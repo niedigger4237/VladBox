@@ -18,7 +18,7 @@ import sys
 presets = re.findall(r'preset\("[^"]+", "([^"]*)"\)', Path(sys.argv[1]).read_text())
 assert len(presets) == 18
 imported = [line.split("\t", 1)[1] for line in Path(sys.argv[2]).read_text().splitlines()]
-assert len(imported) == 37
+assert len(imported) == 60
 print("static struct { int length; char **argv; } strategies[] = {")
 for preset in presets + imported:
     argv = shlex.split(preset)
@@ -27,7 +27,7 @@ for preset in presets + imported:
 print("};")
 PY
 
-"${CC:-cc}" -D_GNU_SOURCE -std=c11 -O1 -g -pthread -Wl,--wrap=getaddrinfo \
+"${CC:-cc}" -D_GNU_SOURCE -std=c11 -O1 -g -pthread -Wl,--wrap=getaddrinfo,--wrap=connect,--wrap=getsockopt,--wrap=create_conn \
     -I"$output" -I"$native_dir" \
     "$test_dir/warp_dpi_lifecycle.c" "$native_dir/warp_dpi_engine.c" \
     "$native_dir/warp_dpi_arguments.c" "$native_dir/private_stream.c" "$native_dir"/byedpi/*.c \

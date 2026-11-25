@@ -1,8 +1,9 @@
 #include <assert.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <netdb.h>
-#include <poll.h>
+#include <sys/select.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -14,7 +15,7 @@
 
 #include "warp_dpi_engine.h"
 #include "warp_dpi_arguments.h"
-#include "byedpi/params.h"
+#include "byedpi/proxy.h"
 #include "warp_dpi_test_strategies.h"
 
 static char test_port[6];
@@ -32,6 +33,51 @@ int __wrap_getaddrinfo(const char *host, const char *port,
     return __real_getaddrinfo("127.0.0.1", test_port, hints, out);
 }
 
+static int injected_error;
+static bool async_failure;
+static bool inject_next;
+static int failed_socket = -1;
+static int groups[8];
+static size_t group_count;
+
+int __real_connect(int fd, const struct sockaddr *addr, socklen_t len);
+int __real_getsockopt(int fd, int level, int option, void *value, socklen_t *len);
+int __real_create_conn(struct poolhd *, struct eval *, const union sockaddr_u *, evcb_t);
+
+int __wrap_create_conn(struct poolhd *pool, struct eval *client, const union sockaddr_u *addr, evcb_t next)
+{
+    if (injected_error) {
+        assert(group_count < sizeof(groups) / sizeof(*groups));
+        groups[group_count++] = client->dp->id;
+    }
+    return __real_create_conn(pool, client, addr, next);
+}
+
+int __wrap_connect(int fd, const struct sockaddr *addr, socklen_t len)
+{
+    if (inject_next) {
+        inject_next = false;
+        if (!async_failure) {
+            errno = injected_error;
+            return -1;
+        }
+        failed_socket = fd;
+    }
+    return __real_connect(fd, addr, len);
+}
+
+int __wrap_getsockopt(int fd, int level, int option, void *value, socklen_t *len)
+{
+    if (fd == failed_socket && level == SOL_SOCKET && option == SO_ERROR) {
+        failed_socket = -1;
+        assert(*len >= sizeof(int));
+        *(int *)value = injected_error;
+        *len = sizeof(int);
+        return 0;
+    }
+    return __real_getsockopt(fd, level, option, value, len);
+}
+
 static int count_entries(const char *path)
 {
     DIR *dir = opendir(path);
@@ -45,14 +91,91 @@ static int count_entries(const char *path)
 
 static void readable(int fd)
 {
-    struct pollfd event = {.fd = fd, .events = POLLIN};
-    assert(poll(&event, 1, 3000) == 1);
+    assert(fd >= 0 && fd < FD_SETSIZE);
+    fd_set readable_fds;
+    FD_ZERO(&readable_fds);
+    FD_SET(fd, &readable_fds);
+    struct timeval timeout = {.tv_sec = 3};
+    assert(select(fd + 1, &readable_fds, NULL, NULL, &timeout) == 1);
 }
 
 static void *stop_from_other_thread(void *engine)
 {
     warp_dpi_stop(engine);
     return NULL;
+}
+
+static void check_connect_trigger(int listener, int error, bool asynchronous, bool retry)
+{
+    injected_error = error;
+    async_failure = asynchronous;
+    inject_next = true;
+    group_count = 0;
+    char *args[] = {retry ? "-Ac" : "-At"};
+    void *engine = warp_dpi_start_args(1, args);
+    assert(engine);
+    int client = warp_dpi_open_stream(engine);
+    assert(client >= 0);
+    if (retry)
+        assert(write(client, "request", 7) == 7);
+    if (asynchronous) {
+        readable(listener);
+        int rejected = accept(listener, NULL, NULL);
+        assert(rejected >= 0);
+        close(rejected);
+    }
+    if (retry) {
+        readable(listener);
+        int server = accept(listener, NULL, NULL);
+        assert(server >= 0);
+        readable(server);
+        char data[7];
+        assert(recv(server, data, sizeof(data), MSG_WAITALL) == sizeof(data));
+        assert(!memcmp(data, "request", sizeof(data)));
+        assert(write(server, "a", 1) == 1);
+        readable(client);
+        assert(read(client, data, sizeof(data)) == 1 && data[0] == 'a');
+        close(server);
+    } else {
+        char data;
+        readable(client);
+        assert(read(client, &data, 1) == 0);
+    }
+    warp_dpi_stop(engine);
+    close(client);
+    assert(group_count == (retry ? 2 : 1));
+    assert(groups[0] == 0);
+    if (retry)
+        assert(groups[1] == 1);
+    injected_error = 0;
+}
+
+static void check_tls_replay(int listener)
+{
+    char *args[] = {"-As,c"};
+    void *engine = warp_dpi_start_args(1, args);
+    assert(engine);
+    int client = warp_dpi_open_stream(engine);
+    assert(client >= 0);
+    assert(write(client, fake_tls.data, fake_tls.size) == fake_tls.size);
+
+    for (int attempt = 0; attempt < 2; attempt++) {
+        readable(listener);
+        int server = accept(listener, NULL, NULL);
+        assert(server >= 0);
+        struct timeval timeout = {.tv_sec = 3};
+        assert(!setsockopt(server, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
+        char request[16384];
+        assert(fake_tls.size <= sizeof(request));
+        assert(recv(server, request, fake_tls.size, MSG_WAITALL) == fake_tls.size);
+        assert(!memcmp(request, fake_tls.data, fake_tls.size));
+        if (!attempt)
+            assert(write(server, "not a TLS record", 16) == 16);
+        close(server);
+    }
+
+    warp_dpi_stop(engine);
+    close(client);
 }
 
 int main(void)
@@ -68,7 +191,7 @@ int main(void)
         {{"-d1:0:2+sm"}, 1, "Invalid value"},
         {{"-r1:999999999"}, 1, "Invalid value"},
         {{"--fake-offset=-999999999"}, 1, "Invalid value"},
-        {{"-At,r,s,c"}, 1, "Invalid value"},
+        {{"-At,r,s,c,unknown"}, 1, "Invalid value"},
         {{"-Qr,m=Inf"}, 1, "Invalid value"},
         {{"--round=3-1"}, 1, "Invalid value"},
         {{"--pf=443-80"}, 1, "Invalid value"},
@@ -195,6 +318,11 @@ int main(void)
     warp_dpi_stop(engine);
     close(server);
     close(client);
+    check_connect_trigger(listener, ECONNREFUSED, false, true);
+    check_connect_trigger(listener, ECONNRESET, true, true);
+    check_connect_trigger(listener, ETIMEDOUT, false, true);
+    check_connect_trigger(listener, ECONNREFUSED, false, false);
+    check_tls_replay(listener);
     close(listener);
 
     no_address = true;
@@ -207,6 +335,6 @@ int main(void)
     warp_dpi_stop(engine);
     close(client);
     assert(count_entries("/proc/self/fd") == descriptors);
-    puts("55 presets, custom syntax, rejection paths, private relay, cancellation, and descriptor cleanup passed");
+    puts("78 presets, private TCP retries, rejection paths, cancellation, and descriptor cleanup passed");
     return 0;
 }

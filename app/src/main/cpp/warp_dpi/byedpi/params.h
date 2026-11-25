@@ -32,6 +32,7 @@
 #define DETECT_HTTP_LOCAT 1
 #define DETECT_TLS_ERR 2
 #define DETECT_TORST 8
+#define DETECT_CONNECT 16
 
 #define AUTO_RECONN 1
 #define AUTO_POST 2

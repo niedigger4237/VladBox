@@ -74,6 +74,7 @@ struct eval {
     struct eval *pair;
     struct buffer *buff, *sq_buff;
     int flag;
+    int connect_error;
     union sockaddr_u addr;
     char *host;
     int host_len;
