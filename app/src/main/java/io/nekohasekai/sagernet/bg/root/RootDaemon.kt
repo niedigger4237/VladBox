@@ -46,7 +46,7 @@ object RootDaemon {
     private fun ints(list: List<Int>) = JsonArray().also { a -> list.forEach { a.add(it) } }
 
     /** uids of the apps selected in "per-app proxy" (empty = no restriction) */
-    private fun appUids(): List<Int> {
+    fun appUids(): List<Int> {
         val pm = SagerNet.application.packageManager
         val keys = DataStore.individual.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
         val priv = Regex("u(\\d+):(.+)")
@@ -84,38 +84,48 @@ object RootDaemon {
         return l.filter { Regex("[A-Za-z0-9_.\\-]+\\+?").matches(it) && it != "lo" }.take(32)
     }
 
-    /**
-     * Exact names of the tethering interfaces that exist right now. TUN mode needs them (sing-box `include_interface`
-     * takes exact names, prefixes are not allowed): the interfaces that currently serve clients (x.x.x.1/16..30)
-     * are preferred, otherwise every matching one except the Wi-Fi/Ethernet uplink.
-     */
-    fun tetherExactInterfaces(): List<String> {
-        val sel = tetherSelectors()
-        if (sel.isEmpty()) return emptyList()
-        return try {
-            val names = RootShell.run("ls /sys/class/net", timeoutMs = 4_000).out.split(Regex("\\s+")).filter { it.isNotEmpty() }
-            val matched = names.filter { n ->
-                n != "lo" && sel.any { s -> if (s.endsWith("+")) n.startsWith(s.dropLast(1)) else n == s }
-            }
-            // interfaces that carry a private IPv4 address right now (the hotspot address is not always x.x.x.1)
-            // interfaces with an address that are not uplinks (no default route): the gateway is not always x.x.x.1
-            val uplinks = Regex("^default .*?dev (\\S+)", RegexOption.MULTILINE)
-                .findAll(RootShell.run("ip -4 route show table all", timeoutMs = 4_000).out).map { it.groupValues[1] }.toSet()
-            val active = Regex("^\\d+:\\s+(\\S+)\\s+inet\\s+\\d+\\.\\d+\\.\\d+\\.\\d+/(\\d+)", RegexOption.MULTILINE)
-                .findAll(RootShell.run("ip -4 -o addr show", timeoutMs = 4_000).out)
-                .filter { it.groupValues[2].toInt() in 16..30 }.map { it.groupValues[1] }.filter { it !in uplinks }.toSet()
-            val act = matched.filter { it in active }
-            (if (act.isNotEmpty()) act else matched.filter { it != "wlan0" && it != "eth0" }).take(16)
-        } catch (e: Exception) {
-            Logs.w(e); emptyList()
-        }
+    private val exactInterface = Regex("[A-Za-z0-9_.-]{1,15}")
+    private val interfaceSelector = Regex("[A-Za-z0-9_.-]{1,15}\\+?")
+    private val internalInterfaces = setOf("lo", TUN_DEVICE, HEV_TUN_DEVICE)
+
+    private fun interfaceItems(value: String) =
+        value.split(Regex("[,;\\s]+")).filter { it.isNotBlank() }.distinct()
+
+    fun validTunInterfaces(value: String): Boolean = interfaceItems(value).let { items ->
+        items.size <= 16 && items.all { exactInterface.matches(it) && it !in internalInterfaces }
     }
 
-    /** asteriskd `hotspotInterfaces`: exact names in TUN mode (offload preparation only), selectors otherwise. */
-    fun tetherInterfaces(mode: Mode): List<String> =
-        (if (mode == Mode.TUN) tetherExactInterfaces() else tetherSelectors())
+    fun validIgnoredInterfaces(value: String): Boolean = interfaceItems(value).let { items ->
+        items.size <= 16 && items.all { interfaceSelector.matches(it) && it.removeSuffix("+") !in internalInterfaces }
+    }
 
-    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean): String {
+    fun configuredTunInterfaces(): List<String> {
+        val value = DataStore.rootTunInterfaces
+        require(validTunInterfaces(value)) { "Invalid ROOT TUN downstream interface name" }
+        return interfaceItems(value)
+    }
+
+    private fun ignoredInterfaces(): List<String> {
+        val value = DataStore.rootIgnoredInterfaces
+        require(validIgnoredInterfaces(value)) { "Invalid ROOT ignored interface selector" }
+        return interfaceItems(value)
+    }
+
+    // The effective config (including raw/custom profiles) is the single source of truth
+    // for offload preparation. Do not re-scan network addresses at startup.
+    private fun tunInterfacesFromConfig(json: String): List<String> {
+        val root = com.google.gson.JsonParser.parseString(json).asJsonObject
+        val inbound = root.getAsJsonArray("inbounds")?.firstOrNull {
+            it.isJsonObject && it.asJsonObject.get("type")?.asString == "tun" &&
+                it.asJsonObject.get("interface_name")?.asString == TUN_DEVICE
+        }?.asJsonObject ?: return emptyList()
+        val field = inbound.get("include_interface") ?: return emptyList()
+        val names = if (field.isJsonArray) field.asJsonArray.map { it.asString }
+            else if (field.isJsonPrimitive) listOf(field.asString) else emptyList()
+        return names.filter { exactInterface.matches(it) && it !in internalInterfaces }.distinct()
+    }
+
+    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String): String {
         val root = JsonObject()
         root.addProperty("schemaVersion", SCHEMA)
         root.addProperty("owner", OWNER)
@@ -137,13 +147,15 @@ object RootDaemon {
         val uids = if (perApp) appUids() else emptyList()
         root.add("network", JsonObject().apply {
             addProperty("enableIpv6", ipv6)
-            addProperty("disableSystemIpv6", false)
+            addProperty("disableSystemIpv6", !ipv6 && DataStore.rootDisableSystemIpv6)
             addProperty("enableLocalDns", false)
             addProperty("enableFakeDns", false)
             add("fakeDnsIpv4Pool", JsonNull.INSTANCE)
-            add("ignoredInterfaces", strings(emptyList()))
-            add("virtualInterfaces", strings(emptyList()))
-            add("hotspotInterfaces", strings(tetherInterfaces(mode).also { Logs.i("hotspotInterfaces: $it") }))
+            val ignored = if (mode == Mode.TUN) emptyList() else ignoredInterfaces()
+            add("ignoredInterfaces", strings(ignored))
+            add("virtualInterfaces", strings(if (mode == Mode.TUN2SOCKS) listOf(HEV_TUN_DEVICE) else emptyList()))
+            val shared = if (mode == Mode.TUN) tunInterfacesFromConfig(singBoxConfig) else tetherSelectors()
+            add("hotspotInterfaces", strings(shared.also { Logs.i("hotspotInterfaces: $it") }))
             add("proxyPrivateCidrs", strings(emptyList()))
             // as in AsteriskBOX: private/local ranges are never captured, otherwise hotspot clients lose DHCP/gateway
             // traffic (their Wi-Fi drops); TUN mode leaves it to sing-box auto_route
@@ -175,8 +187,8 @@ object RootDaemon {
                 addProperty("mtu", DataStore.mtu.coerceIn(1280, 65535))
                 addProperty("ipv4Address", "198.18.0.1")
                 if (ipv6) addProperty("ipv6Address", "fc00:18::1") else add("ipv6Address", JsonNull.INSTANCE)
-                addProperty("multiQueue", false)
-                addProperty("tcpFastOpen", false)
+                addProperty("multiQueue", DataStore.rootHevMultiQueue)
+                addProperty("tcpFastOpen", DataStore.rootHevTcpFastOpen)
                 addProperty("tcpReadWriteTimeoutMilliseconds", 300000)
                 addProperty("udpReadWriteTimeoutMilliseconds", 60000)
             }
@@ -297,7 +309,7 @@ object RootDaemon {
         mark("boot staging")
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
         val cfg = File(stage, "config.json").apply { writeText(withLogFile(singBoxConfig)) }
-        val dcfg = File(stage, "asteriskd.json").apply { writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6)) }
+        val dcfg = File(stage, "asteriskd.json").apply { writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, singBoxConfig)) }
         mark("generate configs")
         try {
             val prep = RootShell.run(

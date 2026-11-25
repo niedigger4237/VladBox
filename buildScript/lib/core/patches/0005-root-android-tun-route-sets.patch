@@ -1,0 +1,14 @@
+diff --git a/protocol/tun/inbound.go b/protocol/tun/inbound.go
+--- a/protocol/tun/inbound.go
++++ b/protocol/tun/inbound.go
+@@ -416,7 +416,9 @@
+ 		var tunInterface tun.Tun
+ 		monitor := taskmonitor.New(t.logger, C.StartTimeout)
+ 		tunOptions := t.tunOptions
+-		if t.autoRedirect == nil && !(runtime.GOOS == "android" && t.platformInterface != nil) {
++		// Android auto_redirect only installs OUTPUT TCP redirects, not nftables IP sets.
++		// Apply local SRS route sets to the native TUN route table at startup.
++		if (t.autoRedirect == nil || (C.IsAndroid && t.platformInterface == nil)) && !(runtime.GOOS == "android" && t.platformInterface != nil) {
+ 			for _, ipSet := range t.routeAddressSet {
+ 				for _, prefix := range ipSet.Prefixes() {
+ 					if prefix.Addr().Is4() {

@@ -78,12 +78,49 @@ fun installSettingsScreen(host: ComposeView, screen: PreferenceScreen, model: Se
     var concurrent by remember(pref.key) { mutableStateOf("") }
     val checked = remember(revision, pref.key) { (pref as? TwoStatePreference)?.isChecked ?: false }
     val data = io.nekohasekai.sagernet.database.DataStore
-    if (edit || extra) {
+    if (edit && pref.key == "rootTunBypassRuleSets") {
+        val available = remember {
+            io.nekohasekai.sagernet.SagerNet.application.externalAssets.listFiles().orEmpty()
+                .filter { it.isFile && it.length() > 0 && it.name.matches(Regex("geoip-[A-Za-z0-9._!-]+\\.srs")) }
+                .map { "geoip:" + it.name.removePrefix("geoip-").removeSuffix(".srs") }.sorted()
+        }
+        var selected by remember { mutableStateOf(draft.split(Regex("[,;\\s]+")).filter { it.isNotBlank() }.toSet()) }
+        AlertDialog(onDismissRequest = { edit = false }, title = { Text(pref.title.toString()) },
+            text = {
+                Column {
+                    Text(androidx.compose.ui.res.stringResource(R.string.root_tun_bypass_rulesets_sum))
+                    if (available.isEmpty()) Text(androidx.compose.ui.res.stringResource(R.string.root_tun_bypass_empty))
+                    LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                        items((available + selected).distinct().sorted()) { tag ->
+                            val enabled = tag in available
+                            Row(Modifier.fillMaxWidth().clickable(enabled = enabled || tag in selected) {
+                                selected = if (tag in selected) selected - tag else selected + tag
+                            }, verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(tag in selected, onCheckedChange = { checked ->
+                                    selected = if (checked) selected + tag else selected - tag
+                                }, enabled = enabled || tag in selected)
+                                Text(tag + if (enabled) "" else " (missing)")
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = selected.all { it in available }, onClick = {
+                    val value = selected.sorted().joinToString("\n")
+                    if (pref.callChangeListener(value)) (pref as EditTextPreference).text = value
+                    edit = false; changed()
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { edit = false }) { Text("Cancel") } })
+    } else if (edit || extra) {
         val port = pref.key in setOf("mixedPort", "socksPort", "rootTproxyPort", "bpfBridgePort")
         val valid = when {
             extra && pref.key == "mtu" -> (draft.toIntOrNull() ?: 0) in 1000..10000
             extra && pref.key == "logLevel" -> (draft.toIntOrNull() ?: 0) > 0
             port -> (draft.toIntOrNull() ?: 0) in 1..65535
+            pref.key == "rootTunInterfaces" -> io.nekohasekai.sagernet.bg.root.RootDaemon.validTunInterfaces(draft)
+            pref.key == "rootIgnoredInterfaces" -> io.nekohasekai.sagernet.bg.root.RootDaemon.validIgnoredInterfaces(draft)
             else -> true
         }
         AlertDialog(onDismissRequest = { edit = false; extra = false },

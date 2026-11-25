@@ -230,7 +230,21 @@ fun buildConfig(
                     strict_route = false
                     // as in AsteriskBOX: sing-box redirects TCP itself, "lo" keeps local OUTPUT captured
                     auto_redirect = true
-                    include_interface = listOf("lo") + io.nekohasekai.sagernet.bg.root.RootDaemon.tetherExactInterfaces()
+                    val rootDaemon = io.nekohasekai.sagernet.bg.root.RootDaemon
+                    include_interface = listOf("lo") + rootDaemon.configuredTunInterfaces()
+                    val self = android.os.Process.myUid()
+                    val selected = if (DataStore.proxyApps) rootDaemon.appUids() else emptyList()
+                    if (DataStore.proxyApps && !DataStore.bypass) {
+                        // AsteriskBOX keeps root and netd in the whitelist for shared traffic.
+                        include_uid = (selected + listOf(0, 1052)).distinct().sorted()
+                    }
+                    exclude_uid = (listOf(self) + if (DataStore.proxyApps && DataStore.bypass) selected else emptyList()).distinct().sorted()
+                    val bypassTags = DataStore.rootTunBypassRuleSets.split(Regex("[,;\\s]+"))
+                        .filter { it.isNotBlank() }.distinct()
+                    require(bypassTags.all { it.matches(Regex("geoip:[A-Za-z0-9._!-]+")) }) {
+                        "ROOT TUN bypass requires GeoIP SRS tags"
+                    }
+                    if (bypassTags.isNotEmpty()) route_exclude_address_set = bypassTags
                 }
                 stack = when (DataStore.tunImplementation) {
                     TunImplementation.GVISOR -> "gvisor"
@@ -645,6 +659,12 @@ fun buildConfig(
                     route.rule_set.addAll(ruleSets)
                 }
             }
+        }
+
+        // ROOT TUN kernel bypass must register its SRS even when no ordinary route rule uses it.
+        if (isRootTun) {
+            val tags = inbounds.filterIsInstance<Inbound_TunOptions>().flatMap { it.route_exclude_address_set.orEmpty() }
+            if (tags.isNotEmpty()) generateRuleSet(tags.distinct(), route.rule_set)
         }
 
         // 对 rule_set tag 去重

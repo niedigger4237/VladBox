@@ -61,6 +61,9 @@ fun buildSettingsTree(manager: PreferenceManager): PreferenceScreen {
         addPreference(SwitchPreference(ctx).apply { key = "allowAccess"; setTitle(R.string.allow_access); setSummary(R.string.allow_access_sum) })
     }
     category(R.string.cat_tethering) {
+        addPreference(EditTextPreference(ctx).apply { key = "rootTunInterfaces"; setTitle(R.string.root_tun_interfaces); setSummary(R.string.root_tun_interfaces_sum) })
+        addPreference(EditTextPreference(ctx).apply { key = "rootTunBypassRuleSets"; setTitle(R.string.root_tun_bypass_rulesets); setSummary(R.string.root_tun_bypass_rulesets_sum) })
+        addPreference(EditTextPreference(ctx).apply { key = "rootIgnoredInterfaces"; setTitle(R.string.root_ignored_interfaces); setSummary(R.string.root_ignored_interfaces_sum) })
         addPreference(SwitchPreference(ctx).apply { key = "tetherWifi"; setTitle(R.string.tether_wifi); setDefaultValue(false) })
         addPreference(SwitchPreference(ctx).apply { key = "tetherBluetooth"; setTitle(R.string.tether_bluetooth); setDefaultValue(false) })
         addPreference(SwitchPreference(ctx).apply { key = "tetherUsb"; setTitle(R.string.tether_usb); setDefaultValue(false) })
@@ -68,6 +71,9 @@ fun buildSettingsTree(manager: PreferenceManager): PreferenceScreen {
         addPreference(EditTextPreference(ctx).apply { key = "tetherCustom"; setTitle(R.string.tether_custom); setSummary(R.string.tether_custom_sum) })
     }
     category(R.string.root_settings) {
+        addPreference(SwitchPreference(ctx).apply { key = "rootDisableSystemIpv6"; setTitle(R.string.root_disable_ipv6); setSummary(R.string.root_disable_ipv6_sum); setDefaultValue(false) })
+        addPreference(SwitchPreference(ctx).apply { key = "rootHevMultiQueue"; setTitle(R.string.root_hev_multiqueue); setDefaultValue(false) })
+        addPreference(SwitchPreference(ctx).apply { key = "rootHevTcpFastOpen"; setTitle(R.string.root_hev_tfo); setDefaultValue(false) })
         addPreference(Preference(ctx).apply { key = "serviceControl"; setTitle(R.string.service_control); setSummary(R.string.service_control_sum) })
         addPreference(SwitchPreference(ctx).apply { key = "startOnBoot"; setTitle(R.string.start_on_boot); setSummary(R.string.start_on_boot_sum); setDefaultValue(false) })
         addPreference(Preference(ctx).apply { key = "rootCoreUpdate"; setTitle(R.string.root_core_update) })

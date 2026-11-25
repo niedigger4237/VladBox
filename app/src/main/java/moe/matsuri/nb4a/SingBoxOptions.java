@@ -2355,6 +2355,8 @@ public class SingBoxOptions {
 
         public Boolean strict_route;
 
+        public List<String> route_exclude_address_set;
+
         // Generate note: Listable
         public List<String> inet4_route_address;
 

@@ -599,4 +599,15 @@
     <string name="connection_panel_connected">Подключено</string>
     <string name="connection_panel_location">Локация VPN</string>
     <string name="connection_panel_refresh_country">Обновить страну</string>
+    <string name="root_tun_interfaces">Интерфейсы раздачи TUN</string>
+    <string name="root_tun_interfaces_sum">Точные имена через пробел или новую строку (например wlan1, rndis0). Без масок. Пустой список отключает раздачу. Не указывайте интерфейс подключения к интернету.</string>
+    <string name="root_tun_bypass_rulesets">Исключения TUN по SRS</string>
+    <string name="root_tun_bypass_rulesets_sum">Выбранные GeoIP SRS обходят маршрутизацию TUN напрямую. Применяются после переподключения.</string>
+    <string name="root_tun_bypass_empty">Сначала установите GeoIP SRS в Assets.</string>
+    <string name="root_ignored_interfaces">Исключаемые интерфейсы</string>
+    <string name="root_ignored_interfaces_sum">Точные имена или префиксы с + через пробел или новую строку.</string>
+    <string name="root_disable_ipv6">Отключать системный IPv6</string>
+    <string name="root_disable_ipv6_sum">Если IPv6 отключён в настройках сервиса, также отключать системный IPv6 во время ROOT. Может влиять на другие приложения и клиентов раздачи.</string>
+    <string name="root_hev_multiqueue">HEV Multi Queue</string>
+    <string name="root_hev_tfo">HEV TCP Fast Open</string>
 </resources>

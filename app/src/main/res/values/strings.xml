@@ -699,4 +699,15 @@
     <string name="connection_panel_connected">Connected</string>
     <string name="connection_panel_location">VPN location</string>
     <string name="connection_panel_refresh_country">Refresh country</string>
+    <string name="root_tun_interfaces">TUN downstream interfaces</string>
+    <string name="root_tun_interfaces_sum">Exact interface names, separated by spaces or newlines (e.g. wlan1, rndis0). No wildcards. Empty disables sharing. Do not enter the internet uplink.</string>
+    <string name="root_tun_bypass_rulesets">TUN bypass rule sets</string>
+    <string name="root_tun_bypass_rulesets_sum">Selected GeoIP SRS bypass TUN routing directly. Changes apply after reconnecting.</string>
+    <string name="root_tun_bypass_empty">Install GeoIP SRS in Assets first.</string>
+    <string name="root_ignored_interfaces">Ignored interfaces</string>
+    <string name="root_ignored_interfaces_sum">Exact names or prefixes ending in +, separated by spaces or newlines.</string>
+    <string name="root_disable_ipv6">Disable system IPv6</string>
+    <string name="root_disable_ipv6_sum">When IPv6 is disabled in service settings, also disable system IPv6 during ROOT operation. May affect other apps and tethered clients.</string>
+    <string name="root_hev_multiqueue">HEV Multi Queue</string>
+    <string name="root_hev_tfo">HEV TCP Fast Open</string>
 </resources>

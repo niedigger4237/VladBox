@@ -108,6 +108,13 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var tetherUsb by configurationStore.boolean("tetherUsb")
     var tetherEthernet by configurationStore.boolean("tetherEthernet")
     var tetherCustom by configurationStore.string("tetherCustom") { "" }
+    // ROOT TUN uses exact downstream names, not the other modes' iptables selectors.
+    var rootTunInterfaces by configurationStore.string("rootTunInterfaces") { "" }
+    var rootTunBypassRuleSets by configurationStore.string("rootTunBypassRuleSets") { "" }
+    var rootIgnoredInterfaces by configurationStore.string("rootIgnoredInterfaces") { "" }
+    var rootDisableSystemIpv6 by configurationStore.boolean("rootDisableSystemIpv6")
+    var rootHevMultiQueue by configurationStore.boolean("rootHevMultiQueue")
+    var rootHevTcpFastOpen by configurationStore.boolean("rootHevTcpFastOpen")
     var rootTproxyPort by configurationStore.stringToInt(Key.ROOT_TPROXY_PORT) { 9898 }
 
     var trafficSniffing by configurationStore.stringToInt(Key.TRAFFIC_SNIFFING) { 1 }

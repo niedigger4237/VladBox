@@ -5,8 +5,8 @@ set -e
 source "buildScript/init/env.sh"
 
 ROOT="$(pwd)"
-ASTERISKD_TAG=v2.3.1
-ASTERISKD_COMMIT=4955211797f401375dee1effb22fd5b6b77bb5fd
+ASTERISKD_TAG=v2.3.2
+ASTERISKD_COMMIT=a31fd6dfdbfb515b8c18cc91bc3637b523f0b255
 SRC="$ROOT/../asteriskd-src"
 API=24
 TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
