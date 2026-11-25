@@ -227,19 +227,17 @@ object RootDaemon {
     // after the session has been invalidated. Identity distinguishes restarts
     // whose downstream names and addresses happen to be unchanged.
     @Synchronized
-    internal fun reconcileTunForwarding(snapshot: DownstreamSnapshot) {
-        if (appliedDownstreams !== snapshot || health() != RootHealth.RUNNING) return
-        if (!RootTunForwarding.ensure(snapshot.names, snapshot.ipv6Enabled)) {
-            Logs.w("ROOT TUN forwarding: reconciliation pending")
+    internal fun reconcileTetherRules(mode: Mode, applied: DownstreamSnapshot, observed: DownstreamSnapshot?) {
+        val repairForward = mode == Mode.TUN && observed == applied && applied.names.isNotEmpty()
+        if (!applied.blockIpv6 && !repairForward) return
+        // One fresh health check under the shutdown lock, not a cached result.
+        if (appliedDownstreams !== applied || health() != RootHealth.RUNNING) return
+        if (applied.blockIpv6) {
+            val names = (applied.names + observed?.names.orEmpty()).distinct()
+            if (!RootTetherIpv6Guard.ensure(names)) Logs.w("ROOT tether IPv6 guard: reconciliation failed")
         }
-    }
-
-    @Synchronized
-    internal fun reconcileTetherIpv6Guard(applied: DownstreamSnapshot, observed: DownstreamSnapshot?) {
-        if (appliedDownstreams !== applied || !applied.blockIpv6 || health() != RootHealth.RUNNING) return
-        // Keep earlier rules until the normal restart transaction finishes.
-        val names = (applied.names + observed?.names.orEmpty()).distinct()
-        if (!RootTetherIpv6Guard.ensure(names)) Logs.w("ROOT tether IPv6 guard: reconciliation failed")
+        if (repairForward && !RootTunForwarding.ensure(applied.names, applied.ipv6Enabled))
+            Logs.w("ROOT TUN forwarding: reconciliation pending")
     }
 
     private fun managedTunInbound(root: JsonObject): JsonObject? = root.getAsJsonArray("inbounds")?.firstOrNull {
@@ -513,8 +511,8 @@ object RootDaemon {
                                     if [ "${'$'}ino" != ${RootShell.q(inode)} ] || [ "${'$'}size" -lt "${'$'}start" ]; then start=0; fi
                                     if [ "${'$'}size" -gt "${'$'}start" ] || [ "${'$'}ino" != ${RootShell.q(inode)} ] || [ "${'$'}start" != "$off" ]; then
                                         printf '%s %s %s ' $index "${'$'}ino" "${'$'}start"
-                                        tail -c +${'$'}((start+1)) ${RootShell.q(f)} | head -c 65536 | base64 | tr -d '\\r\\n'
-                                        printf '\\n'
+                                        tail -c +${'$'}((start+1)) ${RootShell.q(f)} | head -c 65536 | base64 | tr -d '\r\n'
+                                        printf '\n'
                                     fi
                                 fi
                             fi

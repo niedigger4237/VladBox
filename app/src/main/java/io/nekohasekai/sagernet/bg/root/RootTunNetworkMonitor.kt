@@ -63,14 +63,9 @@ internal class RootTunNetworkMonitor(
             return
         }
         val observed = RootDaemon.resolveDownstreams(mode, requireReliable = true, ipv6 = applied.serviceIpv6)
-        if (!closed && applied.blockIpv6) RootDaemon.reconcileTetherIpv6Guard(applied, observed)
+        if (!closed) RootDaemon.reconcileTetherRules(mode, applied, observed)
         if (observed == null || observed == applied) {
             candidate = null
-            // netd may rebuild tetherctrl_FORWARD without changing downstream identity.
-            if (observed == applied && mode == RootDaemon.Mode.TUN &&
-                applied.names.isNotEmpty() && !closed && RootDaemon.isRunning()) {
-                RootDaemon.reconcileTunForwarding(applied)
-            }
             return
         }
         if (candidate != observed) {
