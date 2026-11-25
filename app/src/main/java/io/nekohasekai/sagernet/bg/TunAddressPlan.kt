@@ -109,13 +109,21 @@ data class TunAddressPlan(
             return occupied
         }
 
-        fun manual(ipv4Subnet: String, ipv6Subnet: String, includeIpv6: Boolean): TunAddressPlan {
+        /** Pure address derivation, also used by JVM unit tests. */
+        internal fun fromManualSubnets(ipv4Subnet: String, ipv6Subnet: String, includeIpv6: Boolean): TunAddressPlan {
             val v4 = parseSubnet(ipv4Subnet, false)
             val v6 = parseSubnet(if (includeIpv6) ipv6Subnet else DEFAULT_IPV6_SUBNET, true)
+            return TunAddressPlan(host(v4, 1), host(v4, 2), host(v6, 1), v4.bits, v6.bits)
+        }
+
+        fun manual(ipv4Subnet: String, ipv6Subnet: String, includeIpv6: Boolean): TunAddressPlan {
+            val plan = fromManualSubnets(ipv4Subnet, ipv6Subnet, includeIpv6)
+            val v4 = Prefix(InetAddress.getByName(plan.ipv4), plan.ipv4Prefix)
+            val v6 = Prefix(InetAddress.getByName(plan.ipv6), plan.ipv6Prefix)
             val occupied = occupiedPrefixes()
             require(occupied.none { overlaps(v4, it) }) { "Manual IPv4 TUN subnet overlaps a connected network: $ipv4Subnet" }
             require(!includeIpv6 || occupied.none { overlaps(v6, it) }) { "Manual IPv6 TUN subnet overlaps a connected network: $ipv6Subnet" }
-            return TunAddressPlan(host(v4, 1), host(v4, 2), host(v6, 1), v4.bits, v6.bits)
+            return plan
         }
 
         fun select(includeIpv6: Boolean): TunAddressPlan {
