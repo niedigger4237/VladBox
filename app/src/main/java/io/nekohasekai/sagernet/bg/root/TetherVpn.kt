@@ -256,7 +256,7 @@ object TetherVpn {
             }.distinct()
             val up = vpnNames.singleOrNull()?.takeIf { name ->
                 Regex("[A-Za-z0-9_.-]{1,15}").matches(name) &&
-                    addrs.any { it.name == name && it.ip == plan.ipv4 }
+                    addrs.any { it.name == name && it.ip == plan.ipv4 && it.prefix == plan.ipv4Prefix }
             }
             // interfaces carrying a default route are uplinks (e.g. wlan0 when the phone itself is on Wi-Fi)
             val routes = RootShell.run("ip -4 route show table all && ip -6 route show table all", timeoutMs = 5000)
@@ -277,9 +277,13 @@ object TetherVpn {
                 Logs.w("VPN tether: unrecognized Android tethering snapshot; keeping existing guards")
                 return
             }
-            val active = state.out.lineSequence().mapNotNull {
-                Regex("""^\s*([A-Za-z0-9_.-]{1,15})\s+-\s+TetheredState\s+-\s+lastError\s*=\s*0\s*$""").matchEntire(it)?.groupValues?.get(1)
-            }.toSet()
+            val tetherLine = Regex("""^\s*([A-Za-z0-9_.-]{1,15})\s+-\s+TetheredState\s+-\s+lastError\s*=\s*0\s*$""")
+            if (state.out.lineSequence().any { " - TetheredState" in it && !tetherLine.matches(it) }) {
+                clearLocked()
+                Logs.w("VPN tether: ambiguous active downstream; retaining existing guards")
+                return
+            }
+            val active = state.out.lineSequence().mapNotNull { tetherLine.matchEntire(it)?.groupValues?.get(1) }.toSet()
             val names = active.filter { name ->
                 name !in uplinks && !skip.matches(name) &&
                     sel.any { c -> if (c.endsWith("+")) name.startsWith(c.dropLast(1)) else name == c }
@@ -325,6 +329,7 @@ object TetherVpn {
             if (token == generation) install(next)
         } catch (e: Exception) {
             Logs.w(e)
+            clearLocked()
         }
     }
 
