@@ -75,14 +75,21 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         rootScope = scope
         rootLooper = service?.let { RootTrafficLooper(it.data, scope) }
         rootLooper?.start()
-        val initial = RootDaemon.appliedTunDownstreams
-        if (started && initial != null && DataStore.serviceMode == Key.MODE_ROOT_TUN &&
-            RootDaemon.hasTunTethering()) {
-            tunNetworkMonitor = RootTunNetworkMonitor(initial) {
+        val initial = RootDaemon.appliedDownstreams
+        val activeMode = DataStore.serviceMode
+        val mode = when (activeMode) {
+            Key.MODE_ROOT_TUN -> RootDaemon.Mode.TUN
+            Key.MODE_ROOT_TPROXY -> RootDaemon.Mode.TPROXY
+            Key.MODE_ROOT_TUN2SOCKS -> RootDaemon.Mode.TUN2SOCKS
+            Key.MODE_ROOT_BPF2SOCKS -> RootDaemon.Mode.BPF2SOCKS
+            else -> null
+        }
+        if (started && initial != null && mode != null) {
+            tunNetworkMonitor = RootTunNetworkMonitor(mode, initial) {
                 val owner = service
                 if (owner != null && owner.data.proxy === this && started &&
                     owner.data.state == BaseService.State.Connected &&
-                    DataStore.serviceMode == Key.MODE_ROOT_TUN) {
+                    DataStore.serviceMode == activeMode) {
                     // Preserve the normal cleanup/startup ordering, including the external daemon.
                     owner.stopRunner(restart = true)
                     true
