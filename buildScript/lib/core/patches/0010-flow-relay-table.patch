@@ -2,7 +2,7 @@ diff --git a/common/androidcli/flowmeta/relay.go b/common/androidcli/flowmeta/re
 new file mode 100644
 --- /dev/null
 +++ b/common/androidcli/flowmeta/relay.go
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,112 @@
 +// Copyright 2026, Asterisk4Magisk contributors
 +// SPDX-License-Identifier: LGPL-3.0
 +
@@ -95,6 +95,19 @@ new file mode 100644
 +	return entry.session == session && now.Sub(entry.last) < t.idle
 +}
 +
++// PurgeExpired releases idle entries even if no more datagrams arrive.
++// The generation counter remains monotonic and live sessions are untouched.
++func (t *RelayTable) PurgeExpired(now time.Time) {
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	for element := t.lru.Back(); element != nil; element = t.lru.Back() {
++		if now.Sub(element.Value.(*relayEntry).last) < t.idle {
++			break
++		}
++		t.remove(element)
++	}
++}
++
 +func (t *RelayTable) Clear() {
 +	t.mu.Lock()
 +	defer t.mu.Unlock()
@@ -107,7 +120,7 @@ diff --git a/common/androidcli/flowmeta/relay_test.go b/common/androidcli/flowme
 new file mode 100644
 --- /dev/null
 +++ b/common/androidcli/flowmeta/relay_test.go
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,88 @@
 +package flowmeta
 +
 +import (
@@ -155,6 +168,27 @@ new file mode 100644
 +	last := table.Get(netip.MustParseAddrPort("127.0.0.1:20000"), src, 10001, now)
 +	if table.Valid(last, now.Add(time.Minute)) { t.Fatal("expired generation still valid") }
 +	if table.Get(last.Relay, src, 10001, now.Add(time.Minute)).Key == last.Key { t.Fatal("expired key reused") }
++}
++
++func TestRelayIdlePurge(t *testing.T) {
++	now := time.Now()
++	table := NewRelayTable(8, time.Minute)
++	src := netip.MustParseAddrPort("10.0.0.2:5000")
++	a := netip.MustParseAddrPort("127.0.0.1:30001")
++	b := netip.MustParseAddrPort("127.0.0.1:30002")
++	old := table.Get(a, src, 10001, now)
++	live := table.Get(b, src, 10001, now.Add(30*time.Second))
++	table.PurgeExpired(now.Add(time.Minute))
++	if len(table.entries) != 1 || table.Valid(old, now.Add(time.Minute)) || !table.Valid(live, now.Add(time.Minute)) {
++		t.Fatal("purge removed a live relay or retained an expired relay")
++	}
++	table.PurgeExpired(now.Add(90*time.Second))
++	if len(table.entries) != 0 || table.lru.Len() != 0 {
++		t.Fatal("idle table was not cleared")
++	}
++	if table.Get(a, src, 10001, now.Add(91*time.Second)).Key == old.Key {
++		t.Fatal("purge reused previous generation")
++	}
 +}
 +
 +func TestRelayConcurrent(t *testing.T) {

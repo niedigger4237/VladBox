@@ -2,7 +2,7 @@ diff --git a/protocol/socks/flow.go b/protocol/socks/flow.go
 new file mode 100644
 --- /dev/null
 +++ b/protocol/socks/flow.go
-@@ -0,0 +1,226 @@
+@@ -0,0 +1,255 @@
 +// Copyright 2026, Asterisk4Magisk contributors
 +// SPDX-License-Identifier: LGPL-3.0
 +
@@ -82,7 +82,12 @@ new file mode 100644
 +		return err
 +	}
 +	scope.Add(i.listener.Close)
++	stopSweep := make(chan struct{})
++	sweepDone := make(chan struct{})
++	go i.sweepIdleUDP(stopSweep, sweepDone)
 +	scope.Add(func() error {
++		close(stopSweep)
++		<-sweepDone
 +		i.udpMu.Lock()
 +		defer i.udpMu.Unlock()
 +		i.closing = true
@@ -91,6 +96,30 @@ new file mode 100644
 +		return nil
 +	})
 +	return nil
++}
++
++// The pinned UDP NAT cache otherwise purges on traffic/cache operations.
++// A single lifecycle-bound sweep releases idle connections during silence,
++// without forcing GC or shortening live session timeouts.
++func (i *flowInbound) sweepIdleUDP(stop <-chan struct{}, done chan<- struct{}) {
++	defer close(done)
++	ticker := time.NewTicker(30 * time.Second)
++	defer ticker.Stop()
++	for {
++		select {
++		case <-stop:
++			return
++		case <-i.ctx.Done():
++			return
++		case <-ticker.C:
++			i.udpMu.Lock()
++			if !i.closing {
++				i.relays.PurgeExpired(time.Now())
++				i.nat.PurgeExpired()
++			}
++			i.udpMu.Unlock()
++		}
++	}
 +}
 +
 +func (i *flowInbound) InterfaceUpdated(context.Context) {
