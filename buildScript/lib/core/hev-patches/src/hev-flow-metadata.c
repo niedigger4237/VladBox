@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0
 
 #include "hev-flow-metadata.h"
+#include "hev-logger.h"
+#include <hev-socks5-udp.h>
 #include "hev-socks5-session-tcp.h"
 #include "hev-socks5-tunnel.h"
 #include <hev-task-io-socket.h>
@@ -18,26 +20,47 @@ void hev_flow_run(HevSocks5Session *self) {
         HevSocks5Addr dst;
         uint8_t header[FLOW_METADATA_MAX_HEADER];
         size_t n, sent = 0;
-        if (!tcp->pcb || hev_socks5_client_connect(client, srv->addr, srv->port) < 0) return;
+        if (!tcp->pcb) return;
+        if (hev_socks5_client_connect(client, srv->addr, srv->port) < 0) {
+            LOG_W ("flow metadata TCP: local bridge connect failed");
+            return;
+        }
         // Connecting yields; a client reset can clear the PCB while we wait.
         if (!tcp->pcb) return;
-        hev_socks5_addr_from_lwip(&dst, &tcp->pcb->local_ip, tcp->pcb->local_port);
+        if (hev_socks5_addr_from_lwip(&dst, &tcp->pcb->local_ip, tcp->pcb->local_port) < 0) {
+            LOG_W ("flow metadata TCP: invalid destination");
+            return;
+        }
         n = hev_flow_header(header, &tcp->pcb->remote_ip, tcp->pcb->remote_port, &dst, 0);
-        if (!n) return;
+        if (!n) {
+            LOG_W ("flow metadata TCP: cannot encode original socket tuple");
+            return;
+        }
         while (sent < n) {
             int res = hev_task_io_socket_send(
                 HEV_SOCKS5(self)->fd, header + sent, n - sent, 0, hev_socks5_task_io_yielder, self);
-            if (res <= 0) return;
+            if (res <= 0) {
+                LOG_W ("flow metadata TCP: header send failed");
+                return;
+            }
             sent += res;
         }
     } else {
-        struct sockaddr_in6 address;
+        struct sockaddr_in6 address = {0};
         HevSocks5Addr dst;
         HevSocks5ClientClass *klass = HEV_OBJECT_GET_CLASS(client);
         int family = HEV_SOCKS5_ADDR_FAMILY_UNSPEC;
-        if (hev_socks5_name_into_sockaddr6(srv->addr, srv->port, &address, &family) < 0) return;
+        if (HEV_SOCKS5(self)->type != HEV_SOCKS5_TYPE_UDP_IN_UDP ||
+            hev_socks5_name_into_sockaddr6(srv->addr, srv->port, &address, &family) < 0) {
+            LOG_W ("flow metadata UDP: invalid relay configuration");
+            return;
+        }
+        hev_socks5_set_addr_family(HEV_SOCKS5(self), family);
         hev_socks5_addr_from_sockaddr6(&dst, &address);
-        if (klass->set_upstream_addr(client, &dst) < 0) return;
+        if (klass->set_upstream_addr(client, &dst) < 0) {
+            LOG_W ("flow metadata UDP: local bridge connect failed");
+            return;
+        }
     }
     hev_socks5_set_timeout(HEV_SOCKS5(self),
         HEV_SOCKS5(self)->type == HEV_SOCKS5_TYPE_TCP
@@ -63,7 +86,9 @@ int hev_flow_sendmmsg(HevSocks5SessionUDP *self, HevSocks5UDPMsg *msgv, unsigned
         messages[i].msg_hdr.msg_iov = &iov[2 * i];
         messages[i].msg_hdr.msg_iovlen = 2;
     }
-    return hev_task_io_socket_sendmmsg(self->base.fd, messages, count, MSG_WAITALL, yielder, self);
+    int fd = hev_socks5_udp_get_fd(HEV_SOCKS5_UDP(self));
+    if (fd < 0) return -1;
+    return hev_task_io_socket_sendmmsg(fd, messages, count, MSG_WAITALL, yielder, self);
 }
 
 int hev_flow_recvmmsg(HevSocks5SessionUDP *self, HevSocks5UDPMsg *msgv, unsigned int count) {
@@ -77,7 +102,9 @@ int hev_flow_recvmmsg(HevSocks5SessionUDP *self, HevSocks5UDPMsg *msgv, unsigned
         messages[i].msg_hdr.msg_iov = &iov[i];
         messages[i].msg_hdr.msg_iovlen = 1;
     }
-    res = recvmmsg(self->base.fd, messages, count, MSG_DONTWAIT, NULL);
+    int fd = hev_socks5_udp_get_fd(HEV_SOCKS5_UDP(self));
+    if (fd < 0) return -1;
+    res = hev_task_io_socket_recvmmsg(fd, messages, count, 1, hev_socks5_task_io_yielder, self);
     for (i = 0; i < res; i++) {
         struct sockaddr_storage source, destination;
         size_t n = flow_metadata_decode(msgv[i].buf, messages[i].msg_len, &source, &destination,
