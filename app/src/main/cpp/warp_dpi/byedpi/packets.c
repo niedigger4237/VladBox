@@ -183,7 +183,7 @@ static int remove_ks_group(char *buffer,
     ssize_t g_offs = ks_offs + 4 + 2;
     while (g_offs + 4 < ks_offs + 4 + ks_sz) {
         uint16_t g_sz = ANTOHS(buffer, g_offs + 2);
-        if (ks_offs + 4 + g_sz > n) {
+        if (g_offs + 4 + g_sz > ks_offs + 4 + ks_sz) {
             return 0;
         }
         uint16_t g_tp = ANTOHS(buffer, g_offs);
@@ -618,7 +618,7 @@ void randomize_tls(char *buffer, ssize_t n)
     ssize_t g_offs = ks_offs + 4 + 2;
     while (g_offs + 4 < ks_offs + 4 + ks_sz) {
         uint16_t g_sz = ANTOHS(buffer, g_offs + 2);
-        if (ks_offs + 4 + g_sz > n) {
+        if (g_offs + 4 + g_sz > ks_offs + 4 + ks_sz) {
             return;
         }
         gen_rand_array(buffer + g_offs + 4, g_sz);

@@ -1,3 +1,4 @@
+#include "../warp_dpi_arguments.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -479,51 +480,50 @@ bool ipv6_support(void)
 
 int parse_offset(struct part *part, const char *str)
 {
-    char *end = 0;
+    char *end;
+    errno = 0;
     long val = strtol(str, &end, 0);
+    if (errno || end == str || val < -65535 || val > 65535)
+        return -1;
 
-    while (*end == ':') {
-        long rs = strtol(end + 1, &end, 0);
-        if (rs < 0 || rs > INT_MAX) {
+    part->r = 0;
+    part->s = 0;
+    part->flag = 0;
+    if (*end == ':') {
+        const char *start = end + 1;
+        long repeat = strtol(start, &end, 0);
+        if (end == start || repeat < 1 || repeat > 256)
             return -1;
-        }
-        if (!part->r) {
-            if (!rs)
+        part->r = repeat;
+        if (*end == ':') {
+            start = end + 1;
+            long step = strtol(start, &end, 0);
+            if (end == start || step < 0 || step > 65535)
                 return -1;
-            part->r = rs;
-        }
-        else {
-            part->s = rs;
-            break;
+            part->s = step;
         }
     }
     if (*end == '+') {
-        switch (*(end + 1)) {
-            case 's':
-                part->flag = OFFSET_SNI;
-                break;
-            case 'h':
-                part->flag = OFFSET_HOST;
-                break;
-            case 'n':
-                break;
-            default:
-                return -1;
+        end++;
+        switch (*end++) {
+            case 's': part->flag = OFFSET_SNI; break;
+            case 'h': part->flag = OFFSET_HOST; break;
+            case 'n': break;
+            default: return -1;
         }
-        switch (*(end + 2)) {
-            case 'e':
-                part->flag |= OFFSET_END;
-                break;
-            case 'm':
-                part->flag |= OFFSET_MID;
-                break;
-            case 'r': //
-                part->flag |= OFFSET_RAND;
-                break;
-            case 's': //
-                part->flag |= OFFSET_START;
+        if (*end) {
+            switch (*end++) {
+                case 'e': part->flag |= OFFSET_END; break;
+                case 'm': part->flag |= OFFSET_MID; break;
+                case 'r': part->flag |= OFFSET_RAND; break;
+                case 's': part->flag |= OFFSET_START; break;
+                default: return -1;
+            }
         }
     }
+    if (*end)
+        return -1;
+
     part->pos = val;
     return 0;
 }
@@ -546,6 +546,8 @@ void *add(void **root, int *n, size_t ss)
 
 static struct desync_params *add_group(struct desync_params *prev)
 {
+    if (params.dp_n >= 64)
+        return NULL;
     struct desync_params *dp = calloc(1, sizeof(*prev));
     if (!dp) {
         return 0;
@@ -555,7 +557,7 @@ static struct desync_params *add_group(struct desync_params *prev)
         prev->next = dp;
     }
     dp->id = params.dp_n;
-    dp->bit = 1 << dp->id;
+    dp->bit = UINT64_C(1) << dp->id;
 
     params.dp_n++;
     return dp;
@@ -641,8 +643,44 @@ void clear_params(void)
 }
 
 
-int byedpi_configure(int argc, char **argv)
+// getopt identifies the option. Validate the complete value before the
+// upstream handlers inspect the first character of each modifier.
+static bool valid_modifier_list(int option, const char *value)
 {
+    const char *letters;
+    switch (option) {
+        case 'A': letters = "trasn"; break;
+        case 'L': letters = "0123psr"; break;
+        case 'K': letters = "thui"; break;
+        case 'M': letters = "rhd"; break;
+        case 'Q': letters = "ro"; break;
+        default: return true;
+    }
+    for (const char *part = value; ; ) {
+        size_t len = strcspn(part, ",");
+        bool valid = len == 1 && strchr(letters, *part);
+        if (option == 'A')
+            valid |= (len == 5 && !strncmp(part, "torst", len)) ||
+                    (len == 8 && !strncmp(part, "redirect", len)) ||
+                    (len == 7 && !strncmp(part, "ssl_err", len)) ||
+                    (len == 4 && !strncmp(part, "none", len));
+        if (option == 'Q' && len > 2 && !strncmp(part, "m=", 2)) {
+            char *end;
+            errno = 0;
+            long size = strtol(part + 2, &end, 0);
+            valid = !errno && end == part + len && size >= -16384 && size <= 16384;
+        }
+        if (!valid)
+            return false;
+        if (!part[len])
+            return true;
+        part += len + 1;
+    }
+}
+
+int byedpi_configure(int argc, char **argv, bool runtime, char *error)
+{
+    snprintf(error, WARP_DPI_ERROR_SIZE, "Unable to allocate or initialize ByeDPI parameters (maximum 64 stages).");
     params = default_params;
     // libc keeps parser state beyond the lifetime of a single session.
     #ifdef __BIONIC__
@@ -679,7 +717,7 @@ int byedpi_configure(int argc, char **argv)
     }
     //
     params.laddr.in.sin_port = htons(1080);
-    if (!ipv6_support()) {
+    if (runtime && !ipv6_support()) {
         params.baddr.sa.sa_family = AF_INET;
     }
 
@@ -704,6 +742,10 @@ int byedpi_configure(int argc, char **argv)
 
     while (!invalid && (rez = getopt_long(
              argc, argv, opt, options, 0)) != -1) {
+        if (optarg && !valid_modifier_list(rez, optarg)) {
+            invalid = 1;
+            break;
+        }
         switch (rez) {
 
         case 'N':
@@ -1064,12 +1106,16 @@ int byedpi_configure(int argc, char **argv)
             }
             break;
 
-        case 'e':
-            val = parse_cform(dp->oob_char, 1, optarg, strlen(optarg));
+        case 'e':;
+            char oob[2];
+            val = parse_cform(oob, sizeof(oob), optarg, strlen(optarg));
             if (val != 1) {
                 invalid = 1;
             }
-            else dp->oob_char[1] = 1;
+            else {
+                dp->oob_char[0] = oob[0];
+                dp->oob_char[1] = 1;
+            }
             break;
 
         case 'M':
@@ -1127,14 +1173,15 @@ int byedpi_configure(int argc, char **argv)
             break;
 
         case 'V':
+            errno = 0;
             val = strtol(optarg, &end, 0);
-            if (val <= 0 || val > USHRT_MAX)
+            if (errno || val <= 0 || val > USHRT_MAX)
                 invalid = 1;
             else {
                 dp->pf[0] = htons(val);
                 if (*end == '-') {
                     val = strtol(end + 1, &end, 0);
-                    if (val <= 0 || val > USHRT_MAX)
+                    if (errno || val < ntohs(dp->pf[0]) || val > USHRT_MAX)
                         invalid = 1;
                 }
                 if (*end)
@@ -1145,14 +1192,15 @@ int byedpi_configure(int argc, char **argv)
             break;
 
         case 'R':
+            errno = 0;
             val = strtol(optarg, &end, 0);
-            if (val <= 0 || val > INT_MAX)
+            if (errno || val <= 0 || val > INT_MAX)
                 invalid = 1;
             else {
                 dp->rounds[0] = val;
                 if (*end == '-') {
                     val = strtol(end + 1, &end, 0);
-                    if (val <= 0 || val > INT_MAX)
+                    if (errno || val < dp->rounds[0] || val > INT_MAX)
                         invalid = 1;
                 }
                 if (*end)
@@ -1210,7 +1258,7 @@ int byedpi_configure(int argc, char **argv)
         }
     }
     if (invalid) {
-        fprintf(stderr, "invalid value: -%c %s\n", rez, optarg);
+        snprintf(error, WARP_DPI_ERROR_SIZE, "Invalid value for -%c: %.96s.", rez, optarg ? optarg : "");
         clear_params();
         return -1;
     }
@@ -1221,9 +1269,8 @@ int byedpi_configure(int argc, char **argv)
             return -1;
         }
     }
-    if ((size_t )params.dp_n > sizeof(dp->bit) * 8) {
-        LOG(LOG_E, "too many groups!\n");
-    }
+    if (!runtime)
+        return 0;
     if (params.baddr.sa.sa_family != AF_INET6) {
         params.ipv6 = 0;
     }

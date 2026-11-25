@@ -76,7 +76,7 @@ internal class WarpViewModel(application: Application) : AndroidViewModel(applic
                 val current = existing ?: if (snapshot.transport == Transport.BYEDPI) {
                     dpiTransport.register { index, count, strategy ->
                         mutableState.update { state ->
-                            state.copy(strategyProgress = "ByeDPI strategy $index/$count · ${strategy.id}")
+                            state.copy(strategyProgress = "ByeDPI strategy $index/$count · ${strategy.name}")
                         }
                     }
                 } else withContext(Dispatchers.IO) {

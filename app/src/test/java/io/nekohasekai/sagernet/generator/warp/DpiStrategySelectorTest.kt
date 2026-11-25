@@ -70,4 +70,21 @@ class DpiStrategySelectorTest {
         assertEquals(listOf(first.id), opened.map { it.id })
         assertEquals(1, opened.single().closeCount)
     }
+    @Test
+    fun skipsInvalidStrategiesAndReportsTheNameAndPosition() {
+        val bad = DpiStrategySelector.Strategy("custom-invalid", listOf("-p1080"), "Invalid custom entry")
+        val progress = mutableListOf<Triple<Int, Int, String>>()
+        val chosen = DpiStrategySelector.withWorkingStrategy(
+            listOf(first, bad), bad.id,
+            open = {
+                if (it == bad) throw IOException("Unsupported option")
+                Session(it.id)
+            },
+            checkCancelled = {},
+            progress = { index, count, strategy -> progress += Triple(index, count, strategy.name) },
+            probe = { true }
+        ) { match, _ -> match.strategy }
+        assertEquals(first, chosen)
+        assertEquals(listOf(Triple(1, 2, bad.name), Triple(2, 2, first.name)), progress)
+    }
 }

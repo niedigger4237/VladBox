@@ -29,54 +29,86 @@ internal object DpiStrategyCatalog {
         preset("md5oob", "--oob 1 --fake -1 --md5sig")
     )
 
+    fun imported(context: Context): List<DpiStrategySelector.Strategy> =
+        context.assets.open("generator/byedpi-manager/strategies.tsv").bufferedReader().useLines { lines ->
+            lines.filter(String::isNotBlank).map { line ->
+                val (number, args) = line.split('\t', limit = 2)
+                DpiStrategySelector.Strategy("manager-$number", DpiStrategyArguments.tokenize(args), "ByeDPIManager #$number")
+            }.toList()
+        }
+
     private fun prefs(context: Context) =
         context.getSharedPreferences("warp_dpi", Context.MODE_PRIVATE)
 
     data class Custom(val id: String, val name: String, val args: String, val enabled: Boolean = true)
-    data class Settings(val timeout: Int = 6, val custom: List<Custom> = emptyList())
-
-    fun arguments(raw: String): List<String>? {
-        val tokens = raw.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
-        if (tokens.isEmpty() || tokens.size > 16) return null
-        val options = setOf("--split", "--disorder", "--tlsrec", "--oob", "--disoob", "--fake", "--ttl")
-        val flags = setOf("--md5sig", "--auto=torst", "--auto=ssl_err")
-        var i = 0
-        while (i < tokens.size) {
-            val token = tokens[i++]
-            if (token in flags) continue
-            if (token !in options || i == tokens.size || !tokens[i++].matches(Regex("[0-9+\\-s]+"))) return null
-        }
-        return tokens
-    }
+    data class Settings(
+        val timeout: Int = 6,
+        val custom: List<Custom> = emptyList(),
+        val rememberSuccessful: Boolean = true,
+        val disabled: Set<String> = emptySet()
+    )
 
     fun settings(context: Context): Settings {
         val p = prefs(context)
-        val custom = runCatching {
-            val array = JSONArray(p.getString("custom", "[]") ?: "[]")
-            (0 until array.length()).mapNotNull { i ->
-                val item = array.getJSONObject(i)
-                val args = item.getString("args")
-                if (arguments(args) == null) null else Custom(item.getString("id"), item.getString("name"), args, item.optBoolean("enabled", true))
-            }
-        }.getOrDefault(emptyList())
-        return Settings(p.getInt("timeout", 6).coerceIn(1, 120), custom)
+        val array = runCatching { JSONArray(p.getString("custom", "[]") ?: "[]") }.getOrNull()
+        val custom = (0 until (array?.length() ?: 0)).mapNotNull { index ->
+            val item = array?.optJSONObject(index) ?: return@mapNotNull null
+            val id = item.optString("id")
+            if (id.isEmpty()) return@mapNotNull null
+            Custom(id, item.optString("name"), item.optString("args"), item.optBoolean("enabled", true))
+        }
+        return Settings(
+            p.getInt("timeout", 6).coerceIn(1, 120),
+            custom,
+            p.getBoolean("remember_successful", true),
+            p.getStringSet("disabled", emptySet()).orEmpty().toSet()
+        )
     }
 
-    fun save(context: Context, settings: Settings) {
-        require(settings.timeout in 1..120 && settings.custom.all { arguments(it.args) != null })
+    @Synchronized
+    fun save(context: Context, updated: Settings, forget: Boolean = false) {
+        require(updated.timeout in 1..120)
+        val prefs = prefs(context)
+        val previous = settings(context)
+        val preferred = prefs.getString("strategy", null)
         val array = JSONArray()
-        settings.custom.forEach { array.put(JSONObject().put("id", it.id).put("name", it.name).put("args", it.args).put("enabled", it.enabled)) }
-        prefs(context).edit().putInt("timeout", settings.timeout).putString("custom", array.toString()).apply()
+        updated.custom.forEach {
+            array.put(JSONObject().put("id", it.id).put("name", it.name)
+                .put("args", it.args).put("enabled", it.enabled))
+        }
+        val edit = prefs.edit().putInt("timeout", updated.timeout).putString("custom", array.toString())
+            .putBoolean("remember_successful", updated.rememberSuccessful)
+            .putStringSet("disabled", updated.disabled)
+        if (forget || !updated.rememberSuccessful ||
+            !retainPreferred(preferred, previous, updated)
+        ) edit.remove("strategy")
+        edit.apply()
     }
 
-    fun available(settings: Settings) = strategies + settings.custom.filter { it.enabled }.mapNotNull {
-        arguments(it.args)?.let { args -> DpiStrategySelector.Strategy(it.id, args) }
+    internal fun retainPreferred(id: String?, previous: Settings, current: Settings): Boolean {
+        if (id == null || id in current.disabled) return false
+        val prior = previous.custom.firstOrNull { it.id == id } ?: return true
+        val updated = current.custom.firstOrNull { it.id == id } ?: return false
+        return updated.enabled && updated.args == prior.args
     }
 
-    fun preferred(context: Context): String? =
-        prefs(context).getString("strategy", null)?.takeIf { id -> available(settings(context)).any { it.id == id } }
+    fun available(context: Context, settings: Settings) =
+        (strategies + imported(context)).filterNot { it.id in settings.disabled } +
+            settings.custom.filter { it.enabled }.mapNotNull {
+                runCatching { DpiStrategyArguments.tokenize(it.args) }.getOrNull()
+                    ?.takeIf { args -> args.isNotEmpty() }
+                    ?.let { args -> DpiStrategySelector.Strategy(it.id, args, it.name) }
+            }
 
+    fun preferred(context: Context, settings: Settings): String? =
+        if (settings.rememberSuccessful) prefs(context).getString("strategy", null) else null
+
+    @Synchronized
     fun remember(context: Context, match: DpiStrategySelector.Match) {
+        val current = settings(context)
+        if (!current.rememberSuccessful || available(context, current).none {
+                it.id == match.strategy.id && it.arguments == match.strategy.arguments
+            }) return
         prefs(context).edit().putString("strategy", match.strategy.id).apply()
     }
 }

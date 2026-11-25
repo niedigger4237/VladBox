@@ -4,7 +4,7 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 internal object DpiStrategySelector {
-    data class Strategy(val id: String, val arguments: List<String>)
+    data class Strategy(val id: String, val arguments: List<String>, val name: String = id)
     data class Match(val strategy: Strategy, val latencyMs: Long)
 
     fun <Session : AutoCloseable, T> withWorkingStrategy(

@@ -162,9 +162,12 @@ static struct packet get_tcp_fake(const char *buffer, ssize_t n,
     if (opt->fake_offset.m) {
         pkt.off = gen_offset(opt->fake_offset.pos,
             opt->fake_offset.flag, buffer, n, 0, info);
-        if (pkt.off > pkt.size || pkt.off < 0) {
-            pkt.off = 0;
+        if (pkt.off > 0 && pkt.off < pkt.size) {
+            size_t remaining = pkt.size - pkt.off;
+            memmove(p, p + pkt.off, remaining);
+            memset(p + remaining, 0, pkt.off);
         }
+        pkt.off = 0;
     }
     return pkt;
 }
@@ -232,6 +235,7 @@ static ssize_t send_fake(struct eval *val, const char *buffer,
             uniperror("splice");
             break;
         }
+        val->restore_orig_len = len;
         ret = len;
         break;
     }
@@ -453,10 +457,12 @@ static long gen_offset(long pos, int flag,
             pos += info->host_len;
         else if (flag & OFFSET_MID)
             pos += (info->host_len / 2);
-        else if (flag & OFFSET_RAND)
+        else if ((flag & OFFSET_RAND) && info->host_len > 0)
             pos += (rand() % info->host_len);
     }
     else if (flag & OFFSET_RAND) {
+        if (lp < 0 || (size_t)lp >= n)
+            return -1;
         pos += lp + (rand() % (n - lp));
     }
     else if (flag & OFFSET_MID) {

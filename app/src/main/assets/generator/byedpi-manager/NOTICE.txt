@@ -1,0 +1,19 @@
+ByeDPIManager strategy catalog by romanvht and contributors.
+Source: https://github.com/romanvht/ByeDPIManager/blob/cab497c91f3d9d4d44741fd835a03b766defc1c7/proxytest/strategies.txt
+License: GNU General Public License, version 3 (see LICENSE).
+
+VladBox prefixes each imported strategy with its original 1-based line number.
+The command text is preserved. At runtime the fake-SNI placeholder expands to
+api.cloudflareclient.com. The real TLS hostname and the native destination
+are fixed independently of fake SNI.
+
+Source entries: 60. Imported: 37. Exact duplicates: 0.
+Duplicate comparison uses equivalent short/long option spelling and argument
+boundaries, preserving option order and values.
+
+Excluded source lines: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 15, 18, 20, 21, 24, 26, 29, 33, 34, 40, 43, 47.
+Each uses -At,r,s,c. ByeDPI v0.17.3 accepts t, r and s here, but has
+no c auto-detection trigger. Removing c would change the strategy.
+
+-a1 is accepted by v0.17.3 and is preserved. It configures UDP fake packets,
+which have no effect on the private TCP-only WARP transport.

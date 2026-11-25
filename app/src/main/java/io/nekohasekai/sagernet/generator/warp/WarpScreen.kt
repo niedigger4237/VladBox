@@ -10,8 +10,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
-import java.util.UUID
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 
 @Composable
 internal fun WarpScreen(model: WarpViewModel, onCopy: (String) -> Unit,
@@ -200,68 +200,14 @@ private fun WarpTransportChoice(value: WarpViewModel.Transport, enabled: Boolean
                 DropdownMenuItem(text = { Text(label(option)) },
                     onClick = { expanded = false; change(option) },
                     trailingIcon = if (option == WarpViewModel.Transport.BYEDPI) {
-                        { IconButton(onClick = { expanded = false; settings = true }) { Text("⚙", style = MaterialTheme.typography.headlineSmall) } }
+                        {
+                            IconButton(onClick = { expanded = false; settings = true }) {
+                                Icon(Icons.Filled.Settings, contentDescription = "ByeDPI settings")
+                            }
+                        }
                     } else null)
             }
         }
     }
     if (settings && enabled) WarpDpiSettingsDialog { settings = false }
-}
-
-@Composable
-private fun WarpDpiSettingsDialog(dismiss: () -> Unit) {
-    val context = LocalContext.current
-    val initial = remember { DpiStrategyCatalog.settings(context) }
-    var timeout by remember { mutableStateOf(initial.timeout.toString()) }
-    var custom by remember { mutableStateOf(initial.custom) }
-    var editing by remember { mutableStateOf<DpiStrategyCatalog.Custom?>(null) }
-    var showBuiltIn by remember { mutableStateOf(false) }
-    val seconds = timeout.toIntOrNull()
-    AlertDialog(onDismissRequest = dismiss, title = { Text("ByeDPI settings") }, text = {
-        Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(timeout, { timeout = it }, label = { Text("Probe timeout (seconds)") },
-                singleLine = true, isError = seconds == null || seconds !in 1..120, modifier = Modifier.fillMaxWidth())
-            Text("1–120 seconds per strategy. Default: 6.", style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { showBuiltIn = !showBuiltIn }) { Text("Built-in strategies (18)") }
-            if (showBuiltIn) DpiStrategyCatalog.strategies.forEach { Text("${it.id}: ${it.arguments.joinToString(" ")}", style = MaterialTheme.typography.bodySmall) }
-            Text("Custom strategies", style = MaterialTheme.typography.titleMedium)
-            custom.forEach { item ->
-                ElevatedCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp)) {
-                        WarpToggle(item.name, item.enabled, true) { checked -> custom = custom.map { if (it.id == item.id) it.copy(enabled = checked) else it } }
-                        Text(item.args, style = MaterialTheme.typography.bodySmall)
-                        Row {
-                            TextButton(onClick = { editing = item }) { Text("Edit") }
-                            TextButton(onClick = { custom = custom.filterNot { it.id == item.id } }) { Text("Delete") }
-                        }
-                    }
-                }
-            }
-            OutlinedButton(onClick = { editing = DpiStrategyCatalog.Custom("custom-" + UUID.randomUUID(), "", "") }) { Text("Add strategy") }
-            TextButton(onClick = { timeout = "6"; custom = emptyList() }) { Text("Reset to defaults") }
-        }
-    }, confirmButton = {
-        TextButton(enabled = seconds != null && seconds in 1..120, onClick = {
-            DpiStrategyCatalog.save(context, DpiStrategyCatalog.Settings(seconds!!, custom))
-            dismiss()
-        }) { Text("Save") }
-    }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
-    editing?.let { item ->
-        var name by remember(item.id) { mutableStateOf(item.name) }
-        var args by remember(item.id) { mutableStateOf(item.args) }
-        val valid = DpiStrategyCatalog.arguments(args) != null
-        AlertDialog(onDismissRequest = { editing = null }, title = { Text("Custom strategy") }, text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                WarpField("Name", name, true) { name = it }
-                OutlinedTextField(args, { args = it }, label = { Text("ByeDPI arguments") }, isError = args.isNotBlank() && !valid)
-                Text("Supported: --split, --disorder, --tlsrec, --oob, --disoob, --fake, --ttl, --md5sig, --auto=torst, --auto=ssl_err. Up to 16 arguments.", style = MaterialTheme.typography.bodySmall)
-            }
-        }, confirmButton = {
-            TextButton(enabled = name.isNotBlank() && valid, onClick = {
-                val updated = item.copy(name = name.trim(), args = args.trim())
-                custom = if (custom.any { it.id == item.id }) custom.map { if (it.id == item.id) updated else it } else custom + updated
-                editing = null
-            }) { Text("Save") }
-        }, dismissButton = { TextButton(onClick = { editing = null }) { Text("Cancel") } })
-    }
 }

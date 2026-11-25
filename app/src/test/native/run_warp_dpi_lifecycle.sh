@@ -8,24 +8,28 @@ catalog="$main_dir/java/io/nekohasekai/sagernet/generator/warp/DpiStrategyCatalo
 output="$(mktemp -d)"
 trap 'rm -rf "$output"' EXIT
 
-python3 - "$catalog" > "$output/warp_dpi_test_strategies.h" <<'PY'
+python3 - "$catalog" "$main_dir/assets/generator/byedpi-manager/strategies.tsv" > "$output/warp_dpi_test_strategies.h" <<'PY'
 import json
 from pathlib import Path
 import re
+import shlex
 import sys
 
 presets = re.findall(r'preset\("[^"]+", "([^"]*)"\)', Path(sys.argv[1]).read_text())
 assert len(presets) == 18
-print("static struct { int length; char *argv[19]; } strategies[] = {")
-for preset in presets:
-    argv = ["warp_dpi", "-U", *preset.split()]
-    print(f"    {{{len(argv)}, {{{', '.join(map(json.dumps, argv))}, NULL}}}},")
+imported = [line.split("\t", 1)[1] for line in Path(sys.argv[2]).read_text().splitlines()]
+assert len(imported) == 37
+print("static struct { int length; char **argv; } strategies[] = {")
+for preset in presets + imported:
+    argv = shlex.split(preset)
+    args = ", ".join([*map(json.dumps, argv), "NULL"])
+    print(f"    {{{len(argv)}, (char *[]){{{args}}}}},")
 print("};")
 PY
 
 "${CC:-cc}" -D_GNU_SOURCE -std=c11 -O1 -g -pthread -Wl,--wrap=getaddrinfo \
     -I"$output" -I"$native_dir" \
     "$test_dir/warp_dpi_lifecycle.c" "$native_dir/warp_dpi_engine.c" \
-    "$native_dir/private_stream.c" "$native_dir"/byedpi/*.c \
+    "$native_dir/warp_dpi_arguments.c" "$native_dir/private_stream.c" "$native_dir"/byedpi/*.c \
     -o "$output/warp_dpi_lifecycle"
 "$output/warp_dpi_lifecycle"

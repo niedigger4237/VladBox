@@ -11,17 +11,28 @@ internal class NativeByeDpi private constructor(private var handle: Long) : Clos
             true
         }
 
-        fun open(strategy: DpiStrategySelector.Strategy): NativeByeDpi {
+        private fun ensureLoaded() {
             try {
                 check(loaded)
             } catch (e: UnsatisfiedLinkError) {
                 throw IllegalStateException("Native ByeDPI library unavailable", e)
             }
+        }
+
+        fun validate(arguments: List<String>): String? {
+            ensureLoaded()
+            if (arguments.isEmpty()) return "Enter at least one argument."
+            return nativeValidate(arguments.toTypedArray())
+        }
+
+        fun open(strategy: DpiStrategySelector.Strategy): NativeByeDpi {
+            ensureLoaded()
             val handle = nativeStart(strategy.arguments.toTypedArray())
             if (handle == 0L) throw IOException("Native ByeDPI initialization failed")
             return NativeByeDpi(handle)
         }
 
+        @JvmStatic private external fun nativeValidate(arguments: Array<String>): String?
         @JvmStatic private external fun nativeStart(arguments: Array<String>): Long
         @JvmStatic private external fun nativeOpenWarpStream(handle: Long): Int
         @JvmStatic private external fun nativeStop(handle: Long)

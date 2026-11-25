@@ -4,6 +4,8 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Call
 import okhttp3.ConnectionPool
 import okhttp3.Dns
@@ -17,16 +19,22 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 internal class WarpDpiTransport(private val context: Context) {
+    private companion object {
+        val registrationLock = Mutex()
+    }
+
     suspend fun register(
         progress: (Int, Int, DpiStrategySelector.Strategy) -> Unit
-    ): WarpRegistration.Account = withContext(Dispatchers.IO) {
-        suspendCancellableCoroutine { continuation ->
-            val calls = RegistrationCalls()
-            continuation.invokeOnCancellation { calls.cancel() }
-            try {
-                continuation.resume(register(calls, progress))
-            } catch (e: Exception) {
-                continuation.resumeWithException(e)
+    ): WarpRegistration.Account = registrationLock.withLock {
+        withContext(Dispatchers.IO) {
+            suspendCancellableCoroutine { continuation ->
+                val calls = RegistrationCalls()
+                continuation.invokeOnCancellation { calls.cancel() }
+                try {
+                    continuation.resume(register(calls, progress))
+                } catch (e: Exception) {
+                    continuation.resumeWithException(e)
+                }
             }
         }
     }
@@ -34,28 +42,31 @@ internal class WarpDpiTransport(private val context: Context) {
     private fun register(
         calls: RegistrationCalls,
         progress: (Int, Int, DpiStrategySelector.Strategy) -> Unit
-    ): WarpRegistration.Account = DpiStrategySelector.withWorkingStrategy(
-        DpiStrategyCatalog.available(DpiStrategyCatalog.settings(context)),
-        DpiStrategyCatalog.preferred(context),
-        { strategy ->
-            val engine = NativeByeDpi.open(strategy)
-            try {
-                ApiSession(engine, calls, DpiStrategyCatalog.settings(context).timeout)
-            } catch (failure: Throwable) {
-                engine.close()
-                throw failure
+    ): WarpRegistration.Account {
+        val settings = DpiStrategyCatalog.settings(context)
+        return DpiStrategySelector.withWorkingStrategy(
+            DpiStrategyCatalog.available(context, settings),
+            DpiStrategyCatalog.preferred(context, settings),
+            { strategy ->
+                val engine = NativeByeDpi.open(strategy)
+                try {
+                    ApiSession(engine, calls, settings.timeout)
+                } catch (failure: Throwable) {
+                    engine.close()
+                    throw failure
+                }
+            },
+            calls::checkCancelled, progress,
+            ApiSession::probe
+        ) { match, api ->
+            val result = WarpRegistration.register { method, endpoint, body, token ->
+                val call = api.client.newCall(WarpApi.buildRequest(method, endpoint, body, token))
+                calls.execute(call, WarpApi::readResponse)
             }
-        },
-        calls::checkCancelled, progress,
-        ApiSession::probe
-    ) { match, api ->
-        val result = WarpRegistration.register { method, endpoint, body, token ->
-            val call = api.client.newCall(WarpApi.buildRequest(method, endpoint, body, token))
-            calls.execute(call, WarpApi::readResponse)
+            calls.checkCancelled()
+            if (settings.rememberSuccessful) DpiStrategyCatalog.remember(context, match)
+            result
         }
-        calls.checkCancelled()
-        DpiStrategyCatalog.remember(context, match)
-        result
     }
 
     private class ApiSession(
@@ -76,8 +87,14 @@ internal class WarpDpiTransport(private val context: Context) {
             .build()
 
         fun probe(): Boolean {
-            val call = client.newCall(WarpApi.buildRequest("GET", "reg", null, null))
-            call.timeout().timeout(probeTimeout.toLong(), TimeUnit.SECONDS)
+            val seconds = probeTimeout.toLong()
+            val probeClient = client.newBuilder()
+                .connectTimeout(seconds, TimeUnit.SECONDS)
+                .readTimeout(seconds, TimeUnit.SECONDS)
+                .writeTimeout(seconds, TimeUnit.SECONDS)
+                .callTimeout(seconds, TimeUnit.SECONDS)
+                .build()
+            val call = probeClient.newCall(WarpApi.buildRequest("GET", "reg", null, null))
             return calls.execute(call) { it.code in 200..499 && it.code != 429 }
         }
 
