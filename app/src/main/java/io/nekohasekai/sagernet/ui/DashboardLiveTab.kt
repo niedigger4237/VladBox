@@ -6,9 +6,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
 import java.net.URL
@@ -17,23 +20,58 @@ import java.net.Proxy
 
 internal suspend fun dashboardGet(path: String): JSONObject = dashboardRequest(path)
 
-internal suspend fun dashboardRequest(path: String, method: String = "GET", body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
-    val rootMode = io.nekohasekai.sagernet.database.DataStore.serviceMode in listOf(
-        io.nekohasekai.sagernet.Key.MODE_ROOT_TUN, io.nekohasekai.sagernet.Key.MODE_ROOT_TPROXY,
-        io.nekohasekai.sagernet.Key.MODE_ROOT_TUN2SOCKS, io.nekohasekai.sagernet.Key.MODE_ROOT_BPF2SOCKS)
-    try {
-        dashboardDirect(path, method, body)
-    } catch (e: java.io.IOException) {
-        if (!rootMode) throw e
-        dashboardRoot(path, method, body)
+private val dashboardExecutor = Executors.newCachedThreadPool()
+
+private class DashboardRequestHandle {
+    val connection = AtomicReference<HttpURLConnection?>()
+    val process = AtomicReference<Process?>()
+    @Volatile var cancelled = false
+
+    fun cancel() {
+        cancelled = true
+        process.getAndSet(null)?.destroy()
+        connection.getAndSet(null)?.let { conn ->
+            dashboardExecutor.execute { conn.disconnect() }
+        }
+    }
+
+    fun checkActive() {
+        if (cancelled) throw CancellationException("Dashboard request cancelled")
     }
 }
 
-private fun dashboardDirect(path: String, method: String, body: JSONObject?): JSONObject {
+internal suspend fun dashboardRequest(path: String, method: String = "GET", body: JSONObject? = null): JSONObject =
+    suspendCancellableCoroutine { continuation ->
+        val handle = DashboardRequestHandle()
+        continuation.invokeOnCancellation { handle.cancel() }
+        dashboardExecutor.execute {
+            try {
+                handle.checkActive()
+                val rootMode = io.nekohasekai.sagernet.database.DataStore.serviceMode in listOf(
+                    io.nekohasekai.sagernet.Key.MODE_ROOT_TUN, io.nekohasekai.sagernet.Key.MODE_ROOT_TPROXY,
+                    io.nekohasekai.sagernet.Key.MODE_ROOT_TUN2SOCKS, io.nekohasekai.sagernet.Key.MODE_ROOT_BPF2SOCKS)
+                val result = try {
+                    dashboardDirect(path, method, body, handle)
+                } catch (e: java.io.IOException) {
+                    handle.checkActive()
+                    if (!rootMode) throw e
+                    dashboardRoot(path, method, body, handle)
+                }
+                if (continuation.isActive) continuation.resume(result)
+            } catch (e: Exception) {
+                if (continuation.isActive) continuation.resumeWithException(e)
+            }
+        }
+    }
+
+private fun dashboardDirect(path: String, method: String, body: JSONObject?, handle: DashboardRequestHandle): JSONObject {
     val connection = URL("http://127.0.0.1:9090/" + path).openConnection(Proxy.NO_PROXY) as HttpURLConnection
+    handle.connection.set(connection)
     try {
+        handle.checkActive()
         connection.connectTimeout = 1500
         connection.readTimeout = 8000
+        connection.instanceFollowRedirects = false
         connection.requestMethod = method
         connection.setRequestProperty("Authorization", "Bearer " + io.nekohasekai.sagernet.bg.proto.ClashApiSecret.value)
         if (body != null) {
@@ -41,16 +79,16 @@ private fun dashboardDirect(path: String, method: String, body: JSONObject?): JS
             connection.setRequestProperty("Content-Type", "application/json")
             connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
         }
-        connection.instanceFollowRedirects = false
         check(connection.responseCode in 200..299) { "HTTP " + connection.responseCode }
         val response = connection.inputStream.bufferedReader().use { it.readText() }
         return if (response.isBlank()) JSONObject() else JSONObject(response)
     } finally {
+        handle.connection.compareAndSet(connection, null)
         connection.disconnect()
     }
 }
 
-private fun dashboardRoot(path: String, method: String, body: JSONObject?): JSONObject {
+private fun dashboardRoot(path: String, method: String, body: JSONObject?, handle: DashboardRequestHandle): JSONObject {
     require(method in listOf("GET", "PUT"))
     val q = io.nekohasekai.sagernet.bg.root.RootShell::q
     val url = q("http://127.0.0.1:9090/" + path)
@@ -64,8 +102,11 @@ private fun dashboardRoot(path: String, method: String, body: JSONObject?): JSON
     val command = "if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 10 -i -H " +
         q("Authorization: Bearer " + token) + " -X " + method + payload + " " + url +
         "; else printf '%s' " + q(request) + " | nc -w 10 127.0.0.1 9090; fi"
+    handle.checkActive()
     val process = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start()
+    handle.process.set(process)
     try {
+        handle.checkActive()
         val response = process.inputStream.bufferedReader().use { it.readText() }
         check(process.waitFor() == 0) { "Root API request failed" }
         val status = response.lineSequence().firstOrNull()?.split(" ")?.getOrNull(1)?.toIntOrNull()
@@ -73,6 +114,7 @@ private fun dashboardRoot(path: String, method: String, body: JSONObject?): JSON
         val content = response.substringAfter("\r\n\r\n", response.substringAfter("\n\n", ""))
         return if (content.isBlank()) JSONObject() else JSONObject(content)
     } finally {
+        handle.process.compareAndSet(process, null)
         process.destroy()
     }
 }
