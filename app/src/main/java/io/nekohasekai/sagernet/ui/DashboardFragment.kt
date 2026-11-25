@@ -31,6 +31,18 @@ import io.nekohasekai.sagernet.ui.compose.*
 import kotlinx.coroutines.delay
 
 class DashboardFragment : ToolbarFragment() {
+    private var dashboardVisible by mutableStateOf(false)
+
+    override fun onResume() {
+        super.onResume()
+        dashboardVisible = true
+    }
+
+    override fun onPause() {
+        dashboardVisible = false
+        super.onPause()
+    }
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val activity = requireActivity() as MainActivity
         val model = ViewModelProvider(activity)[ConnectionViewModel::class.java]
@@ -42,9 +54,9 @@ class DashboardFragment : ToolbarFragment() {
                     val connected = ui.serviceState.connected
                     var tab by rememberSaveable { mutableStateOf(0) }
                     val history = remember { mutableStateListOf<Pair<Long, Long>>() }
-                    LaunchedEffect(connected) {
+                    LaunchedEffect(connected, dashboardVisible) {
                         history.clear()
-                        while (connected) {
+                        while (connected && dashboardVisible) {
                             val current = model.state.value
                             if (history.size >= 60) history.removeAt(0)
                             history.add(current.rxBytes to current.txBytes)
@@ -127,8 +139,8 @@ class DashboardFragment : ToolbarFragment() {
                                 var used by remember { mutableStateOf(0L) }
                                 val runtime = Runtime.getRuntime()
                                 val limit = runtime.maxMemory()
-                                LaunchedEffect(Unit) {
-                                    while (true) {
+                                LaunchedEffect(dashboardVisible) {
+                                    while (dashboardVisible) {
                                         used = runtime.totalMemory() - runtime.freeMemory()
                                         delay(1000)
                                     }
@@ -144,6 +156,8 @@ class DashboardFragment : ToolbarFragment() {
                                         LinearProgressIndicator(progress = ratio, modifier = Modifier.fillMaxWidth())
                                     }
                                 }
+                            } else if (!dashboardVisible) {
+                                // Remove live tabs from composition while paused.
                             } else if (tab == 2) {
                                 DashboardLiveProxies(connected)
                             } else if (tab == 3) {
