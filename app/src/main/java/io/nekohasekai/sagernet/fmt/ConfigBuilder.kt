@@ -174,6 +174,7 @@ fun buildConfig(
         if (!forTest && (!forExport || DataStore.enableClashAPI || rootMode)) experimental = ExperimentalOptions().apply {
             clash_api = ClashAPIOptions().apply {
                 external_controller = "127.0.0.1:9090"
+                if (!forExport) secret = io.nekohasekai.sagernet.bg.proto.ClashApiSecret.value
                 if (DataStore.enableClashAPI) external_ui = "../files/yacd"
             }
         }
