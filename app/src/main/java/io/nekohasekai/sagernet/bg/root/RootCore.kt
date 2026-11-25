@@ -55,7 +55,25 @@ object RootCore {
 
     fun selectedLabel(): String = resolve()?.let { if (it.bundled) "Bundled (patched)" else "External: ${it.label}" } ?: "Unavailable"
 
-    fun fingerprint(binary: String): String = RootShell.run("sha256sum ${RootShell.q(binary)}").out.trim().substringBefore(" ").ifBlank { "unavailable" }
+    private data class BundledFingerprint(val path: String, val size: Long, val modified: Long, val hash: String)
+    private var bundledFingerprint: BundledFingerprint? = null
+
+    // The APK library path changes on update. Cache only the immutable packaged binary,
+    // never an external core that root may replace at the same path.
+    @Synchronized
+    fun fingerprint(binary: String): String {
+        val file = File(binary)
+        val cacheable = file.absolutePath == bundled.absolutePath && file.isFile && file.length() > 0
+        val size = file.length()
+        val modified = file.lastModified()
+        if (cacheable) bundledFingerprint?.let {
+            if (it.path == file.absolutePath && it.size == size && it.modified == modified) return it.hash
+        }
+        val hash = RootShell.run("sha256sum ${RootShell.q(binary)}").out.trim().substringBefore(" ")
+            .takeIf { it.matches(Regex("[0-9a-fA-F]{64}")) } ?: "unavailable"
+        if (cacheable && hash != "unavailable") bundledFingerprint = BundledFingerprint(file.absolutePath, size, modified, hash)
+        return hash
+    }
 
     fun installedLabels(): List<String> =
         RootShell.run("ls -1 $CORES 2>/dev/null").out.lines().map { it.trim() }.filter { it.isNotEmpty() }
@@ -67,7 +85,9 @@ object RootCore {
 
     /** Resolves the binary to run, falling back to the bundled one when the active core is unusable. */
     fun resolve(): Active? {
-        activeLabel()?.takeIf { RootShell.run("test -f $EXTERNAL_OPT_IN").ok }?.let { label ->
+        // Resolve the opt-in and label in one SU invocation; no need to read a disabled external core.
+        val external = RootShell.run("if [ -f $EXTERNAL_OPT_IN ]; then cat $CURRENT 2>/dev/null; fi")
+        external.out.trim().takeIf { external.ok && it.isNotEmpty() }?.let { label ->
             val path = "$CORES/$label/sing-box"
             if (versionOf(path) != null) return Active(path, label, false)
             Logs.w("active core $label is broken, falling back to the bundled core")

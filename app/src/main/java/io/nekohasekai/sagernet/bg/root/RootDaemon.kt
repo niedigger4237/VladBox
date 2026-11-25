@@ -1,5 +1,6 @@
 package io.nekohasekai.sagernet.bg.root
 
+import android.os.SystemClock
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
 import com.google.gson.JsonNull
@@ -256,14 +257,23 @@ object RootDaemon {
      * @return null on success, otherwise a readable error
      */
     fun start(mode: Mode, core: RootCore.Active, singBoxConfig: String, tproxyPort: Int, ipv6: Boolean): String? {
+        val startedAt = SystemClock.elapsedRealtime()
+        var lastMark = startedAt
+        fun mark(stage: String) {
+            val now = SystemClock.elapsedRealtime()
+            Logs.i("ROOT daemon startup: $stage ${now - lastMark} ms (total ${now - startedAt} ms)")
+            lastMark = now
+        }
         if (!binary.exists()) return "libasteriskd.so is not part of this build"
         if (mode == Mode.TUN2SOCKS && !hevBinary.exists()) return "libhevtun.so (hev-socks5-tunnel) is not part of this build"
         if (mode == Mode.BPF2SOCKS && !bpfBinary.exists()) return "libbpf2socks.so is not part of this build"
 
         RootBoot.stage()
+        mark("boot staging")
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
         val cfg = File(stage, "config.json").apply { writeText(withLogFile(singBoxConfig)) }
         val dcfg = File(stage, "asteriskd.json").apply { writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6)) }
+        mark("generate configs")
         try {
             val prep = RootShell.run(
                 "mkdir -p ${RootShell.q(logDir)}",
@@ -278,30 +288,40 @@ object RootDaemon {
             stage.deleteRecursively()
         }
 
+        mark("install configs")
         portConflict(mode)?.let { return it }
         RootCore.check(core.path, File(configPath))?.let { return "sing-box check: $it" }
+        mark("validate config")
 
         // a leftover supervisor of ours must be gone first
         shutdown()
+        mark("cleanup previous daemon")
         val r = RootShell.run(
             "nohup ${RootShell.q(binary)} start --config ${RootShell.q(daemonConfigPath)} </dev/null >${RootShell.q("$logDir/asteriskd.out")} 2>&1 &",
             timeoutMs = 10_000,
         )
         if (!r.ok) return r.err.ifBlank { "failed to launch asteriskd" }
 
-        startLogForward()
-        // poll `status` until running, or fail with the daemon's own words
-        val deadline = System.currentTimeMillis() + 25_000
+        mark("spawn daemon")
+        // Keep log-forward SU processes out of the readiness critical path.
+        // The tailer starts at byte zero, so startup logs are still collected.
+        val waitStarted = SystemClock.elapsedRealtime()
+        val deadline = waitStarted + 25_000
         var last = ""
-        while (System.currentTimeMillis() < deadline) {
-            Thread.sleep(500)
+        while (SystemClock.elapsedRealtime() < deadline) {
+            Thread.sleep(if (SystemClock.elapsedRealtime() - waitStarted < 2000L) 200L else 500L)
             val st = status()
             last = st
             val phase = PHASE.find(st)?.groupValues?.get(1)
-            if (phase == "running") return null
+            if (phase == "running") {
+                mark("wait for readiness")
+                startLogForward()
+                return null
+            }
             if (phase == "failed" || phase == "stopped") break
             if (!alive()) break
         }
+        mark("readiness failed")
         val out = RootShell.run("tail -n 15 ${RootShell.q("$logDir/asteriskd.out")}; echo ---; tail -n 25 ${RootShell.q(logPath)}; echo ---; tail -n 15 ${RootShell.q("$logDir/error.log")}").out
         Logs.w("asteriskd start failed: $last\n$out")
         shutdown()

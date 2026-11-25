@@ -26,10 +26,21 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
     }
 
     override fun startCore() {
+        val start = android.os.SystemClock.elapsedRealtime()
+        var last = start
+        fun mark(stage: String) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            Logs.i("ROOT startup: $stage ${now - last} ms (total ${now - start} ms)")
+            last = now
+        }
         if (!RootShell.isAvailable()) throw IllegalStateException("Root access was denied")
 
+        mark("su access")
         val core = RootCore.resolve() ?: throw IllegalStateException("No sing-box core for root mode")
+        mark("resolve core")
         Logs.i("root core: ${core.label} (${core.path}); source=${if (core.bundled) "bundled" else "external"}; sha256=${RootCore.fingerprint(core.path)}")
+
+        mark("core fingerprint")
 
         val mode = when (DataStore.serviceMode) {
             Key.MODE_ROOT_TPROXY -> RootDaemon.Mode.TPROXY
@@ -49,6 +60,7 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         }
         if (err != null) throw IllegalStateException(err)
         started = true
+        mark("daemon ready")
     }
 
     private var rootLooper: RootTrafficLooper? = null

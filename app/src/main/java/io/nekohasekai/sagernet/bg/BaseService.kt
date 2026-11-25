@@ -395,14 +395,26 @@ class BaseService {
                 data.closeReceiverRegistered = true
             }
 
+            val rootStartup = proxy is io.nekohasekai.sagernet.bg.proto.RootProxyInstance
+            val rootStartedAt = android.os.SystemClock.elapsedRealtime()
+            var rootLastMark = rootStartedAt
+            fun markRootStartup(stage: String) {
+                if (!rootStartup) return
+                val now = android.os.SystemClock.elapsedRealtime()
+                Logs.i("ROOT service startup: $stage ${now - rootLastMark} ms (total ${now - rootStartedAt} ms)")
+                rootLastMark = now
+            }
             data.changeState(State.Connecting)
             data.connectingJob = kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
                 try {
                     data.notification = createNotification(ServiceNotification.genTitle(profile))
 
                     Executable.killAll()    // clean up old processes
+                    markRootStartup("cleanup plugins")
                     preInit()
+                    markRootStartup("preInit")
                     proxy.init()
+                    markRootStartup("build profile config")
                     DataStore.currentProfile = profile.id
 
                     proxy.processes = GuardedProcessPool {
@@ -411,7 +423,9 @@ class BaseService {
                     }
 
                     startProcesses()
+                    markRootStartup("start processes")
                     data.changeState(State.Connected)
+                    markRootStartup("connected")
 
                     lateInit()
                 } catch (_: CancellationException) { // if the job was cancelled, it is canceller's responsibility to call stopRunner
