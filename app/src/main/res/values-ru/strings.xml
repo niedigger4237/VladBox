@@ -600,7 +600,7 @@
     <string name="connection_panel_location">Локация VPN</string>
     <string name="connection_panel_refresh_country">Обновить страну</string>
     <string name="root_tun_interfaces">Интерфейсы раздачи TUN</string>
-    <string name="root_tun_interfaces_sum">Точные имена через пробел или новую строку (например wlan1, rndis0). Без масок. Пустой список отключает раздачу. Не указывайте интерфейс подключения к интернету.</string>
+    <string name="root_tun_interfaces_sum">Дополнительные точные имена (например wlan1, rndis0). Автовыбор учитывает включённые типы раздачи при подключении. Не указывайте интерфейс подключения к интернету.</string>
     <string name="root_tun_bypass_rulesets">Исключения TUN по SRS</string>
     <string name="root_tun_bypass_rulesets_sum">Выбранные GeoIP SRS обходят маршрутизацию TUN напрямую. Применяются после переподключения.</string>
     <string name="root_tun_bypass_empty">Сначала установите GeoIP SRS в Assets.</string>

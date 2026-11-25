@@ -145,6 +145,42 @@ object RootDaemon {
         return interfaceItems(value)
     }
 
+    // Android reports the active downstreams explicitly; never guess from all wlan* devices.
+    private fun resolveTunDownstreams(): List<String> {
+        val manual = configuredTunInterfaces()
+        val selectors = tetherSelectors().toMutableList()
+        if (DataStore.tetherWifi) selectors += listOf("swlan+", "wifi+")
+        val ignored = ignoredInterfaces()
+        fun matches(name: String, selector: String): Boolean =
+            if (selector.endsWith("+")) name.startsWith(selector.dropLast(1)) else name == selector
+        if (manual.isEmpty() && selectors.isEmpty()) return emptyList()
+        val dump = RootShell.run("dumpsys tethering --short", timeoutMs = 5000)
+        val routes = RootShell.run("ip -4 route show table all; ip -6 route show table all", timeoutMs = 5000)
+        val state = Regex("""^\s*([A-Za-z0-9_.-]{1,15})\s+-\s+TetheredState\s+-\s+lastError\s*=\s*0\s*$""")
+        val active = if (dump.ok) dump.out.lineSequence()
+            .mapNotNull { state.matchEntire(it)?.groupValues?.get(1) }.distinct().toList() else emptyList()
+        val upstream = routes.out.lineSequence().filter { it.trimStart().startsWith("default ") }
+            .flatMap { Regex("""\bdev\s+([A-Za-z0-9_.-]{1,15})(?:\s|$)""").findAll(it).map { match -> match.groupValues[1] } }
+            .toSet()
+        val auto = if (dump.ok && routes.ok) active.filter { name -> selectors.any { matches(name, it) } } else emptyList()
+        val result = (manual + auto).distinct().filter { name ->
+            name !in internalInterfaces && name !in upstream && ignored.none { matches(name, it) }
+        }
+        Logs.i("ROOT TUN downstream: active=$active selected=$result upstream=$upstream dumpOk=${dump.ok} routesOk=${routes.ok}")
+        if (selectors.isNotEmpty() && auto.isEmpty()) Logs.w("ROOT TUN: no matching active downstream; enable tethering before connecting or enter an exact interface name")
+        return result
+    }
+
+    private fun withTunDownstreams(json: String): String {
+        val root = com.google.gson.JsonParser.parseString(json).asJsonObject
+        val inbound = root.getAsJsonArray("inbounds")?.firstOrNull {
+            it.isJsonObject && it.asJsonObject.get("type")?.asString == "tun" &&
+                it.asJsonObject.get("interface_name")?.asString == TUN_DEVICE
+        }?.asJsonObject ?: return json
+        inbound.add("include_interface", strings(listOf("lo") + resolveTunDownstreams()))
+        return gson.toJson(root)
+    }
+
     private fun ignoredInterfaces(): List<String> {
         val value = DataStore.rootIgnoredInterfaces
         require(validIgnoredInterfaces(value)) { "Invalid ROOT ignored interface selector" }
@@ -356,7 +392,11 @@ object RootDaemon {
         val useFlow = managed && core.bundled && DataStore.rootFlowMetadata &&
             mode in listOf(Mode.TUN2SOCKS, Mode.BPF2SOCKS)
         val flowToken = if (useFlow) newFlowToken() else null
-        val effectiveConfig = if (flowToken != null) withFlowMetadata(singBoxConfig, flowToken) else singBoxConfig
+        val effectiveConfig = when {
+            managed && mode == Mode.TUN -> withTunDownstreams(singBoxConfig)
+            flowToken != null -> withFlowMetadata(singBoxConfig, flowToken)
+            else -> singBoxConfig
+        }
         if (useFlow) Logs.i("ROOT flow metadata: enabled")
         val useMatcher = matcherAvailable(mode, ipv6)
         val cfg = File(stage, "config.json").apply { writeText(withLogFile(effectiveConfig)) }
