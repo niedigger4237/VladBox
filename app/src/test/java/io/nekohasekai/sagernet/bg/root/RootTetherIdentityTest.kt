@@ -5,6 +5,15 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class RootTetherIdentityTest {
+    @Test fun canonicalHotspotNetworkUsesActualPrefix() {
+        assertEquals("172.25.73.0/24", RootTetherIdentity.ipv4Network("172.25.73.171/24"))
+        assertEquals("192.168.43.128/25", RootTetherIdentity.ipv4Network("192.168.43.171/25"))
+        assertEquals("10.42.3.64/26", RootTetherIdentity.ipv4Network("10.42.3.65/26"))
+        assertEquals(null, RootTetherIdentity.ipv4Network("192.168.43.1/0"))
+        assertEquals(null, RootTetherIdentity.ipv4Network("192.168.999.1/24"))
+        assertEquals(null, RootTetherIdentity.ipv4Network("127.0.0.1/24"))
+    }
+
     @Test fun ignoresUpstreamAndNeighborChanges() {
         val dump = """
             12: wlan0: <UP> mtu 1500
