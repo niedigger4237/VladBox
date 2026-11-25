@@ -136,12 +136,17 @@ object RootCore {
         val file = File(binary)
         val identity = bundledIdentity(file)
         if (identity != null) {
-            bundledFingerprint?.takeIf { it.identity == identity }?.let { return it.hash }
+            bundledFingerprint?.takeIf { it.identity == identity }?.let {
+                Logs.i("ROOT fingerprint: memory cache hit")
+                return it.hash
+            }
             readFingerprint(identity)?.let { hash ->
                 bundledFingerprint = BundledFingerprint(identity, hash)
+                Logs.i("ROOT fingerprint: disk cache hit")
                 return hash
             }
         }
+        Logs.i("ROOT fingerprint: calculating SHA256")
         val result = RootShell.run("sha256sum ${RootShell.q(binary)}")
         val hash = result.out.trim().substringBefore(" ")
             .takeIf { result.ok && validFingerprint.matches(it) } ?: "unavailable"

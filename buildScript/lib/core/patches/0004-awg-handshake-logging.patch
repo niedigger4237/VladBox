@@ -18,13 +18,13 @@ diff --git a/transport/wireguard/endpoint.go b/transport/wireguard/endpoint.go
 +					e.options.Logger.Info("AWG handshake: authenticated response received")
 +					return
 +				case "%s - Handshake did not complete after %d seconds, retrying (try %d)":
-+					e.options.Logger.Warn(fmt.Sprintf("AWG handshake: retry after %d s (attempt %d)", args[1], args[2]))
++					e.options.Logger.Warn(fmt.Sprintf("AWG handshake: retry after %d s (attempt %d)", args[min(1, len(args)):]...))
 +					return
 +				case "%s - Handshake did not complete after %d attempts, giving up":
-+					e.options.Logger.Warn(fmt.Sprintf("AWG handshake: retry limit reached (%d attempts)", args[1]))
++					e.options.Logger.Warn(fmt.Sprintf("AWG handshake: retry limit reached (%d attempts)", args[min(1, len(args)):]...))
 +					return
 +				case "%s - Retrying handshake because we stopped hearing back after %d seconds":
-+					e.options.Logger.Warn(fmt.Sprintf("AWG handshake: peer silent for %d s, retrying", args[1]))
++					e.options.Logger.Warn(fmt.Sprintf("AWG handshake: peer silent for %d s, retrying", args[min(1, len(args)):]...))
 +					return
 +				}
 +			}

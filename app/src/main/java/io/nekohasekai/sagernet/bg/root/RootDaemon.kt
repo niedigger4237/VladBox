@@ -220,7 +220,7 @@ object RootDaemon {
         gson.toJson(o)
     } catch (e: Exception) { json }
 
-    private var tailer: Thread? = null
+    @Volatile private var tailer: Thread? = null
 
     /** forwards core/daemon log lines into the in-app log (Logs -> neko.log) while the service runs */
     fun startLogForward() {
@@ -229,14 +229,37 @@ object RootDaemon {
             val offsets = HashMap<String, Long>()
             val files = listOf(coreLogPath, logPath, "$logDir/error.log")
             try {
-                while (!Thread.currentThread().isInterrupted) {
+                val self = Thread.currentThread()
+                val pending = HashMap<String, ByteArray>()
+                fun active() = !self.isInterrupted && tailer === self
+                while (active()) {
                     for (f in files) {
+                        if (!active()) break
                         val off = offsets[f] ?: 0L
-                        val r = RootShell.run("[ -f ${RootShell.q(f)} ] && tail -c +${off + 1} ${RootShell.q(f)} | head -c 65536", timeoutMs = 4_000)
-                        if (r.out.isNotEmpty()) {
-                            offsets[f] = off + r.out.toByteArray().size
-                            r.out.lineSequence().filter { it.isNotBlank() }.forEach { Libcore.nekoLogPrintln(it) }
+                        // Base64 preserves exact byte offsets despite RootShell's text/trim API.
+                        val r = RootShell.run(
+                            "[ -f ${RootShell.q(f)} ] && tail -c +${off + 1} ${RootShell.q(f)} | head -c 65536 | base64",
+                            timeoutMs = 4_000
+                        )
+                        if (!active()) break
+                        if (!r.ok || r.out.isBlank()) continue
+                        val chunk = runCatching {
+                            android.util.Base64.decode(r.out, android.util.Base64.DEFAULT)
+                        }.getOrNull() ?: continue
+                        offsets[f] = off + chunk.size
+                        val data = (pending.remove(f) ?: ByteArray(0)) + chunk
+                        val end = data.indexOfLast { it == 10.toByte() } + 1
+                        if (end > 0) {
+                            String(data, 0, end, Charsets.UTF_8).lineSequence()
+                                .filter { it.isNotBlank() }.forEach {
+                                    if (active()) Libcore.nekoLogPrintln(it)
+                                }
                         }
+                        // A log line may span chunks (including UTF-8 characters).
+                        // Bound memory for malformed/very large lines.
+                        val remainder = data.copyOfRange(end, data.size)
+                        if (remainder.size <= 65536) pending[f] = remainder
+                        else if (active()) Libcore.nekoLogPrintln(String(remainder, Charsets.UTF_8))
                     }
                     Thread.sleep(1500)
                 }
@@ -244,12 +267,14 @@ object RootDaemon {
             } catch (e: Exception) {
                 Logs.w("log forward stopped: $e")
             }
-        }, "root-log-forward").apply { isDaemon = true; start() }
+        }, "root-log-forward").apply { isDaemon = true }
+        tailer?.start()
     }
 
     fun stopLogForward() {
-        tailer?.interrupt()
+        val old = tailer
         tailer = null
+        old?.interrupt()
     }
 
     /**
@@ -318,8 +343,11 @@ object RootDaemon {
                 startLogForward()
                 return null
             }
-            if (phase == "failed" || phase == "stopped") break
-            if (!alive()) break
+            if (phase == "failed") break
+            // The first fast poll can race daemon/control-socket initialization.
+            // Give it the initial 2s window before interpreting stopped/no PID as failure.
+            if (SystemClock.elapsedRealtime() - waitStarted >= 2000L &&
+                (phase == "stopped" || !alive())) break
         }
         mark("readiness failed")
         val out = RootShell.run("tail -n 15 ${RootShell.q("$logDir/asteriskd.out")}; echo ---; tail -n 25 ${RootShell.q(logPath)}; echo ---; tail -n 15 ${RootShell.q("$logDir/error.log")}").out
