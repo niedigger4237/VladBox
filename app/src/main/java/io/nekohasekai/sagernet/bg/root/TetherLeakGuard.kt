@@ -24,15 +24,31 @@ internal class TetherLeakGuard {
             saved.names.size <= 64 && saved.names.all { TetherResourceJournal.iface(it) } &&
             saved.offloadBefore in listOf(null, "null", "0", "1"))
         tag = saved.tag
+        tracked.clear()
         tracked.addAll(saved.names)
         offloadBefore = saved.offloadBefore
+        if (TetherCrashWatchdog.recovered("guard", record())) {
+            tracked.clear()
+            if (before != null || journal.exists()) {
+                if (!TetherCrashWatchdog.retire("guard", record()) || !journal.clear()) return false
+            }
+            offloadBefore = null
+            tag = "NFV_G_" + UUID.randomUUID().toString().replace("-", "").take(12)
+            tag = "NFV_G_" + UUID.randomUUID().toString().replace("-", "").take(12)
+        }
         true
     }.getOrElse {
         Logs.w("VPN tether: invalid guard recovery journal")
         false
     }
 
-    private fun save(): Boolean = journal.write(Saved(tag, tracked.toList(), offloadBefore))
+    private fun record() = TetherCrashWatchdog.guard(tag, offloadBefore ?: "null", tracked)
+
+    private fun save(mirror: Boolean = true): Boolean {
+        if (!journal.write(Saved(tag, tracked.toList(), offloadBefore))) return false
+        // On recovery/removal the root record may safely remain a superset.
+        return !mirror || TetherCrashWatchdog.publish("guard", record())
+    }
 
     private fun rules(name: String): List<Pair<String, String>> = listOf("iptables", "ip6tables").flatMap { tool ->
         listOf(
@@ -75,7 +91,7 @@ internal class TetherLeakGuard {
         if (!check.ok || check.out.lineSequence().any { tag in it && Regex("""\s-i\s+${Regex.escape(name)}(?:\s|$)""").containsMatchIn(it) })
             return false
         tracked -= name
-        return save()
+        return save(mirror = false)
     }
 
     fun sync(names: Set<String>, retainExisting: Boolean = false): Boolean {

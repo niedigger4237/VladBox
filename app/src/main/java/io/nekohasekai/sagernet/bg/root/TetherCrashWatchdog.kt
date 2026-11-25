@@ -164,6 +164,13 @@ internal object TetherCrashWatchdog {
         return true
     }
 
+    fun awaitIdleForRoot(): Boolean {
+        // Devices that have never used the autonomous watchdog need no lock.
+        val absent = RootShell.run("test ! -d ${RootShell.q(DIR)}", timeoutMs = 5000)
+        if (absent.ok) return true
+        return awaitPrevious() && noPendingRecords()
+    }
+
     fun noPendingRecords(): Boolean = RootShell.run(
         "test ! -e ${RootShell.q("$DIR/ipv4")} && test ! -e ${RootShell.q("$DIR/ipv6")} && test ! -e ${RootShell.q("$DIR/guard")}",
         timeoutMs = 5000,

@@ -556,6 +556,7 @@ object RootDaemon {
         if (mode == Mode.BPF2SOCKS && !File(libDir, "libbpf2socks.so").isFile) return "libbpf2socks.so is not part of this build"
 
         if (!RootBoot.quiesceMonitor()) return "Autonomous ROOT monitor did not release ownership"
+        if (!TetherVpn.prepareForRoot()) return "Previous VPN tether recovery is not confirmed"
         RootBoot.stage()?.let { return it }
         mark("boot staging")
         // Never replace a live supervisor's configuration or truncate its logs.
