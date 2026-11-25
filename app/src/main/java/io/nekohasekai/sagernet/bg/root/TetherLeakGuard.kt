@@ -76,8 +76,18 @@ internal class TetherLeakGuard {
             if (before != null && before != "1") {
                 val restore = if (before == "null") "settings delete global tether_offload_disabled"
                     else "settings put global tether_offload_disabled ${RootShell.q(before)}"
-                val result = RootShell.run("if [ \"\$(settings get global tether_offload_disabled)\" = 1 ]; then $restore; fi", timeoutMs = 5000)
-                if (!result.ok) return false
+                // Read/verify explicitly: a failed settings get must not masquerade as a successful restore.
+                val current = RootShell.run("settings get global tether_offload_disabled", timeoutMs = 5000)
+                if (!current.ok || current.out !in listOf("null", "0", "1")) return false
+                if (current.out == "1") {
+                    val result = RootShell.run("set -e", restore,
+                        "test \"\$(settings get global tether_offload_disabled)\" = ${RootShell.q(before)}",
+                        timeoutMs = 5000)
+                    if (!result.ok) {
+                        Logs.w("VPN tether: Android offload restore not confirmed")
+                        return false
+                    }
+                }
             }
             offloadBefore = null
         }
