@@ -303,7 +303,7 @@ object TetherVpn {
                 }
             }
             val down6 = if (v6Ready) TetherIpv6.discover(names).orEmpty() else emptyList()
-            val dns6 = if (v6Ready) plan.ipv6.substringBeforeLast(':') + ":2" else null
+            val dns6 = if (v6Ready) plan.dns6 else null
             val sig = "$up|${ordered.joinToString()}|${plan.dns4}|$down6|$dns6"
             if (sig != lastSeen) {
                 lastSeen = sig
