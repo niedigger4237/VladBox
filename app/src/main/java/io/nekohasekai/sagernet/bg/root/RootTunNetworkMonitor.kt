@@ -2,6 +2,7 @@ package io.nekohasekai.sagernet.bg.root
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import io.nekohasekai.sagernet.ktx.Logs
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
@@ -25,6 +26,14 @@ internal class RootTunNetworkMonitor(
     @Volatile private var closed = false
     @Volatile private var restartPending = false
     private var candidate: List<String>? = null
+    private var candidateSince = 0L
+
+    companion object {
+        // Across service instances: avoid a restart storm while Android reconfigures the hotspot.
+        private const val CONFIRM_MS = 1200L
+        private const val MIN_RESTART_INTERVAL_MS = 10000L
+        private var lastRestart = -MIN_RESTART_INTERVAL_MS // main thread only
+    }
 
     fun start() {
         monitor.start()
@@ -55,7 +64,13 @@ internal class RootTunNetworkMonitor(
         if (candidate != observed) {
             // A transient interface/address change must not cause a restart.
             candidate = observed
-            request("confirm downstream change", 1200)
+            candidateSince = SystemClock.elapsedRealtime()
+            request("confirm downstream change", CONFIRM_MS)
+            return
+        }
+        val remaining = CONFIRM_MS - (SystemClock.elapsedRealtime() - candidateSince)
+        if (remaining > 0) {
+            request("confirm downstream change", remaining)
             return
         }
         candidate = null
@@ -65,7 +80,13 @@ internal class RootTunNetworkMonitor(
         Logs.i("ROOT TUN downstream changed: $applied -> $observed ($reason)")
         main.post {
             if (!closed) {
-                if (!restart(observed)) {
+                val cooldown = MIN_RESTART_INTERVAL_MS - (SystemClock.elapsedRealtime() - lastRestart)
+                if (cooldown > 0) {
+                    restartPending = false
+                    request("restart cooldown", cooldown)
+                } else if (restart(observed)) {
+                    lastRestart = SystemClock.elapsedRealtime()
+                } else {
                     restartPending = false
                     request("restart deferred", 1500)
                 }
