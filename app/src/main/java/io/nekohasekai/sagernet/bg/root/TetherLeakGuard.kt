@@ -14,6 +14,7 @@ internal class TetherLeakGuard {
     private var tag = "NFV_G_" + UUID.randomUUID().toString().replace("-", "").take(12)
     private val tracked = linkedSetOf<String>()
     private var offloadBefore: String? = null
+    private var mirrorReady = false
 
     fun hasJournal() = journal.exists()
 
@@ -23,17 +24,16 @@ internal class TetherLeakGuard {
         require(saved.tag.matches(Regex("NFV_G_[0-9a-f]{12}")) &&
             saved.names.size <= 64 && saved.names.all { TetherResourceJournal.iface(it) } &&
             saved.offloadBefore in listOf(null, "null", "0", "1"))
+        mirrorReady = false
         tag = saved.tag
         tracked.clear()
         tracked.addAll(saved.names)
         offloadBefore = saved.offloadBefore
         if (TetherCrashWatchdog.recovered("guard", record())) {
+            if (!journal.clear()) return false
             tracked.clear()
-            if (before != null || journal.exists()) {
-                if (!TetherCrashWatchdog.retire("guard", record()) || !journal.clear()) return false
-            }
             offloadBefore = null
-            tag = "NFV_G_" + UUID.randomUUID().toString().replace("-", "").take(12)
+            mirrorReady = false
             tag = "NFV_G_" + UUID.randomUUID().toString().replace("-", "").take(12)
         }
         true
@@ -58,26 +58,6 @@ internal class TetherLeakGuard {
         )
     }
 
-    private fun add(name: String): Boolean {
-        require(Regex("[A-Za-z0-9_.-]{1,15}").matches(name))
-        // Track even a partially installed guard so its exact rules can be removed.
-        if (tracked.add(name) || !journal.exists()) {
-            if (!save()) {
-                tracked -= name
-                return false
-            }
-        }
-        val commands = mutableListOf("set -e")
-        for ((tool, rule) in rules(name)) {
-            val hook = rule.substringBefore(' ')
-            val spec = rule.substringAfter(' ')
-            commands += "if ! $tool -w 3 -C $hook $spec 2>/dev/null; then $tool -w 3 -I $hook 1 $spec; fi"
-        }
-        val result = RootShell.run(*commands.toTypedArray(), timeoutMs = 15000)
-        if (!result.ok) Logs.w("VPN tether guard failed for $name: ${result.err}")
-        return result.ok
-    }
-
     private fun remove(name: String): Boolean {
         val commands = mutableListOf("set -e")
         for ((tool, rule) in rules(name)) {
@@ -96,17 +76,31 @@ internal class TetherLeakGuard {
 
     fun sync(names: Set<String>, retainExisting: Boolean = false): Boolean {
         // During route changes preserve guards until old forwarding rules have been removed.
-        if (names.isNotEmpty() && offloadBefore == null) {
-            val before = RootShell.run("settings get global tether_offload_disabled", timeoutMs = 5000)
-            if (!before.ok || before.out !in listOf("null", "0", "1")) return false
-            offloadBefore = before.out
-            if (!save()) return false
-        }
         if (names.isNotEmpty()) {
-            for (name in names) if (!add(name)) return false
-            // Avoid rewriting the Android setting on every network poll.
-            val offload = RootShell.run("set -e", "if [ \"\$(settings get global tether_offload_disabled)\" != 1 ]; then settings put global tether_offload_disabled 1; fi", "test \"\$(settings get global tether_offload_disabled)\" = 1", timeoutMs = 5000)
-            if (!offload.ok) return false
+            if (names.size > 64 || names.any { !TetherResourceJournal.iface(it) }) return false
+            var changed = false
+            if (offloadBefore == null) {
+                val before = RootShell.run("settings get global tether_offload_disabled", timeoutMs = 5000)
+                if (!before.ok || before.out !in listOf("null", "0", "1")) return false
+                offloadBefore = before.out
+                changed = true
+            }
+            if (tracked.addAll(names)) changed = true
+            // Persist all newly claimed interfaces once, before any rule or
+            // setting changes. On a failed mirror, force a retry next time.
+            if (changed || !mirrorReady || !journal.exists()) {
+                mirrorReady = save()
+                if (!mirrorReady) return false
+            }
+            val commands = mutableListOf("set -e")
+            for (name in names) for ((tool, rule) in rules(name)) {
+                val hook = rule.substringBefore(' ')
+                val spec = rule.substringAfter(' ')
+                commands += "if ! $tool -w 3 -C $hook $spec 2>/dev/null; then $tool -w 3 -I $hook 1 $spec; fi"
+            }
+            commands += "if [ \"\$(settings get global tether_offload_disabled)\" != 1 ]; then settings put global tether_offload_disabled 1; fi"
+            commands += "test \"\$(settings get global tether_offload_disabled)\" = 1"
+            if (!RootShell.run(*commands.toTypedArray(), timeoutMs = 25000).ok) return false
         }
         return retainExisting || prune(names)
     }
@@ -132,8 +126,12 @@ internal class TetherLeakGuard {
                     }
                 }
             }
+            if (before != null || journal.exists()) {
+                if (!TetherCrashWatchdog.retire("guard", record()) || !journal.clear()) return false
+            }
             offloadBefore = null
-            if (!journal.clear()) return false
+            mirrorReady = false
+            tag = "NFV_G_" + UUID.randomUUID().toString().replace("-", "").take(12)
         }
         return true
     }
