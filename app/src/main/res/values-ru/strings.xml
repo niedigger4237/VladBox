@@ -617,4 +617,12 @@
     <string name="root_flow_metadata_sum">Сохранять исходные адреса и доступные UID приложений во встроенных ROOT-режимах с помощниками.</string>
     <string name="root_ebpf_matcher">eBPF matcher</string>
     <string name="root_ebpf_matcher_sum">Фильтрация приложений в ядре при наличии поддержки, иначе через iptables.</string>
+    <string name="tun_address_mode">Адресация TUN</string>
+    <string name="tun_address_automatic">Автоматическая</string>
+    <string name="tun_address_manual">Ручная</string>
+    <string name="tun_ipv4_subnet">Подсеть TUN IPv4</string>
+    <string name="tun_ipv6_subnet">Подсеть TUN IPv6</string>
+    <string name="tun_ipv4_subnet_hint">Частная подсеть CIDR (/24–/30), например 172.19.0.0/28. TUN и DNS используют первые два адреса хостов.</string>
+    <string name="tun_ipv6_subnet_hint">Локальная подсеть IPv6 (fd00::/8, /64–/126), например fdfe:dcba:9876::/126.</string>
+    <string name="tun_subnet_invalid">Введите корректную частную подсеть CIDR с нулевыми битами хоста.</string>
 </resources>
