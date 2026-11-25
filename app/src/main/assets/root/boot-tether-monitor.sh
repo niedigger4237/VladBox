@@ -101,8 +101,8 @@ current() {
     [ "$(cat "$BOOT/ready" 2>/dev/null || true)" = "$GEN" ] &&
     [ "$(cat "$BOOT/manual-owner" 2>/dev/null || true)" != "$BOOT_ID" ]
 }
-owned() {
-    current || return 1
+owned() { current && owned_process; }
+owned_process() {
     status=$(timeout 5 "$DAEMON" status 2>/dev/null) || return 1
     printf '%s\n' "$status" | grep -Eq '"owner"[[:space:]]*:[[:space:]]*"asteriskbox"' || return 1
     printf '%s\n' "$status" | grep -Eq '"phase"[[:space:]]*:[[:space:]]*"running"' || return 1
@@ -202,7 +202,7 @@ render_tun() {
 }
 wait_running() {
     for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-        if owned; then return 0; fi
+        if owned_process; then return 0; fi
         sleep 2
     done
     return 1
@@ -214,6 +214,9 @@ reconcile() (
         # Native selector handling owns these modes. Only maintain the
         # supplemental software IPv6 guard for confirmed downstreams.
         if [ "$BLOCK6" = 1 ]; then
+            # Remember all attempted rules, including partial installations.
+            cat "$work/applied" "$work/current" | LC_ALL=C sort -u > "$work/attempted"
+            cp "$work/attempted" "$work/applied"
             apply_rules "$work/current" || exit 1
             # Remove rules for interfaces no longer selected.
             awk 'FILENAME==ARGV[1]{if($1=="link")a[$3]=1;next}$1=="link"&&!a[$3]' "$work/current" "$work/applied" > "$work/stale"
@@ -222,7 +225,7 @@ reconcile() (
         cp "$work/current" "$work/applied"
         exit 0
     fi
-    [ -f "$BOOT/tun-template.json" ] && [ -f "$BOOT/daemon-template.json" ] || exit 1
+    [ -f "$BOOT/tun-template.json" ] && [ -f "$BOOT/daemon-template.json" ] || exit 0
     if cmp -s "$work/current" "$work/applied"; then
         apply_rules "$work/current"
         exit
@@ -258,9 +261,21 @@ reconcile() (
     current || exit 1
     # Close the lock fd in the daemon, otherwise it would retain the lock.
     nohup "$DAEMON" boot --config "$launch" </dev/null >>"$BASE/run/logs/boot.out" 2>&1 9>&- &
-    wait_running || exit 1
-    apply_rules "$work/current" || exit 1
+    if ! wait_running; then
+        # Only recover if there is positively no supervisor and manual ownership
+        # has not been requested. Never kill or overwrite a foreign service.
+        response=$(timeout 5 "$DAEMON" status 2>/dev/null || true)
+        if current && [ "$launch" != "$CONFIG" ] &&
+            printf '%s\n' "$response" | grep -Eq '"code"[[:space:]]*:[[:space:]]*"not_running"'; then
+            nohup "$DAEMON" boot --config "$CONFIG" </dev/null >>"$BASE/run/logs/boot.out" 2>&1 9>&- &
+            wait_running || exit 1
+            : > "$work/applied"
+        fi
+        exit 1
+    fi
+    current || exit 1
     cp "$work/current" "$work/applied"
+    apply_rules "$work/current" || exit 1
 ) 9>"$BOOT/monitor.lock"
 
 # Wait only for a bounded initial readiness window.
@@ -294,3 +309,13 @@ while owned; do
     fi
     sleep 5
 done
+# Clean software rules after a confirmed native stop. On app handoff the app
+# owns cleanup; do not compete with it or delete rules from a new session.
+(
+    flock -x -w 5 9 || exit 0
+    current || exit 0
+    response=$(timeout 5 "$DAEMON" status 2>/dev/null || true)
+    if printf '%s\n' "$response" | grep -Eq '"code"[[:space:]]*:[[:space:]]*"not_running"'; then
+        remove_rules "$work/applied" || true
+    fi
+) 9>"$BOOT/monitor.lock"

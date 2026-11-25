@@ -672,7 +672,7 @@ object RootDaemon {
                     } else null
                     // Marker strings are inserted structurally and replaced only by
                     // validated kernel-derived values by the boot monitor.
-                    val templateCore = if (managed && mode == Mode.TUN) {
+                    val templateCore = if (managed && mode == Mode.TUN && core.bundled) {
                         val json = com.google.gson.JsonParser.parseString(withLogFile(bootCore)).asJsonObject
                         managedTunInbound(json)?.let { inbound ->
                             inbound.add("include_interface", strings(listOf("lo", "__NF_BOOT_IFACES__")))
@@ -694,7 +694,7 @@ object RootDaemon {
                         .getOrElse { it.message ?: "boot snapshot write failed" }
                     bootError?.let { Logs.w("ROOT boot: snapshot not published: $it") }
                     if (managed && mode == Mode.TUN)
-                        Logs.i("ROOT boot: managed TUN snapshot starts phone-only; autonomous templates published")
+                        Logs.i("ROOT boot: managed TUN starts phone-only; autonomous templates=${templateCore != null}")
                 }
                 appliedDownstreams = dynamicDownstreams
                 startLogForward(mode)

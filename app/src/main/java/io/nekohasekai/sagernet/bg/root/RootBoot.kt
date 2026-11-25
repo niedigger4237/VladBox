@@ -65,18 +65,30 @@ until [ "${'$'}(getprop sys.boot_completed)" = "1" ]; do sleep 2; done
 sleep 5
 [ -f "${'$'}BASE/boot/ready" ] && [ -f "${'$'}BASE/boot/asteriskd.json" ] && [ -f "${'$'}BASE/boot/config.json" ] || exit 0
 mkdir -p "${'$'}BASE/run/logs" || exit 1
+# Serialize initial launch with interactive ownership handoff.
+command -v flock >/dev/null 2>&1 || exit 1
+command -v timeout >/dev/null 2>&1 || exit 1
+(
+flock -x -w 30 9 || exit 1
 # A manual connection may already have started during boot.
 BOOT_ID="${'$'}(cat /proc/sys/kernel/random/boot_id)" || exit 1
 [ "${'$'}(cat "${'$'}BASE/boot/manual-owner" 2>/dev/null)" != "${'$'}BOOT_ID" ] || exit 0
-STATUS="${'$'}("${'$'}BASE/bin/libasteriskd.so" status 2>&1)"
+STATUS="${'$'}(timeout 5 "${'$'}BASE/bin/libasteriskd.so" status 2>&1)"
 printf '%s\n' "${'$'}STATUS" | grep -Eq '"code"[[:space:]]*:[[:space:]]*"not_running"' || exit 0
 [ -f "${'$'}BASE/boot/ready" ] || exit 0
 GEN="${'$'}(cat "${'$'}BASE/boot/ready")"
 [ -n "${'$'}GEN" ] || exit 0
-nohup "${'$'}BASE/bin/libasteriskd.so" boot --config "${'$'}BASE/boot/asteriskd.json" </dev/null >"${'$'}BASE/run/logs/boot.out" 2>&1 &
+nohup "${'$'}BASE/bin/libasteriskd.so" boot --config "${'$'}BASE/boot/asteriskd.json" </dev/null >"${'$'}BASE/run/logs/boot.out" 2>&1 9>&- &
+# Keep the handoff lock until the native control socket has appeared.
+for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    STATUS="${'$'}(timeout 3 "${'$'}BASE/bin/libasteriskd.so" status 2>&1)"
+    if printf '%s\n' "${'$'}STATUS" | grep -Eq '"owner"[[:space:]]*:[[:space:]]*"asteriskbox"'; then break; fi
+    sleep 1
+done
 if [ -f "${'$'}BASE/boot/tether-policy" ]; then
-    nohup sh "${'$'}BASE/bin/boot-tether-monitor.sh" "${'$'}BASE" "${'$'}GEN" </dev/null >/dev/null 2>&1 &
+    nohup sh "${'$'}BASE/bin/boot-tether-monitor.sh" "${'$'}BASE" "${'$'}GEN" </dev/null >/dev/null 2>&1 9>&- &
 fi
+) 9>"${'$'}BASE/boot/monitor.lock"
 """
 
     private fun installMonitor(): String? {
