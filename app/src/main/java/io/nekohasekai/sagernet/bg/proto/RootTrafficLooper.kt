@@ -65,8 +65,9 @@ object RootClashApi {
 
     private fun urlTestDirect(url: String, timeoutMs: Int): Int {
         val u = "$BASE/proxies/$TAG_PROXY/delay?url=" + URLEncoder.encode(url, "UTF-8") + "&timeout=$timeoutMs"
-        val c = URL(u).openConnection() as HttpURLConnection
+        val c = URL(u).openConnection(java.net.Proxy.NO_PROXY) as HttpURLConnection
         try {
+            c.instanceFollowRedirects = false
             c.setRequestProperty("Authorization", "Bearer " + ClashApiSecret.value)
             c.connectTimeout = 3000
             c.readTimeout = timeoutMs + 3000
@@ -109,8 +110,9 @@ object RootClashApi {
     }
 
     private fun streamTrafficDirect(onSample: (up: Long, down: Long) -> Unit) {
-        val c = URL("$BASE/traffic").openConnection() as HttpURLConnection
+        val c = URL("$BASE/traffic").openConnection(java.net.Proxy.NO_PROXY) as HttpURLConnection
         try {
+            c.instanceFollowRedirects = false
             c.setRequestProperty("Authorization", "Bearer " + ClashApiSecret.value)
             c.connectTimeout = 2000
             c.readTimeout = 15000
