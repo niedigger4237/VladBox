@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -85,26 +86,69 @@ private val serviceDomains = listOf(
     "nvidia" to listOf("nvidia.com"),
     "amd" to listOf("amd.com")
 )
-private val serviceBitmaps = LruCache<String, Bitmap>(80)
+private val serviceBitmaps = LruCache<String, Bitmap>(96)
+private val serviceSuffixes = serviceDomains.flatMap { (name, domains) ->
+    domains.map { name to it }
+}.sortedByDescending { it.second.length }
+
+private fun normalizeBrand(source: Bitmap, dark: Boolean): Bitmap? {
+    val w = source.width
+    val h = source.height
+    val pixels = IntArray(w * h)
+    source.getPixels(pixels, 0, w, 0, 0, w, h)
+    var left = w
+    var top = h
+    var right = -1
+    var bottom = -1
+    var visible = 0
+    var lowContrast = 0
+    for (y in 0 until h) for (x in 0 until w) {
+        val p = pixels[y * w + x]
+        if (android.graphics.Color.alpha(p) < 32) continue
+        left = minOf(left, x)
+        top = minOf(top, y)
+        right = maxOf(right, x)
+        bottom = maxOf(bottom, y)
+        visible++
+        val light = (android.graphics.Color.red(p) * 299 + android.graphics.Color.green(p) * 587 + android.graphics.Color.blue(p) * 114) / 1000
+        if (if (dark) light < 65 else light > 210) lowContrast++
+    }
+    if (visible == 0) return null
+    val result = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(result)
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+    val needsBacking = lowContrast.toFloat() / visible > .65f
+    if (needsBacking) {
+        paint.color = if (dark) android.graphics.Color.WHITE else 0xFF202124.toInt()
+        canvas.drawRoundRect(0f, 0f, 96f, 96f, 20f, 20f, paint)
+    }
+    val width = right - left + 1
+    val height = bottom - top + 1
+    val scale = (if (needsBacking) 76f else 92f) / maxOf(width, height)
+    val dw = width * scale
+    val dh = height * scale
+    canvas.drawBitmap(source, android.graphics.Rect(left, top, right + 1, bottom + 1),
+        android.graphics.RectF((96f-dw)/2, (96f-dh)/2, (96f+dw)/2, (96f+dh)/2), paint)
+    return result
+}
 
 @Composable
 internal fun DashboardBrandIcon(host: String, fallback: @Composable () -> Unit) {
     val domain = host.lowercase(java.util.Locale.ROOT).trimEnd('.')
     val asset = remember(domain) {
-        serviceDomains.flatMap { (name, domains) -> domains.map { name to it } }
-            .filter { (_, suffix) -> domain == suffix || domain.endsWith("." + suffix) }
-            .maxByOrNull { it.second.length }?.first
+        serviceSuffixes.firstOrNull { (_, suffix) -> domain == suffix || domain.endsWith("." + suffix) }?.first
     }
     val context = LocalContext.current.applicationContext
-    val bitmap by produceState<Bitmap?>(null, asset) {
+    val dark = androidx.compose.material3.MaterialTheme.colorScheme.secondaryContainer.let { it.luminance() < .4f }
+    val bitmap by produceState<Bitmap?>(null, asset, dark) {
         value = null
         if (asset != null) value = withContext(Dispatchers.IO) {
-            serviceBitmaps.get(asset) ?: runCatching {
+            val cacheKey = "$asset:$dark"
+            serviceBitmaps.get(cacheKey) ?: runCatching {
                 val svg = SVG.getFromAsset(context.assets, "dashboard-icons/$asset.svg")
-                val image = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
-                svg.renderToCanvas(Canvas(image), android.graphics.RectF(0f, 0f, 96f, 96f))
-                serviceBitmaps.put(asset, image)
-                image
+                val image = Bitmap.createBitmap(192, 192, Bitmap.Config.ARGB_8888)
+                svg.renderToCanvas(Canvas(image), android.graphics.RectF(0f, 0f, 192f, 192f))
+                normalizeBrand(image, dark)?.also { serviceBitmaps.put(cacheKey, it) }
             }.getOrNull()
         }
     }
