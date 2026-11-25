@@ -12,6 +12,7 @@ data class TunAddressPlan(
     val ipv6: String,
     val ipv4Prefix: Int = 28,
     val ipv6Prefix: Int = 126,
+    val ipv6Enabled: Boolean? = null,
 ) {
     val cidr4 get() = "$ipv4/$ipv4Prefix"
     val cidr6 get() = "$ipv6/$ipv6Prefix"
@@ -113,7 +114,7 @@ data class TunAddressPlan(
         internal fun fromManualSubnets(ipv4Subnet: String, ipv6Subnet: String, includeIpv6: Boolean): TunAddressPlan {
             val v4 = parseSubnet(ipv4Subnet, false)
             val v6 = parseSubnet(if (includeIpv6) ipv6Subnet else DEFAULT_IPV6_SUBNET, true)
-            return TunAddressPlan(host(v4, 1), host(v4, 2), host(v6, 1), v4.bits, v6.bits)
+            return TunAddressPlan(host(v4, 1), host(v4, 2), host(v6, 1), v4.bits, v6.bits, includeIpv6)
         }
 
         fun manual(ipv4Subnet: String, ipv6Subnet: String, includeIpv6: Boolean): TunAddressPlan {
@@ -145,7 +146,7 @@ data class TunAddressPlan(
                     .map { "$it::1" }.firstOrNull { free(it, 126) }
                     ?: error("No non-overlapping IPv6 TUN subnet found")
             } else "fdfe:dcba:9876::1"
-            return TunAddressPlan("$v4.1", "$v4.2", v6)
+            return TunAddressPlan("$v4.1", "$v4.2", v6, ipv6Enabled = includeIpv6)
         }
     }
 }
