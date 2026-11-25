@@ -9,9 +9,30 @@ import java.util.UUID
  * All calls are serialized by TetherVpn's worker.
  */
 internal class TetherLeakGuard {
-    private val tag = "NFV_G_" + UUID.randomUUID().toString().replace("-", "").take(12)
+    private data class Saved(val tag: String, val names: List<String>, val offloadBefore: String?)
+    private val journal = TetherResourceJournal("guard", Saved::class.java)
+    private var tag = "NFV_G_" + UUID.randomUUID().toString().replace("-", "").take(12)
     private val tracked = linkedSetOf<String>()
     private var offloadBefore: String? = null
+
+    fun hasJournal() = journal.exists()
+
+    fun recover(): Boolean = runCatching {
+        if (!journal.exists()) return true
+        val saved = journal.read()
+        require(saved.tag.matches(Regex("NFV_G_[0-9a-f]{12}")) &&
+            saved.names.size <= 64 && saved.names.all(TetherResourceJournal::iface) &&
+            saved.offloadBefore in listOf(null, "null", "0", "1"))
+        tag = saved.tag
+        tracked.addAll(saved.names)
+        offloadBefore = saved.offloadBefore
+        true
+    }.getOrElse {
+        Logs.w("VPN tether: invalid guard recovery journal")
+        false
+    }
+
+    private fun save(): Boolean = journal.write(Saved(tag, tracked.toList(), offloadBefore))
 
     private fun rules(name: String): List<Pair<String, String>> = listOf("iptables", "ip6tables").flatMap { tool ->
         listOf(
@@ -25,6 +46,7 @@ internal class TetherLeakGuard {
         require(Regex("[A-Za-z0-9_.-]{1,15}").matches(name))
         // Track even a partially installed guard so its exact rules can be removed.
         tracked += name
+        if (!save()) return false
         val commands = mutableListOf("set -e")
         for ((tool, rule) in rules(name)) {
             val hook = rule.substringBefore(' ')
@@ -49,7 +71,7 @@ internal class TetherLeakGuard {
         if (!check.ok || check.out.lineSequence().any { tag in it && Regex("""\s-i\s+${Regex.escape(name)}(?:\s|$)""").containsMatchIn(it) })
             return false
         tracked -= name
-        return true
+        return save()
     }
 
     fun sync(names: Set<String>, retainExisting: Boolean = false): Boolean {
@@ -58,6 +80,7 @@ internal class TetherLeakGuard {
             val before = RootShell.run("settings get global tether_offload_disabled", timeoutMs = 5000)
             if (!before.ok || before.out !in listOf("null", "0", "1")) return false
             offloadBefore = before.out
+            if (!save()) return false
         }
         if (names.isNotEmpty()) {
             for (name in names) if (!add(name)) return false
@@ -90,6 +113,7 @@ internal class TetherLeakGuard {
                 }
             }
             offloadBefore = null
+            if (!journal.clear()) return false
         }
         return true
     }

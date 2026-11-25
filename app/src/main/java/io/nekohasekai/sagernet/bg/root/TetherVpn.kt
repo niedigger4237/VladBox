@@ -42,6 +42,12 @@ object TetherVpn {
     private const val EVENT_DELAY_MS = 250L
     private const val WATCHDOG_SECONDS = 15L
     @Volatile private var generation = 0L
+    private data class Saved4(val boot: String, val rules: RuleSet)
+    private data class Saved6(val boot: String, val rules: TetherIpv6.Rules)
+    private val journal4 = TetherResourceJournal("ipv4", Saved4::class.java)
+    private val journal6 = TetherResourceJournal("ipv6", Saved6::class.java)
+    private var journalBoot: String? = null
+    private var recoveryReady = false
     private var installed: RuleSet? = null
     private var installedReady = false
     private val guard = TetherLeakGuard()
@@ -110,13 +116,49 @@ object TetherVpn {
         return ok
     }
 
+    /** Restore only exact, validated resources from the previous worker. A
+     * kernel reboot discards routing/firewall state, but not global settings. */
+    private fun recoverLocked(): Boolean = runCatching {
+        val boot = TetherResourceJournal.bootId() ?: return false
+        journalBoot = boot
+        if (journal4.exists() && installed == null) {
+            val saved = journal4.read()
+            val r = saved.rules
+            require(TetherResourceJournal.iface(r.up) && TetherResourceJournal.ids(r.table, r.pref) &&
+                TetherResourceJournal.suffix(r.suffix) && TetherResourceJournal.ipv4(r.dns) &&
+                TetherResourceJournal.ipv4(r.plan.ipv4) && r.down.size in 1..64 &&
+                r.down.all { TetherResourceJournal.iface(it.name) && it.name != r.up &&
+                    TetherResourceJournal.ipv4(it.ip) && it.prefix in 16..30 })
+            if (saved.boot == boot) installed = r
+            else if (!journal4.clear()) return false
+        }
+        if (journal6.exists() && installed6 == null) {
+            val saved = journal6.read()
+            val r = saved.rules
+            require(TetherResourceJournal.iface(r.up) && TetherResourceJournal.ids(r.table, r.pref) &&
+                TetherResourceJournal.suffix(r.suffix) && TetherResourceJournal.ipv6(r.dns) &&
+                TetherResourceJournal.ipv6(r.tunAddress) && r.down.size in 1..256 &&
+                r.down.all { TetherResourceJournal.iface(it.name) && it.name != r.up &&
+                    TetherResourceJournal.cidr6(it.subnet) })
+            if (saved.boot == boot) installed6 = r
+            else if (!journal6.clear()) return false
+        }
+        // Preserve the old leak guard until both routing families are clean.
+        if (!guard.recover()) return false
+        if (!clearLocked() || !guard.clear()) return false
+        true
+    }.getOrElse {
+        Logs.w("VPN tether: invalid or unreadable recovery journal; leaving it intact")
+        false
+    }
+
     private fun clearLocked(): Boolean {
         installedReady = false
         ipv6Ready = false
         ipv6RetryAt = 0L
         var clean = true
         installed6?.let {
-            if (TetherIpv6.cleanup(it)) installed6 = null
+            if (TetherIpv6.cleanup(it) && journal6.clear()) installed6 = null
             else {
                 Logs.w("VPN tether: IPv6 cleanup incomplete; keeping guard")
                 clean = false
@@ -124,7 +166,7 @@ object TetherVpn {
         }
         // Failure in one address family must not leave the other family's routes installed.
         installed?.let {
-            if (cleanup(it)) {
+            if (cleanup(it) && journal4.clear()) {
                 TetherConntrack.clear("ipv4", it.down.map { d -> network(d.ip, d.prefix) }, it.plan.ipv4, it.dns)
                 installed = null
             } else clean = false
@@ -187,6 +229,8 @@ object TetherVpn {
         s += "$nat -I PREROUTING 1 -j ${r.prerouting}"
         s += "$nat -I POSTROUTING 1 -j ${r.postrouting}"
         for (d in r.down) s += "ip -4 rule add pref ${r.pref} iif ${d.name} lookup ${r.table}"
+        val boot = journalBoot ?: return false
+        if (!journal4.write(Saved4(boot, r))) return false
         installed = r // remember partial installation for rollback
         installedReady = false
         val result = RootShell.run(*s.toTypedArray(), timeoutMs = 20000)
@@ -216,6 +260,7 @@ object TetherVpn {
                 Logs.w("VPN tether: IPv6 rollback still incomplete; guard retained")
                 return
             }
+            if (!journal6.clear()) return
             installed6 = null
         }
         val nat = RootShell.run("ip6tables -w 3 -t nat -S", timeoutMs = 5000)
@@ -224,9 +269,11 @@ object TetherVpn {
             return
         }
         val rules = TetherIpv6.Rules(r.up, r.down6, dns, r.table, r.pref, r.suffix, r.plan.ipv6)
+        val boot = journalBoot ?: return
+        if (!journal6.write(Saved6(boot, rules))) return
         installed6 = rules
         ipv6Ready = TetherIpv6.install(rules)
-        if (!ipv6Ready && TetherIpv6.cleanup(rules)) installed6 = null
+        if (!ipv6Ready && TetherIpv6.cleanup(rules) && journal6.clear()) installed6 = null
     }
 
     /** Check hooks and owned routing entries before treating an unchanged snapshot as healthy. */
@@ -268,8 +315,12 @@ object TetherVpn {
     private fun apply(plan: TunAddressPlan, token: Long, ipv6: Boolean) {
         try {
             if (token != generation) return
-            if (!enabled()) { if (clearLocked()) guard.clear(); return }
             if (!rootGranted) return
+            if (!recoveryReady) {
+                recoveryReady = recoverLocked()
+                if (!recoveryReady) return
+            }
+            if (!enabled()) { if (clearLocked()) guard.clear(); return }
             val addresses = RootShell.run("ip -4 -o addr show", timeoutMs = 5000)
             if (!addresses.ok) { clearLocked(); return }
             val addrs = Regex("^\\d+:\\s+(\\S+)\\s+inet\\s+(\\d+\\.\\d+\\.\\d+\\.\\d+)/(\\d+)", RegexOption.MULTILINE)
@@ -426,16 +477,21 @@ object TetherVpn {
         if (requested) session = Session(plan, ipv6, token)
         worker.execute {
             if (token == generation) {
-                if (!requested) {
+                recoveryReady = false
+                val pendingRecovery = journal4.exists() || journal6.exists() || guard.hasJournal()
+                if (!requested && !pendingRecovery && installed == null && installed6 == null) {
                     rootGranted = false
-                    finishStop(token, 0)
                     return@execute
                 }
-                clearLocked()
                 rootGranted = RootShell.isAvailable()
-                if (requested && !rootGranted) Logs.w("VPN tether: root unavailable")
+                if (!rootGranted) {
+                    Logs.w("VPN tether: root unavailable; recovery deferred")
+                    return@execute
+                }
+                recoveryReady = recoverLocked()
                 lastSeen = null
-                if (rootGranted) registerMonitor(token)
+                if (requested) registerMonitor(token)
+                else if (!recoveryReady) Logs.w("VPN tether: old journal recovery incomplete")
             }
         }
         return token
@@ -467,7 +523,10 @@ object TetherVpn {
             completion?.complete(false)
             return
         }
-        val clean = runCatching { clearLocked() && guard.clear() }.getOrElse {
+        val clean = runCatching {
+            if (!recoveryReady && (journal4.exists() || journal6.exists() || guard.hasJournal())) recoverLocked()
+            else clearLocked() && guard.clear()
+        }.getOrElse {
             Logs.w("VPN tether: teardown exception: ${it.message}")
             false
         }
