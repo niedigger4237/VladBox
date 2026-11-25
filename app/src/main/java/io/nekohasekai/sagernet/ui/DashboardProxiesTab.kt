@@ -32,11 +32,11 @@ internal fun DashboardProxiesTab(
         colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant.copy(alpha = .45f))) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Proxy groups", style = MaterialTheme.typography.titleMedium)
-            OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), colors = CardDefaults.outlinedCardColors(containerColor = colors.surfaceVariant.copy(alpha = .35f))) {
+            OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), border = BorderStroke(0.5.dp, colors.outlineVariant.copy(alpha = .55f)), colors = CardDefaults.outlinedCardColors(containerColor = colors.surfaceVariant.copy(alpha = .35f))) {
                 Row(Modifier.padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("🌐  " + (group?.name ?: "No proxy groups"), style = MaterialTheme.typography.titleSmall)
-                        Text(group?.let { if (it.type.equals("URLTest", true)) "Automatic server selection" else it.type }
+                        Text(group?.let { if (it.type.equals("URLTest", true)) "Automatic server selection" else "Proxy group" }
                             ?: if (connected) "Proxy data unavailable" else "Service is not running",
                             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                     }
@@ -119,6 +119,7 @@ private fun proxyFlag(countryCode: String?): String {
 internal fun DashboardLiveProxies(connected: Boolean) {
     var groups by remember(connected) { mutableStateOf(emptyList<DashboardProxyGroup>()) }
     var error by remember(connected) { mutableStateOf<String?>(null) }
+    val measured = remember(connected) { mutableStateMapOf<String, Int>() }
     var busy by remember(connected) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     suspend fun refresh() {
@@ -130,7 +131,7 @@ internal fun DashboardLiveProxies(connected: Boolean) {
                 val tag = all.getString(index)
                 val history = proxies.optJSONObject(tag)?.optJSONArray("history")
                 val delay = history?.optJSONObject(history.length() - 1)?.optInt("delay")?.takeIf { it > 0 }
-                DashboardProxyNode(tag, delay)
+                DashboardProxyNode(tag, measured[tag] ?: delay)
             }
             DashboardProxyGroup(name, item.optString("type"), item.optString("now"), nodes)
         }.toList()
@@ -166,10 +167,12 @@ internal fun DashboardLiveProxies(connected: Boolean) {
                 val failed = mutableListOf<String>()
                 for (node in nodes) {
                     try {
-                        dashboardGet("proxies/" + android.net.Uri.encode(node.name) + "/delay?timeout=5000&url=" +
+                        val result = dashboardGet("proxies/" + android.net.Uri.encode(node.name) + "/delay?timeout=5000&url=" +
                             android.net.Uri.encode("https://www.gstatic.com/generate_204"))
+                        val ms = result.optInt("delay")
+                        if (ms > 0) measured[node.name] = ms else { measured.remove(node.name); failed.add(node.name) }
                     } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                    catch (_: Exception) { failed.add(node.name) }
+                    catch (_: Exception) { measured.remove(node.name); failed.add(node.name) }
                 }
                 if (failed.isNotEmpty()) {
                     groups = groups.map { g -> g.copy(nodes = g.nodes.map { n -> if (n.name in failed) n.copy(delay = null) else n }) }
