@@ -11,9 +11,10 @@ import com.google.gson.JsonPrimitive
  * This does not allocate a socket or install any firewall rule.
  */
 internal object HevGatewayDnsConfig {
-    // Keep wildcard listeners disabled until the complete native build and
-    // guarded device path have been verified. This is not a user setting.
-    const val ENABLE_RUNTIME = false
+    // Experimental branch only: RootDaemon restricts eligibility to a
+    // verified active IPv4 HEV downstream without boot or Service Control.
+    // Native guard, ownership and journal admission remain mandatory.
+    const val ENABLE_RUNTIME = true
     const val PORT = 15353
     const val TAG = "nf-hev-gateway-dns"
 
