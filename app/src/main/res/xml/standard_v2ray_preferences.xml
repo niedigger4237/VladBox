@@ -293,6 +293,7 @@
         <EditTextPreference app:key="tlsClientCertificate" app:title="Client certificate (PEM)" app:useSimpleSummaryProvider="true" />
         <EditTextPreference app:key="tlsClientKey" app:title="Client private key (PEM)" app:dialogLayout="@layout/layout_password_dialog" />
         <EditTextPreference app:key="echQueryName" app:title="ECH query server name" app:useSimpleSummaryProvider="true" />
+        <EditTextPreference app:key="realityMldsa65Verify" app:title="ML-DSA-65 verification key" app:useSimpleSummaryProvider="true" />
         <DropDownPreference app:key="realityHybridMode" app:title="Reality X25519MLKEM768" app:entries="@array/reality_hybrid_entries" app:entryValues="@array/reality_hybrid_values" app:defaultValue="auto" app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
     <EditTextPreference app:key="vlessEncryption" app:title="VLESS encryption" app:useSimpleSummaryProvider="true" />

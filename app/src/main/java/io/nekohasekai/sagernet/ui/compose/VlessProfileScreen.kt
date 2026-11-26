@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import io.nekohasekai.sagernet.fmt.v2ray.isValidRealityMldsa65
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -46,7 +47,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
             ((read("tlsClientCertificate").isNotBlank() || read("tlsClientCertificatePath").isNotBlank()) == (read("tlsClientKey").isNotBlank() || read("tlsClientKeyPath").isNotBlank())) &&
             (!store.getBoolean("enableECH",false) || read("echConfig").isBlank() || read("echConfigPath").isBlank())
     }
-    val valid = tlsValid && transportValid && dialerValid && muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && (isHttp || read("uuid").isNotBlank()) && (!isVmess || read("alterId").toIntOrNull()?.let { it >= 0 } == true) && (!reality || read("realityPubKey").isNotBlank())
+    val valid = (!reality || isValidRealityMldsa65(read("realityMldsa65Verify"))) && tlsValid && transportValid && dialerValid && muxValid && read("serverAddress").isNotBlank() && read("serverPort").toIntOrNull()?.let { it in 1..65535 } == true && (isHttp || read("uuid").isNotBlank()) && (!isVmess || read("alterId").toIntOrNull()?.let { it >= 0 } == true) && (!reality || read("realityPubKey").isNotBlank())
     androidx.activity.compose.BackHandler(enabled = section.isNotEmpty()) { section = "" }
     Column(Modifier.fillMaxSize()) {
     VladTopAppBar(title = section.ifEmpty { if (isHttp && security == "tls") "HTTPS" else protocol }, onNavigation = onClose, onBack = { if (section.isNotEmpty()) section = "" else onClose() }, extraActions = {
@@ -138,7 +139,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                     ProfileChoices(listOf("none" to "None", "tls" to "TLS", "reality" to "Reality"), if (reality) "reality" else security) {
                         reality = it == "reality"
                         write("security", if (reality) "tls" else it)
-                        if (!reality) { write("realityPubKey",""); write("realityShortId",""); write("realityHybridMode","auto") }
+                        if (!reality) { write("realityPubKey",""); write("realityShortId",""); write("realityMldsa65Verify",""); write("realityHybridMode","auto") }
                         else { toggle("tlsDisableSni",false); write("tlsSpoof",""); write("tlsSpoofMethod","") }
                     }
                     if ("tls" in security) {
@@ -157,6 +158,8 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                     ProfileSection("Reality") {
                         ProfileText("Public key","realityPubKey",read("realityPubKey"),::write)
                         ProfileText("Short ID","realityShortId",read("realityShortId"),::write)
+                        ProfileText("ML-DSA-65 verification key (optional)", "realityMldsa65Verify", read("realityMldsa65Verify"), ::write)
+                        if (!isValidRealityMldsa65(read("realityMldsa65Verify"))) Text("Invalid ML-DSA-65 public key", color = MaterialTheme.colorScheme.error)
                         Text("X25519MLKEM768")
                         ProfileChoices(listOf("auto" to "Automatic", "enabled" to "Enabled", "disabled" to "Disabled"), read("realityHybridMode").ifBlank { "auto" }) { write("realityHybridMode", it) }
                         Text("Automatic follows the TLS fingerprint. Enabled requires a hybrid key share in ClientHello. Disabled removes the hybrid group.", style = MaterialTheme.typography.bodySmall)

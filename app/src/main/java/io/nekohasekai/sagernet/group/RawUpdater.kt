@@ -379,6 +379,9 @@ object RawUpdater : GroupUpdater() {
 
                                                 "short-id" -> bean.realityShortId =
                                                     realityOpt.value?.toString()
+
+                                                "mldsa65-verify", "mldsa65Verify", "mldsa65_verify", "pqv" -> bean.realityMldsa65Verify =
+                                                    io.nekohasekai.sagernet.fmt.v2ray.validateRealityMldsa65(realityOpt.value?.toString().orEmpty())
                                             }
                                         }
                                     }

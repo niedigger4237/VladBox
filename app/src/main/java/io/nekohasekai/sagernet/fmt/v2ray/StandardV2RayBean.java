@@ -93,6 +93,7 @@ public abstract class StandardV2RayBean extends AbstractBean {
     public String echQueryName;
     public Boolean realityHybrid;
     public String realityHybridMode;
+    public String realityMldsa65Verify;
     public String vlessEncryption;
     public String vlessNetwork;
     public String kcpMtu;
@@ -196,6 +197,7 @@ public abstract class StandardV2RayBean extends AbstractBean {
             realityHybridMode = realityHybrid == null ? "auto" : (realityHybrid ? "enabled" : "disabled");
         }
         realityHybrid = !"disabled".equals(realityHybridMode);
+        if (realityMldsa65Verify == null) realityMldsa65Verify = "";
         if (vlessEncryption == null) vlessEncryption = "";
         if (vlessNetwork == null) vlessNetwork = "";
         if (kcpMtu == null) kcpMtu = "";
@@ -224,7 +226,7 @@ public abstract class StandardV2RayBean extends AbstractBean {
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(13);
+        output.writeInt(14);
         super.serialize(output);
         output.writeString(uuid);
         output.writeString(encryption);
@@ -335,6 +337,7 @@ public abstract class StandardV2RayBean extends AbstractBean {
         output.writeString(httpPingTimeout);
         output.writeBoolean(grpcPermitWithoutStream);
         output.writeString(effectiveRealityHybridMode());
+        output.writeString(realityMldsa65Verify == null ? "" : realityMldsa65Verify);
     }
 
     @Override
@@ -499,6 +502,7 @@ public abstract class StandardV2RayBean extends AbstractBean {
         }
         if (version >= 13) realityHybridMode = input.readString();
         else realityHybridMode = Boolean.TRUE.equals(realityHybrid) ? "enabled" : "disabled";
+        realityMldsa65Verify = version >= 14 ? input.readString() : "";
     }
 
     public String effectiveRealityHybridMode() {

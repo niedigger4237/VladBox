@@ -1,0 +1,137 @@
+diff --git a/option/tls.go b/option/tls.go
+--- a/option/tls.go
++++ b/option/tls.go
+@@ -254,5 +254,6 @@
+ 	PublicKey             string `json:"public_key,omitempty"`
+ 	ShortID               string `json:"short_id,omitempty"`
+ 	SupportX25519MLKEM768 bool   `json:"support_x25519mlkem768,omitempty"`
+-	RequireX25519MLKEM768 bool   `json:"require_x25519mlkem768,omitempty"`
++	RequireX25519MLKEM768 bool   `json:"require_x25519mlkem768,omitempty"`
++	Mldsa65Verify string `json:"mldsa65_verify,omitempty"`
+ }
+diff --git a/common/tls/reality_client.go b/common/tls/reality_client.go
+--- a/common/tls/reality_client.go
++++ b/common/tls/reality_client.go
+@@ -37,7 +37,8 @@
+ 	"github.com/sagernet/sing/common/ntp"
+ 	aTLS "github.com/sagernet/sing/common/tls"
+ 
+-	utls "github.com/metacubex/utls"
++	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
++	utls "github.com/metacubex/utls"
+ 	"golang.org/x/crypto/hkdf"
+ 	"golang.org/x/net/http2"
+ )
+@@ -50,7 +51,8 @@
+ 	publicKey             []byte
+ 	shortID               [8]byte
+ 	supportX25519MLKEM768 bool
+-	requireX25519MLKEM768 bool
++	requireX25519MLKEM768 bool
++	mldsa65Verify *mldsa65.PublicKey
+ }
+ 
+ func NewRealityClient(ctx context.Context, logger logger.ContextLogger, serverAddress string, options option.OutboundTLSOptions) (Config, error) {
+@@ -86,7 +88,18 @@
+ 		return nil, E.New("invalid short_id")
+ 	}
+ 
+-	var config Config = &RealityClientConfig{ctx, uClient.(*UTLSClientConfig), publicKey, shortID, options.Reality.SupportX25519MLKEM768 || options.Reality.RequireX25519MLKEM768, options.Reality.RequireX25519MLKEM768}
++	var pqKey *mldsa65.PublicKey
++	if options.Reality.Mldsa65Verify != "" {
++		decoded, err := base64.RawURLEncoding.Strict().DecodeString(options.Reality.Mldsa65Verify)
++		if err != nil || len(decoded) != mldsa65.PublicKeySize {
++			return nil, E.New("invalid REALITY ML-DSA-65 public key")
++		}
++		pqKey = new(mldsa65.PublicKey)
++		if err := pqKey.UnmarshalBinary(decoded); err != nil {
++			return nil, E.Cause(err, "decode REALITY ML-DSA-65 public key")
++		}
++	}
++	var config Config = &RealityClientConfig{ctx, uClient.(*UTLSClientConfig), publicKey, shortID, options.Reality.SupportX25519MLKEM768 || options.Reality.RequireX25519MLKEM768, options.Reality.RequireX25519MLKEM768, pqKey}
+ 	if options.KernelRx || options.KernelTx {
+ 		if !C.IsLinux {
+ 			return nil, E.New("kTLS is only supported on Linux")
+@@ -135,7 +148,8 @@
+ 
+ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn) (aTLS.Conn, error) {
+ 	verifier := &realityVerifier{
+-		serverName: e.uClient.ServerName(),
++		serverName: e.uClient.ServerName(),
++		mldsa65Verify: e.mldsa65Verify,
+ 	}
+ 	uConfig := e.uClient.config.Clone()
+ 	uConfig.InsecureSkipVerify = true
+@@ -295,7 +309,8 @@
+ 		e.publicKey,
+ 		e.shortID,
+ 		e.supportX25519MLKEM768,
+-		e.requireX25519MLKEM768,
++		e.requireX25519MLKEM768,
++		e.mldsa65Verify,
+ 	}
+ }
+ 
+@@ -303,7 +318,8 @@
+ 	*utls.UConn
+ 	serverName string
+ 	authKey    []byte
+-	verified   bool
++	verified   bool
++	mldsa65Verify *mldsa65.PublicKey
+ }
+ 
+ func (c *realityVerifier) VerifyPeerCertificate(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+@@ -310,6 +326,7 @@
+ 	p, _ := reflect.TypeFor[utls.Conn]().FieldByName("peerCertificates")
+ 	certs := *(*([]*x509.Certificate))(unsafe.Add(unsafe.Pointer(c.Conn), p.Offset))
+-	if pub, ok := certs[0].PublicKey.(ed25519.PublicKey); ok {
++	if len(certs) == 0 { return E.New("REALITY: no peer certificate") }
++	if pub, ok := certs[0].PublicKey.(ed25519.PublicKey); ok {
+ 		h := hmac.New(sha512.New, c.authKey)
+ 		h.Write(pub)
+ 		if bytes.Equal(h.Sum(nil), certs[0].Signature) {
+@@ -316,5 +333,15 @@
+-		if bytes.Equal(h.Sum(nil), certs[0].Signature) {
+-			c.verified = true
++		if bytes.Equal(h.Sum(nil), certs[0].Signature) {
++			if c.mldsa65Verify != nil {
++				if len(certs[0].Extensions) == 0 || c.HandshakeState.Hello == nil || c.HandshakeState.ServerHello == nil {
++					return E.New("REALITY: missing ML-DSA-65 signature or transcript")
++				}
++				h.Write(c.HandshakeState.Hello.Raw)
++				h.Write(c.HandshakeState.ServerHello.Raw)
++				if !mldsa65.Verify(c.mldsa65Verify, h.Sum(nil), nil, certs[0].Extensions[0].Value) {
++					return E.New("REALITY: ML-DSA-65 verification failed")
++				}
++			}
++			c.verified = true
+ 			return nil
+ 		}
+ 	}
+diff --git a/go.mod b/go.mod
+--- a/go.mod
++++ b/go.mod
+@@ -2,8 +2,9 @@
+ 
+ go 1.26.4
+ 
+-require (
+-	filippo.io/age v1.3.1
++require (
++	filippo.io/age v1.3.1
++	github.com/cloudflare/circl v1.6.4
+ 	filippo.io/edwards25519 v1.2.0
+ 	github.com/AliRizaAynaci/gorl/v2 v2.2.0
+ 	github.com/Diniboy1123/connect-ip-go v0.0.0-20260409225322-8d7bb0a858a2
+diff --git a/go.sum b/go.sum
+--- a/go.sum
++++ b/go.sum
+@@ -1,4 +1,6 @@
+-c2sp.org/CCTV/age v0.0.0-20251208015420-e9274a7bdbfd h1:ZLsPO6WdZ5zatV4UfVpr7oAwLGRZ+sebTUruuM4Ra3M=
++c2sp.org/CCTV/age v0.0.0-20251208015420-e9274a7bdbfd h1:ZLsPO6WdZ5zatV4UfVpr7oAwLGRZ+sebTUruuM4Ra3M=
++github.com/cloudflare/circl v1.6.4 h1:pOXuDTCEYyzydgUpQ0CQz3LsinKjiSk6nNP5Lt5K64U=
++github.com/cloudflare/circl v1.6.4/go.mod h1:YxarevkLlbaHuWsxG6vmYNWBEsSp4pnp7j+4VljMavY=
+ c2sp.org/CCTV/age v0.0.0-20251208015420-e9274a7bdbfd/go.mod h1:SrHC2C7r5GkDk8R+NFVzYy/sdj0Ypg9htaPXQq5Cqeo=
+ cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
+ code.pfad.fr/check v1.1.0 h1:GWvjdzhSEgHvEHe2uJujDcpmZoySKuHQNrZMfzfO0bE=

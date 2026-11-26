@@ -32,6 +32,7 @@ data class VmessQRCode(
     var pinSHA256: String = "",
     var pbk: String = "",
     var sid: String = "",
+    var pqv: String? = null,
     var supportX25519MLKEM768: String? = null,
     var mode: String = "",
     var extra: String = "",
@@ -202,6 +203,8 @@ fun StandardV2RayBean.parseDuckSoft(url: HttpUrl) {
             url.queryParameter("sid")?.let {
                 realityShortId = it
             }
+            realityMldsa65Verify = validateRealityMldsa65(url.queryParameter("pqv").orEmpty())
+            require(realityMldsa65Verify.isEmpty() || !realityPubKey.isNullOrBlank()) { "pqv requires REALITY public key" }
             realityHybridMode = parseRealityHybridMode(url.queryParameter("support-x25519mlkem768")
                 ?: url.queryParameter("support_x25519mlkem768"))
         }
@@ -372,6 +375,8 @@ fun parseV2RayN(link: String): VMessBean {
     bean.tlsPubKeySha256 = vmessQRCode.pinSHA256.orEmpty()
     bean.realityPubKey = vmessQRCode.pbk.orEmpty()
     bean.realityShortId = vmessQRCode.sid.orEmpty()
+    bean.realityMldsa65Verify = validateRealityMldsa65(vmessQRCode.pqv.orEmpty())
+    require(bean.realityMldsa65Verify.isEmpty() || bean.realityPubKey.isNotBlank()) { "pqv requires REALITY public key" }
     bean.realityHybridMode = parseRealityHybridMode(vmessQRCode.supportX25519MLKEM768)
     bean.xhttpMode = vmessQRCode.mode.orEmpty()
     bean.xhttpExtra = vmessQRCode.extra.orEmpty()
@@ -470,7 +475,7 @@ fun VMessBean.toV2rayN(): String {
         alpn = bean.alpn.replace("\n", ",")
         fp = bean.utlsFingerprint
         if (bean.isTLS()) pinSHA256 = bean.tlsPubKeySha256
-        if (bean.isTLS() && bean.realityPubKey.isNotBlank()) { pbk = bean.realityPubKey; sid = bean.realityShortId; supportX25519MLKEM768 = realityHybridQueryValue(bean.effectiveRealityHybridMode()) }
+        if (bean.isTLS() && bean.realityPubKey.isNotBlank()) { pbk = bean.realityPubKey; sid = bean.realityShortId; pqv = bean.realityMldsa65Verify?.takeIf { it.isNotBlank() }; supportX25519MLKEM768 = realityHybridQueryValue(bean.effectiveRealityHybridMode()) }
         if (net == "xhttp") { mode = bean.xhttpMode; extra = bean.xhttpExtra }
         if (net == "kcp") { type = bean.kcpHeader; seed = bean.kcpSeed }
         if (net == "ws") { ed = bean.wsMaxEarlyData; eh = bean.earlyDataHeaderName }
@@ -569,6 +574,7 @@ fun StandardV2RayBean.toUriVMessVLESSTrojan(isTrojan: Boolean): String {
                     builder.setQueryParameter("security", "reality")
                     builder.addQueryParameter("pbk", realityPubKey)
                     builder.addQueryParameter("sid", realityShortId)
+                    realityMldsa65Verify?.takeIf { it.isNotBlank() }?.let { builder.addQueryParameter("pqv", it) }
                     realityHybridQueryValue(effectiveRealityHybridMode())?.let { builder.addQueryParameter("support-x25519mlkem768", it) }
                 }
             }
@@ -768,6 +774,7 @@ fun buildSingBoxOutboundTLS(bean: StandardV2RayBean): OutboundTLSOptions? {
                 enabled = true
                 public_key = bean.realityPubKey
                 short_id = bean.realityShortId
+                validateRealityMldsa65(bean.realityMldsa65Verify.orEmpty()).takeIf { it.isNotEmpty() }?.let { _hack_config_map["mldsa65_verify"] = it }
                 val mode = bean.effectiveRealityHybridMode()
                 _hack_config_map["support_x25519mlkem768"] = mode != "disabled"
                 if (mode == "enabled") _hack_config_map["require_x25519mlkem768"] = true

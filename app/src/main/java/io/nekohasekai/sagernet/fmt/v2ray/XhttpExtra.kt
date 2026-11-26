@@ -88,7 +88,10 @@ object XhttpExtra {
                 tls["reality"] = linkedMapOf<String, Any>(
                     "enabled" to true, "public_key" to key, "short_id" to opts.optString("shortId"),
                     "support_x25519mlkem768" to (mode != "disabled")
-                ).apply { if (mode == "enabled") put("require_x25519mlkem768", true) }
+                ).apply {
+                    if (mode == "enabled") put("require_x25519mlkem768", true)
+                    validateRealityMldsa65(opts.optString("mldsa65Verify", opts.optString("pqv"))).takeIf { it.isNotEmpty() }?.let { put("mldsa65_verify", it) }
+                }
             }
             result["tls"] = tls
         }
