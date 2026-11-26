@@ -1085,3 +1085,32 @@ but not executed; the current downstream branch sources were not
 available as a local checkout. Full native link, NDK and APK builds
 for these commits remain unverified. The staged gateway path is not
 enabled in production. Device mark ownership remains unconfirmed.
+
+## Read-only connmark collision preflight
+
+The staged marked reservation now checks complete iptables-save and
+ip6tables-save outputs (including raw and any listed security table),
+then the existing dual-family/all-zone conntrack occupancy scan, then
+the independent mark verifier again. Unknown or overlapping results
+reject marked reservation. The unmarked path is unaffected.
+The parser checks CONNMARK reads and writes, including default masks,
+save/restore and bitwise operations; save-mark can change bits in
+both the ctmask and nfmask. Packet MARK is a different field.
+Missing required tables, incomplete sections and unrecognized CONNMARK
+operations fail closed. The scanner does not establish exclusivity:
+it does not inspect arbitrary vendor/eBPF/nft writers or prevent future
+rule changes. No ownership callback is automatically granted.
+Production gateway activation and targeted deletion remain disabled.
+
+Local standalone compile of the actual committed gateway_mark_audit.c
+(blob de57f5b7f8d3b7589e437eabfa8f89c100e9422c), included with
+pinned upstream headers and mocked command execution, passed with
+GCC C17 -Wall -Wextra -Werror. 420 assertions passed, including bounds
+checks while reading the user-supplied diagnostic and rule/parser tests.
+The observed mask 0x00800000 did not overlap captured IPv4/IPv6
+CONNMARK rules; 0x01000000 was detected as occupied in both families.
+The uploaded diagnostics were not copied into the repository.
+Seven backend assertions were added but not executed in this turn.
+No complete checkout, full host link or NDK/APK build was available.
+No live firewall/conntrack command was executed. The new wrapper and
+reservation integration were reviewed but not compiled as a whole.
