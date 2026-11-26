@@ -144,6 +144,8 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var dnsEngineMode by configurationStore.string(Key.DNS_ENGINE_MODE) { "legacy" }
     var dnsGlobalStrategy by configurationStore.string(Key.DNS_GLOBAL_STRATEGY) { "auto" }
     var dnsOptimisticWindow by configurationStore.string(Key.DNS_OPTIMISTIC_WINDOW) { "off" }
+    var dnsQueryTimeout by configurationStore.string(Key.DNS_QUERY_TIMEOUT) { "default" }
+    var dnsCacheCapacity by configurationStore.string(Key.DNS_CACHE_CAPACITY) { "default" }
     var directDns by configurationStore.string(Key.DIRECT_DNS) { "https://1.1.1.1/dns-query" }
     var enableDnsRouting by configurationStore.boolean(Key.ENABLE_DNS_ROUTING) { true }
     var enableFakeDns by configurationStore.boolean(Key.ENABLE_FAKEDNS) { false }

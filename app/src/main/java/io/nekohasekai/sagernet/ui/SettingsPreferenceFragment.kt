@@ -223,6 +223,8 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         fun updateDnsModeVisibility(mode: String) {
             findPreference<Preference>(Key.DNS_GLOBAL_STRATEGY)?.isVisible = mode == "modern"
             findPreference<Preference>(Key.DNS_OPTIMISTIC_WINDOW)?.isVisible = mode == "modern"
+            findPreference<Preference>(Key.DNS_QUERY_TIMEOUT)?.isVisible = mode == "modern"
+            findPreference<Preference>(Key.DNS_CACHE_CAPACITY)?.isVisible = mode == "modern"
             for (key in listOf("domain_strategy_for_direct", "domain_strategy_for_remote")) {
                 findPreference<Preference>(key)?.isVisible = mode != "modern"
             }
@@ -233,7 +235,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             needReload()
             true
         }
-        for (key in listOf(Key.DNS_GLOBAL_STRATEGY, Key.DNS_OPTIMISTIC_WINDOW, Key.DNS_MAIN,
+        for (key in listOf(Key.DNS_GLOBAL_STRATEGY, Key.DNS_OPTIMISTIC_WINDOW, Key.DNS_QUERY_TIMEOUT, Key.DNS_CACHE_CAPACITY, Key.DNS_MAIN,
             "domain_strategy_for_direct", "domain_strategy_for_remote", "domain_strategy_for_server")) {
             findPreference<Preference>(key)?.onPreferenceChangeListener = reloadListener
         }

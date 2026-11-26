@@ -43,7 +43,7 @@ private val rootOnlySettings = setOf(
 internal fun settingVisible(key: String?, mode: String, access: Access = Access.UNKNOWN): Boolean {
     if (access == Access.UNAVAILABLE && key in rootOnlySettings) return false
     return when (key) {
-    "dnsGlobalStrategy", "dnsOptimisticWindow" -> DataStore.dnsEngineMode == "modern"
+    "dnsGlobalStrategy", "dnsOptimisticWindow", "dnsQueryTimeout", "dnsCacheCapacity" -> DataStore.dnsEngineMode == "modern"
     "domain_strategy_for_direct", "domain_strategy_for_remote" -> DataStore.dnsEngineMode != "modern"
     "tunAddressMode" -> mode == "vpn" && DataStore.ipv6Mode != IPv6Mode.ONLY
     "tunIpv4Subnet" -> mode == "vpn" && DataStore.tunAddressMode == "manual" && DataStore.ipv6Mode != IPv6Mode.ONLY

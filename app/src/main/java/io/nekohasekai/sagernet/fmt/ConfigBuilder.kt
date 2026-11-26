@@ -778,6 +778,11 @@ fun buildConfig(
         dns.optimistic = DnsOptimisticPolicy.options(
             modernDns, forTest, DataStore.dnsOptimisticWindow
         )
+        val dnsTuning = DnsClientTuningPolicy.options(
+            modernDns, forTest, DataStore.dnsQueryTimeout, DataStore.dnsCacheCapacity
+        )
+        dns.timeout = dnsTuning.timeout
+        dns.cache_capacity = dnsTuning.cacheCapacity
 
         // dns object user rules
         if (enableDnsRouting) {

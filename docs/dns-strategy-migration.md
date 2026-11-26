@@ -77,3 +77,21 @@ Custom JSON can override the generated option; after merging, Modern mode
 rejects enabled optimistic cache combined with global disable_cache or
 disable_expire. The core remains authoritative for option schema and timing.
 Imported/older ROOT cores must support sing-box 1.14 before enabling.
+
+## DNS query timeout and memory cache capacity
+
+Both the original v1.14.3 and pinned extended core use 10s by default
+(`constant/timeout.go`) and clamp the in-memory LRU capacity to at least
+1024 (`dns/client.go`, NewClient). Modern managed settings expose
+`dnsQueryTimeout` and `dnsCacheCapacity` separately from the optimistic
+stale window. Default omits each field independently; manual settings emit
+`dns.timeout` as a duration and `dns.cache_capacity` as an integer.
+Allowed durations: 3s, 5s, 10s, 15s, 30s. Allowed capacities:
+1024, 2048, 4096, 8192, 16384. Invalid saved values inherit defaults.
+These are bounded application choices, not upstream recommendations.
+Capacity counts cached entries, not bytes; larger capacity may consume
+more memory. DNS timeout applies to an individual query and background
+refresh, not the entire proxy connection; rule/explicit resolver overrides
+can take precedence. No changes to FakeIP cache, disk caching, resolver
+routing, legacy managed settings, URL-test settings or raw full imports.
+User JSON overrides retain their existing precedence.

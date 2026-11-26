@@ -308,6 +308,8 @@ public class SingBoxOptions {
 
         // sing-box >= 1.14: boolean or {enabled, timeout}.
         public Object optimistic;
+        public String timeout;
+        public Integer cache_capacity;
 
         public List<DNSServerOptions> servers;
 

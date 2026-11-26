@@ -38,4 +38,40 @@
         <item>24h</item>
         <item>72h</item>
     </string-array>
+    <string name="dns_query_timeout">DNS Query Timeout</string>
+    <string name="dns_cache_capacity">DNS Cache Capacity</string>
+    <string name="dns_timeout_default">Default (10 seconds)</string>
+    <string name="dns_capacity_default">Default (1024 entries)</string>
+    <string-array name="dns_timeout_names">
+        <item>@string/dns_timeout_default</item>
+        <item>3s</item>
+        <item>5s</item>
+        <item>10s</item>
+        <item>15s</item>
+        <item>30s</item>
+    </string-array>
+    <string-array name="dns_timeout_values" translatable="false">
+        <item>default</item>
+        <item>3s</item>
+        <item>5s</item>
+        <item>10s</item>
+        <item>15s</item>
+        <item>30s</item>
+    </string-array>
+    <string-array name="dns_capacity_names">
+        <item>@string/dns_capacity_default</item>
+        <item>1024</item>
+        <item>2048</item>
+        <item>4096</item>
+        <item>8192</item>
+        <item>16384</item>
+    </string-array>
+    <string-array name="dns_capacity_values" translatable="false">
+        <item>default</item>
+        <item>1024</item>
+        <item>2048</item>
+        <item>4096</item>
+        <item>8192</item>
+        <item>16384</item>
+    </string-array>
 </resources>

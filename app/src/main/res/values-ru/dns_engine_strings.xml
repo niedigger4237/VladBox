@@ -12,4 +12,8 @@
     <string name="dns_optimistic_4">24 часа</string>
     <string name="dns_optimistic_5">3 дня</string>
     <string name="dns_optimistic_default">Стандарт ядра (3 дня)</string>
+    <string name="dns_query_timeout">Таймаут DNS-запроса</string>
+    <string name="dns_cache_capacity">Размер кеша DNS</string>
+    <string name="dns_timeout_default">Стандарт ядра (10 секунд)</string>
+    <string name="dns_capacity_default">Стандарт ядра (1024 записи)</string>
 </resources>
