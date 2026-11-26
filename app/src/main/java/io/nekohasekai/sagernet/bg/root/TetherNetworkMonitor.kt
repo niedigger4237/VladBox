@@ -41,7 +41,9 @@ internal class TetherNetworkMonitor(private val changed: (String) -> Unit) {
             val changed = synchronized(lastLinks) {
                 if (closed || lastLinks[network] == linkProperties) false
                 else {
-                    lastLinks[network] = LinkProperties(linkProperties)
+                    // The callback delivers a LinkProperties snapshot. Keep it private
+                    // and read-only; the copy constructor is not public Android SDK API.
+                    lastLinks[network] = linkProperties
                     true
                 }
             }
