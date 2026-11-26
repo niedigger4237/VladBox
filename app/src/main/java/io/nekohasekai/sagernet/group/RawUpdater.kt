@@ -15,6 +15,7 @@ import io.nekohasekai.sagernet.fmt.trojan_go.parseTrojanGo
 import io.nekohasekai.sagernet.fmt.tuic.TuicBean
 import io.nekohasekai.sagernet.fmt.v2ray.StandardV2RayBean
 import io.nekohasekai.sagernet.fmt.v2ray.VMessBean
+import io.nekohasekai.sagernet.fmt.v2ray.XrayJsonImport
 import io.nekohasekai.sagernet.fmt.v2ray.isTLS
 import io.nekohasekai.sagernet.fmt.v2ray.setTLS
 import io.nekohasekai.sagernet.fmt.wireguard.WireGuardBean
@@ -227,6 +228,12 @@ object RawUpdater : GroupUpdater() {
     suspend fun parseRaw(text: String, fileName: String = ""): List<AbstractBean>? {
 
         val proxies = mutableListOf<AbstractBean>()
+
+        // Detect Xray before generic JSON/YAML and preserve its validation errors.
+        val jsonCandidate = runCatching { JSONTokener(text.trim().removePrefix("\uFEFF")).nextValue() }.getOrNull()
+        if (XrayJsonImport.recognizes(jsonCandidate)) {
+            return XrayJsonImport.parse(requireNotNull(jsonCandidate), fileName)
+        }
 
         if (text.contains("proxies:")) {
 
@@ -780,6 +787,7 @@ object RawUpdater : GroupUpdater() {
     }
 
     fun parseJSON(json: Any): List<AbstractBean> {
+        if (XrayJsonImport.recognizes(json)) return XrayJsonImport.parse(json)
         val proxies = ArrayList<AbstractBean>()
 
         if (json is JSONObject) {
