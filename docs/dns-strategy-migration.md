@@ -580,3 +580,32 @@ family, protocol, both directions and zone), kernel identity checks and
 verified deletion. Do not choose a CONNMARK bit without auditing netd,
 vendor firewall and other VPN marks; never flush shared conntrack.
 No new runtime activation or settings change.
+
+## Exact conntrack request builder (not activated)
+
+gateway_conntrack.c constructs an individual CTNETLINK DELETE request only
+after matching an old owned inventory entry and a fresh GET observation:
+both tuple directions, TCP/UDP, address family, zone, kernel ID, session
+mark, DNAT status, original DNS port and redirected listener port. It
+rejects the existing ASTERISKD_DNS_MARK_MASK bits, missing ownership
+evidence, SNAT, dying entries and mismatched identities. No default
+CONNMARK allocation is made. Test mark/zone values are synthetic only.
+
+Android common kernel ctnetlink_del_conntrack verifies the supplied tuple,
+zone and CTA_ID; a tuple-less DELETE can flush the table. See
+https://android.googlesource.com/kernel/common/+/2d76dea417beb11b47beb4933a41f184bec6966a/net/netfilter/nf_conntrack_netlink.c
+The builder always supplies the complete original tuple, zone and ID,
+with REQUEST|ACK and without dump/flush flags. It does not send messages.
+Kernel ID checks are not a guarantee of atomic mark/provenance matching.
+A real backend must prove mark exclusivity, serialize trusted writers,
+obtain validated complete dumps and fresh GETs, handle omitted default
+zone explicitly in the parser, validate ACKs and recheck absence. An
+ambiguous entry must retain cleanup debt; never issue a bulk deletion.
+
+Host validation: PASS 42 conntrack request checks, including IPv4/UDP,
+IPv6/TCP, rejected changed identity, foreign mark, zone, NAT status and
+tuple differences, plus request attribute/header checks. Standalone
+C17 -Wall -Wextra -Werror compile and full GCC host link with prior
+gateway modules succeeded. No netfilter operations were executed; the
+host lacks CAP_NET_ADMIN. Android NDK and device tests remain pending.
+The build links this module but runtime gateway capture remains disabled.
