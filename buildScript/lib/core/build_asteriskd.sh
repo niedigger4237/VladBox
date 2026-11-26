@@ -549,6 +549,7 @@ SOURCES=$(cd "$SRC" && find . -name '*.c' -not -path './.git/*' | LC_ALL=C sort)
 # Same-boot pre-core recovery requires the durable spawn-intent checkpoint.
 # Post-core recovery persists verified child identity and checks listener absence.
 # Active recovery closes the guard and waits for read-only conntrack drain.
+# Inventory also checks candidate connmark masks without allocating them.
 HEV_GATEWAY_BACKEND="$ROOT/buildScript/experiments/hev-gateway-dns/gateway_recovery.c"
 
 build() { # abi cc-prefix
