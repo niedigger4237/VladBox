@@ -152,7 +152,19 @@ object RootDaemon {
         val ipv6Prefixes: List<TetherIpv6.Down> = emptyList(),
         val blockIpv6: Boolean = false,
         val serviceIpv6: Boolean = ipv6Enabled,
-    )
+    ) {
+        /**
+         * asteriskd re-applies local addresses and interface-indexed TC/BPF
+         * state on netlink events. Only changes to its published config need
+         * a service restart. Managed TUN also has core-owned route exclusions;
+         * retain its interface identity (ifindex) and canonical IPv4 subnets.
+         */
+        fun requiresRestart(mode: Mode, observed: DownstreamSnapshot): Boolean {
+            if (copy(identity = emptyList()) != observed.copy(identity = emptyList())) return true
+            return mode == Mode.TUN &&
+                RootTetherIdentity.routingIdentity(identity) != RootTetherIdentity.routingIdentity(observed.identity)
+        }
+    }
 
     // Android reports active downstreams explicitly; never guess from all wlan* devices.
     internal fun resolveDownstreams(mode: Mode, requireReliable: Boolean = false, ipv6: Boolean = false): DownstreamSnapshot? {
@@ -230,7 +242,8 @@ object RootDaemon {
     // whose downstream names and addresses happen to be unchanged.
     @Synchronized
     internal fun reconcileTetherRules(mode: Mode, applied: DownstreamSnapshot, observed: DownstreamSnapshot?) {
-        val repairForward = mode == Mode.TUN && observed == applied && applied.names.isNotEmpty()
+        val repairForward = mode == Mode.TUN && observed != null &&
+            !applied.requiresRestart(mode, observed) && applied.names.isNotEmpty()
         if (!applied.blockIpv6 && !repairForward) return
         // One fresh health check under the shutdown lock, not a cached result.
         if (appliedDownstreams !== applied || health() != RootHealth.RUNNING) return

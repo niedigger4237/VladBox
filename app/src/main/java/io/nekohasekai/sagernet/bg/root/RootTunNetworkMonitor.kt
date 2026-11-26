@@ -10,7 +10,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Core-managed TUN and daemon-managed root modes use verified downstream snapshots.
- * Refresh the published config via the normal service lifecycle on a stable change.
+ * Let native reconciliation handle address/link events that do not change
+ * the published config; restart only for a stable configuration change.
  */
 internal class RootTunNetworkMonitor(
     private val mode: RootDaemon.Mode,
@@ -79,11 +80,11 @@ internal class RootTunNetworkMonitor(
             return
         }
         RootDaemon.reconcileTetherRules(mode, applied, observed)
-        if (observed == null || observed == applied) {
+        if (observed == null || !applied.requiresRestart(mode, observed)) {
             candidate = null
             return
         }
-        if (candidate != observed) {
+        if (candidate?.requiresRestart(mode, observed) != false) {
             // A transient interface/address change must not cause a restart.
             candidate = observed
             candidateSince = SystemClock.elapsedRealtime()

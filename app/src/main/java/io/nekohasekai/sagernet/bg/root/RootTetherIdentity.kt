@@ -17,6 +17,13 @@ internal object RootTetherIdentity {
         return (3 downTo 0).joinToString(".") { ((network ushr (it * 8)) and 255L).toString() } + "/$bits"
     }
 
+    /** Keep link identity, but compare IPv4 route exclusions by subnet rather than host address. */
+    fun routingIdentity(identity: List<String>): List<String> = identity.map { item ->
+        val address = item.substringAfter(':').substringAfter(':')
+        val network = ipv4Network(address)
+        if (network == null) item else item.substringBeforeLast(':') + ":" + network
+    }.distinct().sorted()
+
     fun parse(names: List<String>, dump: String): List<String> {
         val selected = names.toSet()
         return dump.lineSequence().mapNotNull { line ->
