@@ -742,7 +742,7 @@ object RootDaemon {
             coreConfig = effectiveConfig
         )
         if (dnsCaptureRequested)
-            Logs.i("ROOT ${mode.wire} tether DNS interception: ${if (!tetherDnsHijack) "not eligible" else if (mode == Mode.TUN2SOCKS) "IPv4 non-local unicast only" else "enabled"}")
+            Logs.i("ROOT ${mode.wire} tether DNS interception: ${if (!tetherDnsHijack) "not eligible" else if (mode == Mode.TUN2SOCKS) if (ipv6) "IPv4 and IPv6 non-local DNS only" else "IPv4 non-local unicast only" else "enabled"}")
         val dcfg = File(stage, "asteriskd.json").apply {
             writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, daemonDownstreams,
                 dynamicDownstreams?.ipv6Prefixes.orEmpty().map { it.subnet }, serviceControl, tetherDnsHijack))
