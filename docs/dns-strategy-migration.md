@@ -1367,3 +1367,47 @@ duplicate experimental implementation. RootDaemon, RootBoot, full
 native link, Android Gradle/NDK build and real core/device tests
 remain unverified. The next step is a full build and correction of
 integration errors, not further feature expansion.
+
+## HEV compatibility: eliminate xt_addrtype from newly installed DNS rules
+
+Device log on Android 16 / WildKernel 6.6.119 showed startup apply_rules
+failure with the hotspot wlan2 active and the xt_addrtype revision
+unavailable. With Hijack Tethering disabled, ROOT TUN2SOCKS worked.
+
+The existing HEV nonlocal DNS path now uses the upstream dynamically
+reconciled local-bypass interval before its interface-scoped TCP/UDP 53
+rules. For HEV DNS enabled sessions the local address builder also
+retains addresses on otherwise excluded interfaces and IPv4 network/
+directed broadcast addresses collected from broadcast-capable links.
+That expands the existing general local-bypass set for those sessions,
+not just DNS matches. Static IPv4 special ranges are returned before
+the DNS mark; IPv6 remains limited to global/ULA prefixes. This is a
+conservative address-based substitute, not a full equivalent of every
+kernel FIB address type. The temporary Kotlin capability gate was removed.
+Other ROOT modes and disabled HEV DNS sessions retain their old behavior.
+
+The gated gateway planner now matches exact /32 and /128 destinations
+assigned to each selected UP ingress, bounded to 32 targets across
+families. Both unmarked and staged marked NAT rules share a frozen,
+sorted target set for journal rendering and installation, rechecked
+before and after the table commit. Recovery accepts the previous
+addrtype grammar for comparison/removal, or the strict exact-host NAT
+grammar; it never replays old addresses. The INPUT guard behavior and
+mark authorization gate are unchanged. The application activation
+fence remains false; no live gateway or DELETE test was performed.
+
+Validation this turn: all 10 base patch hunks and 35 substitutions
+matched the pinned upstream text; no live addrtype match remains in
+the patched supervisor_xtables.c. Locally compiled the modified
+supervisor_xtables.c, supervisor_network.c and rules_local.c using
+GCC C17 -Wall -Wextra -Werror and the pinned upstream headers with the
+new config field. An isolated test harness using the new HEV helper,
+broadcast helper and real patched local address builder passed 329
+assertions (including per-argument checks). Another isolated harness
+with copied exact-host validation, target comparator, NAT builder,
+and new recovery parser passed 413 assertions against simulated rule
+queueing. The complete new target collector, backend/recovery link,
+committed host test suites, NDK/Kotlin/APK build and Android behavior
+have not yet been verified. Next build should verify the existing
+HEV interception with the hotspot active before enabling the
+experimental gateway path.
