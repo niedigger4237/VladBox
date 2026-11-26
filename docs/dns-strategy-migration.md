@@ -1335,3 +1335,35 @@ syntax check, Kotlin compilation, full NDK/APK build and Android
 boot/restart behavior have not been run in this turn. No live device
 changes. Next: app-side config generation and a full integration
 build, before user-facing activation.
+
+## Application config integration (activation fenced)
+
+HevGatewayDnsConfig is now part of the application source. RootDaemon
+prepares the gateway direct inbound and its first inbound-specific
+hijack-dns rule on a copy of the effective managed sing-box JSON.
+Existing DNS servers, DNS rules, outbound routes and inbound definitions
+remain unchanged. The paired native network field nfHevGatewayDnsPort
+is emitted only when the transform succeeds, with exact downstreams
+and nfTetherDnsHijack enabled. Known app/helper ports and inbound
+listen ports are checked; the native adapter must still check real
+socket ownership and firewall readiness. Boot publication prepares
+the empty downstream base and exact daemon template from the same
+paired configuration, rather than copying live interface identities.
+
+ENABLE_RUNTIME is deliberately false. The first prospective test
+path is restricted to managed bundled IPv4 TUN2SOCKS, reliable Android
+downstream discovery and no combined boot+service-control session.
+Existing nonlocal DNS interception remains unchanged, as do other
+root modes. This does not authorize marked conntrack deletion. No UI
+setting has been added, and the new wildcard listener is not enabled
+by existing preferences.
+
+Validation: the exact application transformer (Git blob
+18629f139c69df5f59af6f20e341b413d2e89341) was compiled with local
+kotlinc using the Gson classes bundled in the local Kotlin compiler
+JAR. The standalone checks plus the disabled gate assertion passed
+21/21. The test now targets the application transformer instead of a
+duplicate experimental implementation. RootDaemon, RootBoot, full
+native link, Android Gradle/NDK build and real core/device tests
+remain unverified. The next step is a full build and correction of
+integration errors, not further feature expansion.
