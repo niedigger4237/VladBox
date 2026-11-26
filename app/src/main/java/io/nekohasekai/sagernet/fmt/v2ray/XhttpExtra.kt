@@ -80,7 +80,15 @@ object XhttpExtra {
             } else {
                 val key = opts.optString("publicKey", opts.optString("password"))
                 require(key.isNotBlank()) { "Missing XHTTP download Reality public key" }
-                tls["reality"] = mapOf("enabled" to true, "public_key" to key, "short_id" to opts.optString("shortId"))
+                val mode = parseRealityHybridMode(
+                    listOf("supportX25519MLKEM768", "support-x25519mlkem768", "support_x25519mlkem768")
+                        .firstNotNullOfOrNull { name -> if (opts.has(name)) opts.opt(name)?.toString() else null }
+                )
+                if (!tls.containsKey("utls")) tls["utls"] = mapOf("enabled" to true, "fingerprint" to "chrome")
+                tls["reality"] = linkedMapOf<String, Any>(
+                    "enabled" to true, "public_key" to key, "short_id" to opts.optString("shortId"),
+                    "support_x25519mlkem768" to (mode != "disabled")
+                ).apply { if (mode == "enabled") put("require_x25519mlkem768", true) }
             }
             result["tls"] = tls
         }
