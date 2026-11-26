@@ -8,7 +8,7 @@ scope="$2"
 limit=33554432
 [ "$(id -u)" = 0 ] || exit 1
 case "$dir" in /*/nf-dns-cache-v1) ;; *) exit 1 ;; esac
-case "$scope" in "" ) ;; *[!0-9a-f]* ) exit 1 ;; *) [ "$"{#scope}" -eq 64 ] || exit 1 ;; esac
+case "$scope" in "" ) ;; *[!0-9a-f]* ) exit 1 ;; *) [ "${#scope}" -eq 64 ] || exit 1 ;; esac
 base="$(dirname "$dir")"
 [ -d "$base" ] && [ ! -L "$base" ] || exit 1
 [ "$(stat -c %u "$base")" = 0 ] || exit 1

@@ -24,7 +24,7 @@ internal object RootPersistentDnsCache {
                 "sh -c ${RootShell.q(script)} sh ${RootShell.q(directory)} ${RootShell.q(scope.orEmpty())}",
                 timeoutMs = 10000
             )
-            if (!result.ok || result.out != if (scope == null) "memory" else "persistent") {
+            if (!result.ok || result.out != (if (scope == null) "memory" else "persistent")) {
                 Logs.w("ROOT managed DNS cache unavailable; keeping memory cache")
                 return config
             }
