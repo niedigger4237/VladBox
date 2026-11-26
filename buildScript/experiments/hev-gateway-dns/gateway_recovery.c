@@ -15,7 +15,7 @@ static int nf_recovery_plan(struct nf_native_slot *slot,bool guard,unsigned coun
 }
 /* Validate exact generated grammar, not arbitrary saved iptables commands.
  * A saved image is evidence for comparisons only; it is never executed. */
-static bool nf_recovery_image(const uint8_t *p,size_t len,const char *chain,bool guard,unsigned port,uint32_t mark,uint32_t mask) {
+static bool nf_recovery_image_legacy(const uint8_t *p,size_t len,const char *chain,bool guard,unsigned port,uint32_t mark,uint32_t mask) {
     if((mark || mask) && !nf_gateway_mark_valid(mark,mask))return false;
     unsigned pairs=0, drops=0;char prev[16]={0},names[16][16]={{0}};bool tcp=false,tag_pending=false;
     while(len) {
@@ -50,6 +50,66 @@ static bool nf_recovery_image(const uint8_t *p,size_t len,const char *chain,bool
         p+=n;len-=n;
     }
     return !tcp && !tag_pending && (guard?drops==2:drops==0);
+}
+/* New exact-host NAT images are validated without consulting live addresses.
+ * A previous address may have disappeared when recovery runs. Older
+ * addrtype images remain accepted for comparison/removal only. */
+static bool nf_recovery_exact_nat(const uint8_t *p,size_t len,const char *chain,
+    unsigned port,uint32_t mark,uint32_t mask) {
+    if((mark || mask) && !nf_gateway_mark_valid(mark,mask))return false;
+    enum asteriskd_ip_family family;
+    if(!strcmp(chain,nf_chains[2].name))family=ASTERISKD_IP_FAMILY_IPV4;
+    else if(!strcmp(chain,nf_chains[3].name))family=ASTERISKD_IP_FAMILY_IPV6;
+    else return false;
+    char prefix[64],prev_name[16]={0},prev_cidr[INET6_ADDRSTRLEN+5U]={0};
+    int prefix_len=snprintf(prefix,sizeof(prefix),"-A %s -d ",chain);
+    if(prefix_len<=0 || (size_t)prefix_len>=sizeof(prefix))return false;
+    unsigned targets=0,links=0;
+    while(len) {
+        if(++targets>NF_GATEWAY_MAX_TARGETS)return false;
+        const uint8_t *nl=memchr(p,'\n',len);
+        if(!nl)return false;
+        size_t n=(size_t)(nl-p)+1U;
+        if(n>512U || n<=(size_t)prefix_len || memchr(p,0,n) ||
+           memcmp(p,prefix,(size_t)prefix_len))return false;
+        char line[513];memcpy(line,p,n);line[n]=0;
+        const char *first=line+prefix_len,*space=strchr(first,' ');
+        char cidr[INET6_ADDRSTRLEN+5U]={0},name[16]={0};
+        if(!space || space==first || (size_t)(space-first)>=sizeof(cidr) ||
+           strncmp(space," -i ",4))return false;
+        memcpy(cidr,first,(size_t)(space-first));
+        if(!nf_gateway_host_cidr(family,cidr))return false;
+        first=space+4;space=strchr(first,' ');
+        if(!space || space==first || (size_t)(space-first)>=sizeof(name))return false;
+        memcpy(name,first,(size_t)(space-first));
+        if(!asteriskd_interface_selector_valid(name) || strchr(name,'+') ||
+           !strcmp(name,"lo") || !strcmp(name,"hevtun0") || !strcmp(name,"asterisk0") ||
+           !strcmp(name,".") || !strcmp(name,"..") || !strcmp(name,"all") || !strcmp(name,"default"))return false;
+        int order=strcmp(name,prev_name);
+        if(order<0 || (!order && strcmp(cidr,prev_cidr)<=0))return false;
+        if(order && ++links>16U)return false;
+        strcpy(prev_name,name);strcpy(prev_cidr,cidr);
+        for(unsigned transport=0;transport<2U;transport++) {
+            const char *proto=transport?"tcp":"udp";
+            char want[513];int size;
+            if(mask) {
+                size=snprintf(want,sizeof(want),"-A %s -d %s -i %s -p %s -m %s --dport 53 -m connmark --mark 0x0/0x%x -j CONNMARK --set-xmark 0x%x/0x%x\n",
+                    chain,cidr,name,proto,proto,mask,mark,mask);
+                if(size<=0 || (size_t)size>=sizeof(want) || len<(size_t)size || memcmp(p,want,(size_t)size))return false;
+                p+=size;len-=(size_t)size;
+                size=snprintf(want,sizeof(want),"-A %s -d %s -i %s -p %s -m %s --dport 53 -m connmark --mark 0x%x/0x%x -j REDIRECT --to-ports %u\n",
+                    chain,cidr,name,proto,proto,mark,mask,port);
+            } else size=snprintf(want,sizeof(want),"-A %s -d %s -i %s -p %s -m %s --dport 53 -j REDIRECT --to-ports %u\n",
+                chain,cidr,name,proto,proto,port);
+            if(size<=0 || (size_t)size>=sizeof(want) || len<(size_t)size || memcmp(p,want,(size_t)size))return false;
+            p+=size;len-=(size_t)size;
+        }
+    }
+    return targets>0U;
+}
+static bool nf_recovery_image(const uint8_t *p,size_t len,const char *chain,bool guard,unsigned port,uint32_t mark,uint32_t mask) {
+    return nf_recovery_image_legacy(p,len,chain,guard,port,mark,mask) ||
+        (!guard && nf_recovery_exact_nat(p,len,chain,port,mark,mask));
 }
 static int nf_recovery_slot(const struct nf_wal_record *r,size_t *pos,struct nf_native_slot *s,bool guard,uint32_t mark,uint32_t mask) {
     if(*pos>r->length || r->length-*pos<2)return -1;
@@ -679,6 +739,20 @@ int main(void) {
     CHECK(!nf_recovery_image((const uint8_t*)closed,strlen(closed),"NF_HEV_DNS4_IN",true,15354,0,0));
     CHECK(!nf_recovery_image((const uint8_t*)closed,strlen(closed)-1,"NF_HEV_DNS4_IN",true,15353,0,0));
     CHECK(!nf_recovery_image((const uint8_t*)closed,0,"NF_HEV_DNS4_IN",true,15353,0,0));
+    const char *oldNat="-A NF_HEV_DNS4_PRE -i ap0 -p udp -m udp --dport 53 -m addrtype --dst-type LOCAL --limit-iface-in -j REDIRECT --to-ports 15353\n"
+        "-A NF_HEV_DNS4_PRE -i ap0 -p tcp -m tcp --dport 53 -m addrtype --dst-type LOCAL --limit-iface-in -j REDIRECT --to-ports 15353\n";
+    CHECK(nf_recovery_image((const uint8_t*)oldNat,strlen(oldNat),"NF_HEV_DNS4_PRE",false,15353,0,0));
+    const char *exactNat="-A NF_HEV_DNS4_PRE -d 192.0.2.1/32 -i ap0 -p udp -m udp --dport 53 -j REDIRECT --to-ports 15353\n"
+        "-A NF_HEV_DNS4_PRE -d 192.0.2.1/32 -i ap0 -p tcp -m tcp --dport 53 -j REDIRECT --to-ports 15353\n";
+    CHECK(nf_recovery_image((const uint8_t*)exactNat,strlen(exactNat),"NF_HEV_DNS4_PRE",false,15353,0,0));
+    CHECK(!nf_recovery_image((const uint8_t*)exactNat,strlen(exactNat)-1,"NF_HEV_DNS4_PRE",false,15353,0,0));
+    CHECK(!nf_recovery_image((const uint8_t*)exactNat,strlen(exactNat),"NF_HEV_DNS4_PRE",false,15354,0,0));
+    char changedNat[512];strcpy(changedNat,exactNat);
+    char *cidr=strstr(changedNat,"/32");CHECK(cidr);cidr[2]='1';
+    CHECK(!nf_recovery_image((const uint8_t*)changedNat,strlen(changedNat),"NF_HEV_DNS4_PRE",false,15353,0,0));
+    strcpy(changedNat,exactNat);cidr=strstr(changedNat,"192.0.2.1/32");CHECK(cidr);
+    cidr=strstr(cidr+1,"192.0.2.1/32");CHECK(cidr);cidr[8]='2';
+    CHECK(!nf_recovery_image((const uint8_t*)changedNat,strlen(changedNat),"NF_HEV_DNS4_PRE",false,15353,0,0));
     char path[]="/tmp/nf-recovery-XXXXXX";CHECK(mkdtemp(path)!=NULL);int d=open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC);CHECK(d>=0);
     struct asteriskd_system_supervisor *s=calloc(1,sizeof(*s));struct nf_native_backend *a=calloc(1,sizeof(*a)),*b=calloc(1,sizeof(*b));CHECK(s&&a&&b);
     struct asteriskd_config *c=&s->loaded_config.config;c->owner=ASTERISKD_OWNER_BOX;c->core_type=ASTERISKD_CORE_SING_BOX;c->mode=ASTERISKD_MODE_TUN2SOCKS;c->enable_ipv6=true;
