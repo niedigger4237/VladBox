@@ -692,7 +692,7 @@ object RootDaemon {
         RootBoot.stage()?.let { return it }
         mark("boot staging")
         // Never replace a live supervisor's configuration or truncate its logs.
-        if (!shutdownVerified()) return "Previous ROOT supervisor did not shut down cleanly"
+        if (!shutdownVerified(forStartup = true)) return "Previous ROOT supervisor did not shut down cleanly"
         mark("cleanup previous daemon")
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
         val useFlow = managed && core.patched && DataStore.rootFlowMetadata &&
@@ -903,8 +903,26 @@ object RootDaemon {
      * Do not kill an arbitrary asteriskd by process name: that skips cleanup and can strand
      * TC/BPF hooks or Android offload settings.
      */
+    // State is telemetry, not an ownership token. Never use its child PIDs
+    // to kill processes or infer that an arbitrary kernel object is ours.
+    private fun cleanupEvidence(): RootCleanupEvidence {
+        val path = RootShell.q(statePath)
+        val result = RootShell.run(
+            "if [ -L $path ]; then exit 1; elif [ -f $path ]; then cat $path; elif [ -e $path ]; then exit 1; else echo NF_STATE_ABSENT; fi",
+            timeoutMs = 5000,
+        )
+        return RootCleanupEvidence.parse(result.ok, result.out, OWNER)
+    }
+
+    private fun clearAppTetherRules(): Boolean {
+        // Both families/guards must be attempted even when one fails.
+        val forwarding = RootTunForwarding.clear()
+        val ipv6 = RootTetherIpv6Guard.clear()
+        return forwarding && ipv6
+    }
+
     @Synchronized
-    private fun shutdownVerified(): Boolean {
+    private fun shutdownVerified(forStartup: Boolean = false): Boolean {
         if (!RootBoot.quiesceMonitor()) return false
         hotTetherEnabled = false
         appliedDownstreams = null
@@ -912,9 +930,17 @@ object RootDaemon {
         stopLogForward()
         val before = control("status", 5000) ?: return false
         if (before.get("code")?.asString == "not_running") {
-            val forwardingClean = RootTunForwarding.clear()
-            val guardClean = RootTetherIpv6Guard.clear()
-            return forwardingClean && guardClean
+            val evidence = cleanupEvidence()
+            val appClean = clearAppTetherRules()
+            if (!appClean) return false
+            if (evidence == RootCleanupEvidence.STOPPED || evidence == RootCleanupEvidence.NO_STATE) return true
+            // A vanished socket is not a cleanup ACK. Preserve the existing
+            // startup recovery path only: native startup reconciles its owned
+            // catalog before applying new rules. Do not call an explicit stop
+            // successful when prior native state is incomplete or unreadable.
+            Logs.w("ROOT supervisor absent: persisted cleanup evidence=$evidence; " +
+                if (forStartup) "native startup reconciliation required" else "cleanup not confirmed")
+            return forStartup
         }
         val snapshot = before.get("snapshot")?.takeIf { it.isJsonObject }?.asJsonObject ?: return false
         val pid = snapshot.get("supervisorPid")?.asInt ?: return false
@@ -931,7 +957,7 @@ object RootDaemon {
             return false
         }
         // Remove only our tagged exceptions before the native TUN is torn down.
-        val forwardingClean = RootTunForwarding.clear()
+        RootTunForwarding.clear()
         val result = control("shutdown", 30000) ?: return false
         val code = result.get("code")?.asString
         if (code != "ok" && code != "not_running") return false
@@ -939,9 +965,14 @@ object RootDaemon {
                 ?.get("phase")?.asString != "stopped") return false
         repeat(6) {
             if (control("status", 5000)?.get("code")?.asString == "not_running") {
-                Logs.i("ROOT supervisor: previous session cleaned and stopped")
-                val guardClean = RootTetherIpv6Guard.clear()
-                return (forwardingClean || RootTunForwarding.clear()) && guardClean
+                // Do not trust the pre-shutdown forwarding check: netd may
+                // rebuild chains while the native supervisor stops.
+                val appClean = clearAppTetherRules()
+                val evidence = cleanupEvidence()
+                val confirmed = appClean && evidence == RootCleanupEvidence.STOPPED
+                if (confirmed) Logs.i("ROOT supervisor: previous session cleaned and stopped")
+                else Logs.w("ROOT supervisor: post-stop verification failed: appClean=$appClean state=$evidence")
+                return confirmed
             }
             Thread.sleep(250)
         }
