@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SRC="$ROOT/buildScript/lib/core/recovery"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+"${CC:-cc}" -std=c11 -Wall -Wextra -Werror -I"$SRC" "$SRC/nf_sysctl_wal.c" "$ROOT/buildScript/test/root_sysctl_wal.c" -o "$TMP/test"
+"$TMP/test"
