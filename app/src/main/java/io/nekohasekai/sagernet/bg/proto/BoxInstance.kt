@@ -92,6 +92,13 @@ abstract class BoxInstance(
     }
 
     override fun launch() {
+        launchPlugins()
+        startCore()
+    }
+
+    /** External plugin setup remains on the service thread. ROOT can start its
+     * blocking native daemon separately, without moving the plugin pool off Main. */
+    protected fun launchPlugins() {
         // TODO move, this is not box
         val cacheDir = File(SagerNet.application.cacheDir, "tmpcfg")
         cacheDir.mkdirs()
@@ -201,7 +208,6 @@ abstract class BoxInstance(
             }
         }
 
-        startCore()
     }
 
     /** Starts the sing-box core. Root modes override this to run an external binary. */

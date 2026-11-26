@@ -861,7 +861,12 @@ object RootDaemon {
     }
 
     /** Ends the cycle and the supervisor; it removes its own rules/routes/devices first. */
-    fun shutdown() {
-        if (!shutdownVerified()) Logs.w("ROOT supervisor: cleanup not confirmed; no forced kill")
+    fun shutdown(): Boolean {
+        val clean = runCatching { shutdownVerified() }.getOrElse {
+            Logs.w(it)
+            false
+        }
+        if (!clean) Logs.w("ROOT supervisor: cleanup not confirmed; no forced kill")
+        return clean
     }
 }

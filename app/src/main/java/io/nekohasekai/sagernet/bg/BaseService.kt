@@ -87,6 +87,8 @@ class BaseService {
 
         val binder = Binder(this)
         var connectingJob: Job? = null
+        internal var stoppingJob: Job? = null
+        internal var destroyed = false
         var networkListenerKey: Any? = null
         var networkReconnectJob: Job? = null
         @Volatile var restartAfterStop = false
@@ -276,6 +278,7 @@ class BaseService {
         }
 
         fun stopRunner(restart: Boolean = false, msg: String? = null) {
+            if (data.destroyed) return
             if (data.state == State.Stopping) {
                 // A user stop or permission revocation must win over a pending reconnect.
                 if (!restart && msg == null) {
@@ -294,9 +297,13 @@ class BaseService {
             if (DataStore.vpnService === this) DataStore.vpnService = null
             this as Service
             data.changeState(State.Stopping)
-            removeServiceNotification()
+            // Keep ROOT foreground until native cleanup completes. Other service
+            // types retain their existing notification lifecycle.
+            val root = this is RootService
+            if (!root) removeServiceNotification()
 
-            runOnMainDispatcher {
+            data.stoppingJob = runOnMainDispatcher {
+                var stopMessage = msg
                 try {
                     try {
                         data.connectingJob?.cancelAndJoin()
@@ -306,14 +313,23 @@ class BaseService {
                     }
                 } catch (e: Exception) {
                     Logs.w(e)
+                    if (root) {
+                        // A failed or unconfirmed native shutdown must not
+                        // automatically create another ROOT session.
+                        data.restartAfterStop = false
+                        data.nextRootStartWaiting = null
+                        stopMessage = listOfNotNull(msg, e.readableMessage).joinToString("\n")
+                    }
                 } finally {
                     releaseServiceReceiver()
                     data.proxy = null
                     removeServiceNotification()
-                    data.changeState(State.Stopped, msg)
-                    val resume = data.restartAfterStop
+                    val resume = data.restartAfterStop && !data.destroyed
                     data.restartAfterStop = false
-                    if (resume) startRunner() else stopSelf()
+                    if (!data.destroyed) {
+                        data.changeState(State.Stopped, stopMessage)
+                        if (resume) startRunner() else stopSelf()
+                    }
                 }
             }
         }
@@ -332,7 +348,7 @@ class BaseService {
             }
         }
 
-        fun cleanupOnDestroy() {
+        fun cleanupOnDestroy(deferProcessCleanup: Boolean = false) {
             data.restartAfterStop = false
             data.networkReconnectJob?.cancel()
             data.networkReconnectJob = null
@@ -341,7 +357,7 @@ class BaseService {
             releaseServiceReceiver()
             if (DataStore.baseService === this) DataStore.baseService = null
             if (DataStore.vpnService === this) DataStore.vpnService = null
-            if (data.proxy != null) {
+            if (!deferProcessCleanup && data.proxy != null) {
                 try { killProcesses() } catch (e: Exception) { Logs.w(e) }
                 data.proxy = null
             }
@@ -503,6 +519,9 @@ class BaseService {
                 try {
                     data.notification = createNotification(ServiceNotification.genTitle(profile))
 
+                    // A destroyed ROOT service may still be completing native
+                    // cleanup. Wait before touching any processes or configuration.
+                    if (this@Interface is RootService) this@Interface.awaitPreviousCleanup()
                     Executable.killAll()    // clean up old processes
                     markRootStartup("cleanup plugins")
                     preInit()

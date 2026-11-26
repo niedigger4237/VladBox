@@ -11,6 +11,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import io.nekohasekai.sagernet.bg.root.RootTunNetworkMonitor
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
@@ -88,6 +90,18 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
 
     override fun launch() {
         super.launch()
+        startMonitoring()
+    }
+
+    /** Called by RootService: the blocking su/readiness commands run on IO.
+     * Cancellation joins the startup before the service attempts shutdown. */
+    internal suspend fun launchRoot() {
+        launchPlugins()
+        withContext(Dispatchers.IO) { startCore() }
+        startMonitoring()
+    }
+
+    private fun startMonitoring() {
         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
         rootScope = scope
         rootLooper = service?.let { RootTrafficLooper(it.data, scope) }
@@ -161,18 +175,39 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
 
     fun urlTest(url: String, timeoutMs: Int): Int = RootClashApi.urlTest(url, timeoutMs)
 
-    override fun close() {
+    private fun stopMonitoring() {
         tunNetworkMonitor?.close()
         tunNetworkMonitor = null
         rootLooper?.stop()
         rootLooper = null
         rootScope?.coroutineContext?.get(kotlinx.coroutines.Job)?.cancel()
         rootScope = null
-        // asteriskd removes its rules before it stops the core
-        if (started) {
-            RootDaemon.shutdown()
-            started = false
+    }
+
+    /** Stop the native session before closing the app-side plugin pool.
+     * Never retry a failed native shutdown synchronously from close(). */
+    internal suspend fun stopNative(): Boolean {
+        stopMonitoring()
+        if (!started) return true
+        return withContext(Dispatchers.IO + NonCancellable) {
+            try {
+                RootDaemon.shutdown()
+            } finally {
+                started = false
+            }
         }
-        super.close()
+    }
+
+    override fun close() {
+        stopMonitoring()
+        // Fallback for callers outside RootService; the normal service paths
+        // always await stopNative() before close().
+        try {
+            if (started) {
+                try { RootDaemon.shutdown() } finally { started = false }
+            }
+        } finally {
+            super.close()
+        }
     }
 }
