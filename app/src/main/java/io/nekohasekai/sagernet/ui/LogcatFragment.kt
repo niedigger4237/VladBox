@@ -1,7 +1,6 @@
 package io.nekohasekai.sagernet.ui
 
 import android.os.Bundle
-import androidx.activity.result.contract.ActivityResultContracts
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.layout.*
@@ -35,7 +34,7 @@ class LogcatFragment : ToolbarFragment(R.layout.layout_logcat) {
     private val logs = mutableStateOf("")
     private val busy = mutableStateOf(false)
 
-    private val saveLog = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+    private val saveLog = registerForActivityResult(CreateExportDocument()) { uri ->
         if (uri != null) {
             val resolver = requireContext().contentResolver
             lifecycleScope.launch {
@@ -44,7 +43,8 @@ class LogcatFragment : ToolbarFragment(R.layout.layout_logcat) {
                     withContext(Dispatchers.IO) {
                         val file = SendLog.createLogFile("NieFigger-Hub")
                         try {
-                            val output = resolver.openOutputStream(uri) ?: error("Cannot open destination")
+                            val destination = resolver.ensureExportExtension(uri, "export.log")
+                            val output = resolver.openOutputStream(destination, "wt") ?: error("Cannot open destination")
                             output.use { stream -> file.inputStream().use { it.copyTo(stream) } }
                         } finally { file.delete() }
                     }

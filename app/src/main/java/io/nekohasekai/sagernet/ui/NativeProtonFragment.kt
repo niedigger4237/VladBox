@@ -29,6 +29,9 @@ import io.nekohasekai.sagernet.generator.proton.ProtonPresets
 import io.nekohasekai.sagernet.generator.proton.ProtonScreen
 import io.nekohasekai.sagernet.generator.proton.ProtonConfExporter as Conf
 import io.nekohasekai.sagernet.group.RawUpdater
+import io.nekohasekai.sagernet.ktx.CreateExportDocument
+import io.nekohasekai.sagernet.ktx.ensureExportExtension
+import io.nekohasekai.sagernet.ktx.exportMimeType
 import io.nekohasekai.sagernet.ui.compose.HubTheme
 import io.nekohasekai.sagernet.ui.compose.VladTopAppBar
 import kotlinx.coroutines.Dispatchers
@@ -80,13 +83,13 @@ open class NativeProtonFragment : ToolbarFragment() {
             }
         }
     }
-    private val save = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+    private val save = registerForActivityResult(CreateExportDocument()) { uri ->
         val output = model.pending.singleOrNull()
         model.pending = emptyList()
         if (uri != null && output != null) {
             val context = requireContext().applicationContext
             lifecycleScope.launch {
-                val ok = withContext(Dispatchers.IO) { runCatching { write(context, uri, output.text) }.isSuccess }
+                val ok = withContext(Dispatchers.IO) { runCatching { write(context, context.contentResolver.ensureExportExtension(uri, output.fileName), output.text) }.isSuccess }
                 notify(context, if (ok) "Configuration saved" else "Unable to save configuration")
             }
         }
@@ -101,9 +104,15 @@ open class NativeProtonFragment : ToolbarFragment() {
                     val dir = DocumentFile.fromTreeUri(context, uri)
                     outputs.count { output ->
                         runCatching {
-                            val file = requireNotNull(dir?.createFile("application/octet-stream", output.fileName))
-                            try { write(context, file.uri, output.text) }
-                            catch (e: Exception) { file.delete(); throw e }
+                            val file = requireNotNull(dir?.createFile(exportMimeType(output.fileName), output.fileName))
+                            var destination = file.uri
+                            try {
+                                destination = context.contentResolver.ensureExportExtension(destination, output.fileName)
+                                write(context, destination, output.text)
+                            } catch (e: Exception) {
+                                runCatching { android.provider.DocumentsContract.deleteDocument(context.contentResolver, destination) }
+                                throw e
+                            }
                         }.isSuccess
                     }
                 }

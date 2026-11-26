@@ -55,10 +55,11 @@ class DashboardFragment : ToolbarFragment() {
                     var tab by rememberSaveable { mutableStateOf(0) }
                     var searchOpen by rememberSaveable { mutableStateOf(false) }
                     var menuOpen by remember { mutableStateOf(false) }
+                    // Keep collecting across Overview, Connections, Proxies and Rules.
                     val history = remember { mutableStateListOf<Pair<Long, Long>>() }
-                    LaunchedEffect(connected, dashboardVisible, tab) {
+                    LaunchedEffect(connected, dashboardVisible) {
                         history.clear()
-                        while (connected && dashboardVisible && tab == 0) {
+                        while (connected && dashboardVisible) {
                             val current = model.state.value
                             if (history.size >= 60) history.removeAt(0)
                             history.add(current.rxBytes to current.txBytes)

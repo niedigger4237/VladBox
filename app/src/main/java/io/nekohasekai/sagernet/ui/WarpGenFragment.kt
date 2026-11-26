@@ -17,6 +17,9 @@ import io.nekohasekai.sagernet.database.ProfileManager
 import io.nekohasekai.sagernet.databinding.LayoutWebviewBinding
 import io.nekohasekai.sagernet.group.RawUpdater
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
+import io.nekohasekai.sagernet.ktx.CreateExportDocument
+import io.nekohasekai.sagernet.ktx.ensureExportExtension
+import io.nekohasekai.sagernet.ktx.exportMimeType
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -41,13 +44,15 @@ abstract class WarpGenFragment(private val page: String, private val titleRes: I
     private val pickFiles = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) {
         chooser?.onReceiveValue(it.toTypedArray()); chooser = null
     }
-    private val createDoc = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+    private val createDoc = registerForActivityResult(CreateExportDocument()) { uri ->
         val p = pendingSave ?: return@registerForActivityResult
         pendingSave = null
         if (uri == null) return@registerForActivityResult done(p.first, true, "0")
         runOnDefaultDispatcher {
             val ok = runCatching {
-                requireContext().contentResolver.openOutputStream(uri, "wt")!!.use { it.write(p.second[0].second.toByteArray()) }
+                val resolver = requireContext().contentResolver
+                val destination = resolver.ensureExportExtension(uri, p.second[0].first)
+                requireNotNull(resolver.openOutputStream(destination, "wt")).use { it.write(p.second[0].second.toByteArray(Charsets.UTF_8)) }
             }.isSuccess
             done(p.first, ok, if (ok) "1" else "Не удалось записать файл")
         }
@@ -60,8 +65,16 @@ abstract class WarpGenFragment(private val page: String, private val titleRes: I
             val ok = runCatching {
                 val dir = DocumentFile.fromTreeUri(requireContext(), uri)!!
                 for ((name, text) in p.second) {
-                    val f = dir.createFile("text/plain", name) ?: error("create")
-                    requireContext().contentResolver.openOutputStream(f.uri, "wt")!!.use { it.write(text.toByteArray()) }
+                    val f = dir.createFile(exportMimeType(name), name) ?: error("create")
+                    val resolver = requireContext().contentResolver
+                    var destination = f.uri
+                    try {
+                        destination = resolver.ensureExportExtension(destination, name)
+                        requireNotNull(resolver.openOutputStream(destination, "wt")).use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                    } catch (e: Exception) {
+                        runCatching { android.provider.DocumentsContract.deleteDocument(resolver, destination) }
+                        throw e
+                    }
                 }
             }.isSuccess
             done(p.first, ok, if (ok) "${p.second.size}" else "Не удалось записать файлы")

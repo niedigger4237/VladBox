@@ -8,7 +8,9 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
+import io.nekohasekai.sagernet.ktx.CreateExportDocument
+import io.nekohasekai.sagernet.ktx.ensureExportExtension
+import io.nekohasekai.sagernet.generator.warp.WarpConfExporter
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
@@ -30,17 +32,19 @@ import kotlinx.coroutines.withContext
 
 open class NativeWarpFragment : ToolbarFragment() {
     private val model by lazy { ViewModelProvider(this)[WarpViewModel::class.java] }
-    private var pendingText: String? = null
-    private val save = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
-        val text = pendingText
-        pendingText = null
-        if (uri != null && text != null) {
+    private var pendingOutput: WarpConfExporter.Output? = null
+    private val save = registerForActivityResult(CreateExportDocument()) { uri ->
+        val output = pendingOutput
+        pendingOutput = null
+        if (uri != null && output != null) {
             val context = requireContext().applicationContext
             lifecycleScope.launch {
                 val ok = withContext(Dispatchers.IO) {
                     runCatching {
-                        requireNotNull(context.contentResolver.openOutputStream(uri, "wt")).use {
-                            it.write(text.toByteArray(Charsets.UTF_8))
+                        val resolver = context.contentResolver
+                        val destination = resolver.ensureExportExtension(uri, output.fileName)
+                        requireNotNull(resolver.openOutputStream(destination, "wt")).use {
+                            it.write(output.text.toByteArray(Charsets.UTF_8))
                         }
                     }.isSuccess
                 }
@@ -63,7 +67,7 @@ open class NativeWarpFragment : ToolbarFragment() {
                                 val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 clipboard.setPrimaryClip(ClipData.newPlainText("config", text))
                             }, onSave = { output ->
-                                pendingText = output.text
+                                pendingOutput = output
                                 save.launch(output.fileName)
                             }, onImport = ::importConfig)
                         }
