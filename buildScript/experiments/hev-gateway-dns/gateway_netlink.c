@@ -241,6 +241,12 @@ int nf_gateway_ct_mask_available(const struct nf_ct_owner *o) {
     int rc=nf_dump_family(AF_INET,o->port,&scan);if(rc)return rc;
     return nf_dump_family(AF_INET6,o->port,&scan);
 }
+/* Observation only: never infer authorization from an empty dump. */
+int nf_gateway_ct_candidate_available(uint32_t mark,uint32_t mask,uint16_t port) {
+    const struct nf_ct_owner owner={.mark=mark,.mask=mask,.port=port};
+    return nf_gateway_ct_mask_available(&owner);
+}
+
 /* Caller must withdraw verified NAT, retain INPUT guard and prove that the
  * old session exclusively owned the mask throughout its lifetime. Success
  * is a complete observed inventory, not permission to delete without GET. */
