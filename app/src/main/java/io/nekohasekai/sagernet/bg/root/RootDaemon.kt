@@ -173,7 +173,10 @@ object RootDaemon {
     }
 
     // Android reports active downstreams explicitly; never guess from all wlan* devices.
-    internal fun resolveDownstreams(mode: Mode, requireReliable: Boolean = false, ipv6: Boolean = false): DownstreamSnapshot? {
+    internal fun resolveDownstreams(
+        mode: Mode, requireReliable: Boolean = false, ipv6: Boolean = false,
+        allowIdleFastPath: Boolean = false,
+    ): DownstreamSnapshot? {
         // Boot-owned native sessions retain their selector-based configuration;
         // a saved global prefix must not bypass traffic after reboot/renumbering.
         val trackV6 = ipv6 && (mode == Mode.TUN || (mode in listOf(Mode.TUN2SOCKS, Mode.TPROXY, Mode.BPF2SOCKS) &&
@@ -190,12 +193,6 @@ object RootDaemon {
         val shortDump = RootShell.run("dumpsys tethering --short", timeoutMs = 5000)
         val dump = if (shortDump.ok && shortDump.out.contains("TetheredState")) shortDump
             else RootShell.run("dumpsys tethering", timeoutMs = 5000)
-        // Both families must succeed; a partial route dump cannot prove that an interface is not WAN.
-        val routes = RootShell.run("ip -4 route show table all && ip -6 route show table all", timeoutMs = 5000)
-        if (!routes.ok) {
-            Logs.w("ROOT ${mode.wire}: cannot verify upstream interfaces; skipping unverified downstreams")
-            return if (requireReliable) null else emptySnapshot()
-        }
         val state = Regex("""^\s*([A-Za-z0-9_.-]{1,15})\s+-\s+TetheredState\s+-\s+lastError\s*=\s*0\s*$""")
         if (requireReliable) {
             if (!dump.ok) return null
@@ -206,10 +203,22 @@ object RootDaemon {
         }
         val active = if (dump.ok) dump.out.lineSequence()
             .mapNotNull { state.matchEntire(it)?.groupValues?.get(1) }.distinct().toList() else emptyList()
+        val auto = if (dump.ok) active.filter { name -> selectors.any { matches(name, it) } } else emptyList()
+        // No interface can be selected when both lists are empty. Only use
+        // this shortcut after a reliable dump and for an already empty
+        // applied snapshot; never skip WAN checks on a detach or attach.
+        if (RootIdlePolling.skipEmptyRouteDump(
+                requireReliable, allowIdleFastPath, dump.ok, manual.isEmpty(), auto.isEmpty(),
+            )) return emptySnapshot()
+        // Both families must succeed; a partial route dump cannot prove that an interface is not WAN.
+        val routes = RootShell.run("ip -4 route show table all && ip -6 route show table all", timeoutMs = 5000)
+        if (!routes.ok) {
+            Logs.w("ROOT ${mode.wire}: cannot verify upstream interfaces; skipping unverified downstreams")
+            return if (requireReliable) null else emptySnapshot()
+        }
         val upstream = routes.out.lineSequence().filter { it.trimStart().startsWith("default ") }
             .flatMap { Regex("""\bdev\s+([A-Za-z0-9_.-]{1,15})(?:\s|$)""").findAll(it).map { match -> match.groupValues[1] } }
             .toSet()
-        val auto = if (dump.ok) active.filter { name -> selectors.any { matches(name, it) } } else emptyList()
         val result = (manual + auto).distinct().filter { name ->
             name !in internalInterfaces && name !in upstream && ignored.none { matches(name, it) }
         }
@@ -637,8 +646,10 @@ object RootDaemon {
                             if (active()) Libcore.nekoLogPrintln("[oversized native diagnostic omitted]")
                         }
                     }
-                    idlePolls = if (received) 0 else (idlePolls + 1).coerceAtMost(3)
-                    Thread.sleep(1500L * (idlePolls + 1))
+                    // Only confirmed empty reads back off; failed reads retain
+                    // the previous short retry cadence. A new line resets it.
+                    idlePolls = RootIdlePolling.nextLogIdlePolls(idlePolls, result.ok, received)
+                    Thread.sleep(RootIdlePolling.logDelayMs(idlePolls))
                 }
             } catch (_: InterruptedException) {
             } catch (e: Exception) {

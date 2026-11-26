@@ -74,7 +74,10 @@ internal class RootTunNetworkMonitor(
             candidate = null
             return
         }
-        val observed = RootDaemon.resolveDownstreams(mode, requireReliable = true, ipv6 = applied.serviceIpv6)
+        val observed = RootDaemon.resolveDownstreams(
+            mode, requireReliable = true, ipv6 = applied.serviceIpv6,
+            allowIdleFastPath = applied.names.isEmpty(),
+        )
         if (!ownsSession()) {
             candidate = null
             return
