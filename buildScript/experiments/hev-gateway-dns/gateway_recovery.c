@@ -398,6 +398,88 @@ int nf_gateway_startup_reconcile(struct asteriskd_system_supervisor *s) {
     return nf_gateway_admission_check(d);
 }
 
+/* Adapter for the existing upstream core lifecycle, not a second process
+ * manager. The opt-in supervisor field remains zero in app-generated configs
+ * until NAT/link integration is ready. This stage installs only closed INPUT. */
+extern int nf_gateway_socket_observe(struct asteriskd_system_supervisor *,unsigned,unsigned *);
+static int nf_runtime_session_id(uint8_t id[16]) {
+    int fd=open("/dev/urandom",O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
+    if(fd<0)return -1;
+    int rc=nf_io(fd,id,16,false);close(fd);
+    return rc || !nf_nonzero(id,16)?-1:0;
+}
+static void nf_runtime_free(struct nf_native_backend *b) {
+    if(!b)return;
+    nf_native_clear(&b->guard);nf_native_clear(&b->nat);
+    if(b->wal_fd>=0)close(b->wal_fd);
+    free(b);
+}
+/* No new clean WAL is written until ownership is checkpointed. Retain the
+ * previous generation for CAS; an unresolved record is never replaced. */
+static int nf_runtime_init_wal(struct nf_native_backend *b,int directory,unsigned port) {
+    b->wal_fd=nf_gateway_wal_lock(directory);if(b->wal_fd<0)return -1;
+    struct stat st;
+    if(fstatat(b->wal_fd,NF_WAL_TEMP,&st,AT_SYMLINK_NOFOLLOW)==0 || errno!=ENOENT)return -1;
+    uint8_t *payload=malloc(NF_WAL_MAX);if(!payload)return -1;
+    struct nf_wal_record old;int rc=nf_gateway_wal_load(b->wal_fd,&old,payload,NF_WAL_MAX);free(payload);
+    if(rc<0 || (!rc && (old.debts || old.epoch || old.length || old.generation==UINT64_MAX)))return -1;
+    b->wal=(struct nf_wal_record){.generation=rc==1?0:old.generation,.port=(uint16_t)port,.schema=1};
+    if(nf_boot_read(b->wal.boot) || nf_runtime_session_id(b->wal.session))return -1;
+    b->wal_ready=true;b->precore_certified=true;return 0;
+}
+int nf_gateway_runtime_before_core(struct asteriskd_system_supervisor *s) {
+    unsigned port=s->loaded_config.config.nf_hev_gateway_dns_port;
+    if(!port)return s->nf_gateway_session?-1:0;
+    if(s->nf_gateway_session || !nf_valid(&s->loaded_config.config,port) ||
+       !s->loaded_config.config.nf_tether_dns_hijack || !nf_native_available(s) ||
+       nf_gateway_port_absent(port))return -1;
+    struct nf_native_backend *b=calloc(1,sizeof(*b));if(!b)return -1;
+    b->system=s;b->wal_fd=-1;
+    if(nf_runtime_init_wal(b,s->store.directory_fd,port)) {nf_runtime_free(b);return -1;}
+    // The real stop/release path must retain the handle even if a write fails.
+    s->nf_gateway_session=b;
+    if(nf_native_write(b,&b->guard,port,true,false))return -1;
+    b->precore_certified=false;b->wal.debts|=4U;
+    return nf_native_checkpoint(b,NF_GUARD_CLOSED);
+}
+int nf_gateway_runtime_core_identity(struct asteriskd_system_supervisor *s) {
+    struct nf_native_backend *b=s->nf_gateway_session;
+    if(!b)return s->loaded_config.config.nf_hev_gateway_dns_port?-1:0;
+    return nf_native_record_core(b);
+}
+int nf_gateway_runtime_core_ready(struct asteriskd_system_supervisor *s) {
+    struct nf_native_backend *b=s->nf_gateway_session;
+    if(!b)return s->loaded_config.config.nf_hev_gateway_dns_port?-1:0;
+    unsigned families=0;
+    // This proves TCP and UDP listener ownership in at least one family.
+    // Dual-stack reachability is deliberately not inferred from procfs.
+    if(!nf_closed_guard_only(b) || nf_native_verify(s,&b->guard,false) ||
+       nf_native_record_core(b) || nf_gateway_socket_observe(s,b->wal.port,&families))return -1;
+    return (families&3U)==3U || (families&12U)==12U?0:-1;
+}
+int nf_gateway_runtime_after_core_stop(struct asteriskd_system_supervisor *s) {
+    struct nf_native_backend *b=s->nf_gateway_session;if(!b)return 0;
+    if(!b->wal_ready || b->nat.owned || b->nat.plan.private_group_count ||
+       (b->wal.debts&24U) || (s->core_spawned && !s->core_reaped) ||
+       (s->core_spawned && !b->core_evidence_valid) ||
+       (b->core_evidence_valid && !nf_core_gone(&b->core_evidence)))return -1;
+    if(!b->wal.debts && !b->guard.owned) {
+        // No owned mutation was committed. Never clear another owner's rules.
+        nf_runtime_free(b);s->nf_gateway_session=NULL;return 0;
+    }
+    if(nf_gateway_port_absent(b->wal.port) || nf_live_names_absence(s,true) ||
+       nf_gateway_ct_port_absent(b->wal.port) || nf_recovery_preflight(b,&b->guard) ||
+       nf_native_remove(b,&b->guard) || nf_reboot_live_absence(s) ||
+       nf_gateway_port_absent(b->wal.port) || b->wal.generation==UINT64_MAX)return -1;
+    struct nf_wal_record clean=b->wal;clean.generation++;clean.debts=0;clean.epoch=0;clean.length=0;clean.payload=NULL;
+    if(nf_gateway_wal_save(b->wal_fd,&clean,b->wal.generation)) {b->wal_ready=false;return -1;}
+    nf_runtime_free(b);s->nf_gateway_session=NULL;return 0;
+}
+/* Destruction never claims cleanup success. An unresolved WAL survives. */
+void nf_gateway_runtime_dispose(struct asteriskd_system_supervisor *s) {
+    nf_runtime_free(s->nf_gateway_session);s->nf_gateway_session=NULL;
+}
+
 #ifdef NF_RECOVERY_HOST_TEST
 static unsigned checks;
 #define CHECK(x) do{if(!(x)){fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x);exit(1);}++checks;}while(0)
