@@ -464,27 +464,71 @@ int nf_gateway_runtime_core_ready(struct asteriskd_system_supervisor *s) {
        nf_native_record_core(b) || nf_gateway_socket_observe(s,b->wal.port,&families))return -1;
     return (families&3U)==3U || (families&12U)==12U?0:-1;
 }
-/* Runtime-only test path: the application does not publish the opt-in
- * port. Exact downstream names must come from the trusted Android
- * configuration; this snapshot checks existence, UP and link identity,
- * not upstream/downstream role or IPv6 wildcard reachability. */
-static int nf_runtime_links(struct asteriskd_system_supervisor *s,unsigned indices[16]) {
-    const struct asteriskd_config *c=&s->loaded_config.config;
-    if(!nf_valid(c,c->nf_hev_gateway_dns_port))return -1;
-    memset(indices,0,16*sizeof(*indices));
-    struct ifaddrs *list=NULL;if(getifaddrs(&list))return -1;
-    int rc=0;
-    for(size_t i=0;i<c->hotspot_interface_count;i++) {
-        const char *name=c->hotspot_interfaces[i];
-        indices[i]=if_nametoindex(name);bool up=false;
-        for(const struct ifaddrs *p=list;p;p=p->ifa_next) {
-            if(p->ifa_name && !strcmp(p->ifa_name,name) && p->ifa_addr &&
-               (p->ifa_flags&IFF_UP) && !(p->ifa_flags&IFF_LOOPBACK) &&
-               p->ifa_addr->sa_family==AF_INET) {up=true;break;}
-        }
-        if(!indices[i] || !up || if_nametoindex(name)!=indices[i]){rc=-1;break;}
+/* Capture the actual address set, not just a reused interface name.
+ * The Android caller still owns the classification of trusted downstreams.
+ * Canonical ordering makes getifaddrs enumeration order irrelevant. */
+static int nf_link_address_compare(const void *a,const void *b) {
+    return memcmp(a,b,sizeof(struct nf_link_address));
+}
+static bool nf_runtime_links_equal(const struct nf_link_snapshot *a,const struct nf_link_snapshot *b) {
+    if(a->count!=b->count || a->count>16U)return false;
+    for(size_t i=0;i<a->count;i++) {
+        const struct nf_link_identity *x=&a->links[i],*y=&b->links[i];
+        if(strcmp(x->name,y->name) || x->index!=y->index || x->count!=y->count ||
+           x->count>NF_LINK_ADDRESS_LIMIT ||
+           memcmp(x->addresses,y->addresses,x->count*sizeof(x->addresses[0])))return false;
     }
-    freeifaddrs(list);return rc;
+    return true;
+}
+static int nf_runtime_links(struct asteriskd_system_supervisor *s,struct nf_link_snapshot *out) {
+    const struct asteriskd_config *c=&s->loaded_config.config;
+    if(!out || !nf_valid(c,c->nf_hev_gateway_dns_port))return -1;
+    memset(out,0,sizeof(*out));
+    struct ifaddrs *list=NULL;if(getifaddrs(&list))return -1;
+    int rc=-1;
+    for(size_t i=0;i<c->hotspot_interface_count;i++) {
+        struct nf_link_identity *link=&out->links[i];
+        const char *name=c->hotspot_interfaces[i];
+        if(strlen(name)>=sizeof(link->name))goto done;
+        strcpy(link->name,name);link->index=if_nametoindex(name);
+        if(!link->index)goto done;
+        bool ipv4=false;
+        for(const struct ifaddrs *p=list;p;p=p->ifa_next) {
+            if(!p->ifa_name || strcmp(p->ifa_name,name) || !p->ifa_addr ||
+               !(p->ifa_flags&IFF_UP) || (p->ifa_flags&IFF_LOOPBACK))continue;
+            int family=p->ifa_addr->sa_family;
+            if(family!=AF_INET && family!=AF_INET6)continue;
+            if(!p->ifa_netmask || p->ifa_netmask->sa_family!=family)goto done;
+            struct nf_link_address item={0};
+            item.family=family==AF_INET?4:6;
+            if(family==AF_INET) {
+                const struct sockaddr_in *a=(const struct sockaddr_in *)p->ifa_addr;
+                const struct sockaddr_in *m=(const struct sockaddr_in *)p->ifa_netmask;
+                if(a->sin_addr.s_addr==INADDR_ANY)continue;
+                memcpy(item.address,&a->sin_addr,4);memcpy(item.mask,&m->sin_addr,4);
+                ipv4=true;
+            } else {
+                const struct sockaddr_in6 *a=(const struct sockaddr_in6 *)p->ifa_addr;
+                const struct sockaddr_in6 *m=(const struct sockaddr_in6 *)p->ifa_netmask;
+                if(IN6_IS_ADDR_UNSPECIFIED(&a->sin6_addr))continue;
+                memcpy(item.address,&a->sin6_addr,16);memcpy(item.mask,&m->sin6_addr,16);
+            }
+            bool duplicate=false;
+            for(unsigned j=0;j<link->count;j++)
+                if(!nf_link_address_compare(&item,&link->addresses[j]))duplicate=true;
+            if(duplicate)continue;
+            if(link->count==NF_LINK_ADDRESS_LIMIT)goto done;
+            link->addresses[link->count++]=item;
+        }
+        if(!ipv4 || if_nametoindex(name)!=link->index)goto done;
+        qsort(link->addresses,link->count,sizeof(link->addresses[0]),nf_link_address_compare);
+        out->count++;
+    }
+    rc=0;
+done:
+    freeifaddrs(list);
+    if(rc)memset(out,0,sizeof(*out));
+    return rc;
 }
 /* The core's regular apply_rules callback has already installed and verified
  * its routing rules. No publish unless both socket transports are observed
@@ -496,18 +540,19 @@ int nf_gateway_runtime_publish(struct asteriskd_system_supervisor *s) {
        !nf_closed_guard_only(b) || nf_native_verify(s,&b->guard,false) ||
        nf_native_record_core(b))return -1;
     if(!s->loaded_config.config.hotspot_interface_count)return 0;
-    unsigned before[16],after[16],families=0;
+    struct nf_link_snapshot before,after;unsigned families=0;
     unsigned required=b->ipv6_nat_disabled?3U:15U;
-    if(nf_runtime_links(s,before) || nf_gateway_socket_observe(s,b->wal.port,&families) ||
+    if(nf_runtime_links(s,&before) || nf_gateway_socket_observe(s,b->wal.port,&families) ||
        (families&required)!=required || nf_live_names_absence(s,true) ||
        nf_gateway_ct_port_absent(b->wal.port) || b->wal.generation==UINT64_MAX ||
-       nf_runtime_links(s,after) || memcmp(before,after,sizeof(before)))return -1;
+       nf_runtime_links(s,&after) || !nf_runtime_links_equal(&before,&after))return -1;
     b->wal.epoch=b->wal.generation+1;
     if(nf_native_write(b,&b->guard,b->wal.port,true,true) ||
        nf_native_write(b,&b->nat,b->wal.port,false,true) ||
        nf_native_verify(s,&b->guard,false) || nf_native_verify(s,&b->nat,false) ||
-       nf_runtime_links(s,after) || memcmp(before,after,sizeof(before)) ||
+       nf_runtime_links(s,&after) || !nf_runtime_links_equal(&before,&after) ||
        nf_gateway_socket_observe(s,b->wal.port,&families) || (families&required)!=required)return -1;
+    b->published_links=after;b->links_published=true;
     return 0;
 }
 /* Close INPUT before withdrawing REDIRECT. Old mappings may persist:
@@ -522,7 +567,48 @@ int nf_gateway_runtime_withdraw(struct asteriskd_system_supervisor *s) {
        nf_native_write(b,&b->guard,b->wal.port,true,false))return -1;
     if(nf_recovery_preflight(b,&b->nat) || nf_native_remove(b,&b->nat) ||
        nf_native_verify(s,&b->guard,false) || nf_live_names_absence(s,true))return -1;
+    b->links_published=false;memset(&b->published_links,0,sizeof(b->published_links));
     return 0;
+}
+
+/* Called by the existing hot tether transaction before selector mutation.
+ * A busy or unreadable conntrack table is a lifecycle failure, not an
+ * excuse to open INPUT for a new epoch. No polling loop or global flush. */
+int nf_gateway_runtime_refresh_begin(struct asteriskd_system_supervisor *s) {
+    struct nf_native_backend *b=s->nf_gateway_session;
+    if(!b)return s->loaded_config.config.nf_hev_gateway_dns_port?-1:0;
+    if(nf_gateway_runtime_withdraw(s))return -1;
+    return nf_gateway_ct_port_absent(b->wal.port)==0?0:-1;
+}
+/* Called only after the upstream selector transaction and verification.
+ * A partial publication is withdrawn before reporting failure. */
+int nf_gateway_runtime_refresh_finish(struct asteriskd_system_supervisor *s) {
+    if(!nf_gateway_runtime_publish(s))return 0;
+    (void)nf_gateway_runtime_withdraw(s);
+    return -1;
+}
+/* The ordinary reconciliation callback checks for unnoticed link/address
+ * drift as well as exact rules and owned listener identity. Never silently
+ * adopt an unclassified interface after ifindex reuse. */
+int nf_gateway_runtime_reconcile(struct asteriskd_system_supervisor *s) {
+    struct nf_native_backend *b=s->nf_gateway_session;
+    if(!b)return s->loaded_config.config.nf_hev_gateway_dns_port?-1:0;
+    if(!b->wal_ready || !s->rules_verified)return -1;
+    struct nf_link_snapshot current;
+    unsigned families=0,required=b->ipv6_nat_disabled?3U:15U;
+    bool live=b->links_published && b->nat.owned;
+    if(live && !nf_runtime_links(s,&current) &&
+       nf_runtime_links_equal(&current,&b->published_links) &&
+       !nf_native_record_core(b) && !nf_native_verify(s,&b->guard,false) &&
+       !nf_native_verify(s,&b->nat,false) &&
+       !nf_gateway_socket_observe(s,b->wal.port,&families) &&
+       (families&required)==required)return 0;
+    if(!b->links_published && !b->nat.owned &&
+       !s->loaded_config.config.hotspot_interface_count &&
+       nf_closed_guard_only(b) && !nf_native_verify(s,&b->guard,false) &&
+       !nf_native_record_core(b))return 0;
+    (void)nf_gateway_runtime_withdraw(s);
+    return -1;
 }
 
 int nf_gateway_runtime_after_core_stop(struct asteriskd_system_supervisor *s) {
@@ -859,6 +945,8 @@ int main(void) {
     CHECK(!nf_gateway_runtime_before_core(s));CHECK(!nf_gateway_runtime_core_identity(s));
     CHECK(!nf_gateway_runtime_core_ready(s));CHECK(!nf_gateway_runtime_after_core_stop(s));
     CHECK(!nf_gateway_runtime_publish(s));CHECK(!nf_gateway_runtime_withdraw(s));
+    CHECK(!nf_gateway_runtime_refresh_begin(s));CHECK(!nf_gateway_runtime_refresh_finish(s));
+    CHECK(!nf_gateway_runtime_reconcile(s));
     nf_gateway_runtime_dispose(s);CHECK(!s->nf_gateway_session);
     s->loaded_config.config.nf_hev_gateway_dns_port=15353;
     CHECK(nf_gateway_runtime_before_core(s)<0);CHECK(nf_gateway_runtime_core_ready(s)<0);
@@ -866,11 +954,12 @@ int main(void) {
     CHECK(nf_gateway_runtime_core_identity(s)<0);CHECK(!s->nf_gateway_session);
     struct asteriskd_config *c=&s->loaded_config.config;
     c->owner=ASTERISKD_OWNER_BOX;c->core_type=ASTERISKD_CORE_SING_BOX;c->mode=ASTERISKD_MODE_TUN2SOCKS;
-    unsigned indices[16];CHECK(!nf_runtime_links(s,indices));
-    for(size_t i=0;i<16;i++)CHECK(!indices[i]);
+    struct nf_link_snapshot links,other;CHECK(!nf_runtime_links(s,&links));
+    CHECK(!links.count);other=links;CHECK(nf_runtime_links_equal(&links,&other));
+    other.count=1;CHECK(!nf_runtime_links_equal(&links,&other));
     c->hotspot_interface_count=1;strcpy(c->hotspot_interfaces[0],"lo");
-    CHECK(nf_runtime_links(s,indices)<0);
-    strcpy(c->hotspot_interfaces[0],"nfmissing0");CHECK(nf_runtime_links(s,indices)<0);
+    CHECK(nf_runtime_links(s,&links)<0);
+    strcpy(c->hotspot_interfaces[0],"nfmissing0");CHECK(nf_runtime_links(s,&links)<0);
     c->hotspot_interface_count=0;
     char path[]="/tmp/nf-runtime-session-XXXXXX";CHECK(mkdtemp(path));
     int d=open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC);CHECK(d>=0);
