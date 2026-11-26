@@ -108,7 +108,8 @@ owned_process() { resident_process && [ "$native_phase" = running ]; }
 resident_process() {
     status=$(timeout 5 "$DAEMON" status 2>/dev/null) || return 1
     printf '%s\n' "$status" | grep -Eq '"owner"[[:space:]]*:[[:space:]]*"asteriskbox"' || return 1
-    native_phase=$(printf '%s\n' "$status" | sed -n 's/.*"phase"[[:space:]]*:[[:space:]]*"\([a-z-]*\)".*/\1/p' | head -n 1)
+    # The snapshot's phase is emitted before the nested DNS enhancement phase.
+    native_phase=$(printf '%s\n' "$status" | grep -oE '"phase"[[:space:]]*:[[:space:]]*"[a-z-]+"' | head -n 1 | cut -d '"' -f 4)
     case "$native_phase" in running|paused|stopped|starting|stopping) ;; *) return 1;; esac
     pid=$(printf '%s\n' "$status" | sed -n 's/.*"supervisorPid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)
     case "$pid" in ""|0|*[!0-9]*) return 1;; esac

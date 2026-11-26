@@ -29,9 +29,9 @@ object ServiceControl {
             })
     }
 
-    fun toJson(): JsonObject = buildJson(::b, ::t, android.os.Build.VERSION.SDK_INT)
+    fun toJson(): JsonObject = buildJson(::b, ::t, android.os.Build.VERSION.SDK_INT) { Logs.w(it) }
 
-    internal fun buildJson(b: (String) -> Boolean, t: (String) -> String, sdk: Int): JsonObject {
+    internal fun buildJson(b: (String) -> Boolean, t: (String) -> String, sdk: Int, warn: (String) -> Unit = {}): JsonObject {
         val master = b("scEnabled")
         fun rule(name: String): JsonObject {
             val key = "scWifi_$name"
@@ -46,7 +46,7 @@ object ServiceControl {
             val conflictingStop = name.endsWith("Start") && b("scWifi_" + name.removeSuffix("Start") + "Stop")
             val requested = master && b("scWifi") && b(key) && !conflictingStop
             val enabled = requested && valid && (any || ssids.isNotEmpty() || bssids.isNotEmpty())
-            if (requested && !enabled) Logs.w("Service Control: disabled incomplete or invalid Wi-Fi rule $name")
+            if (requested && !enabled) warn("Service Control: disabled incomplete or invalid Wi-Fi rule $name")
             return JsonObject().apply {
                 addProperty("enabled", enabled)
                 add("ssids", JsonArray().also { a -> ssids.forEach(a::add) })
@@ -60,7 +60,7 @@ object ServiceControl {
                 val stop = parseServiceCron(t("scStopCron"))
                 val requested = master && b("scSchedule")
                 val on = requested && start is ServiceCronParseResult.Valid && stop is ServiceCronParseResult.Valid
-                if (requested && !on) Logs.w("Service Control: disabled invalid cron schedule")
+                if (requested && !on) warn("Service Control: disabled invalid cron schedule")
                 addProperty("enabled", on)
                 addProperty("startCron", if (on && start is ServiceCronParseResult.Valid) start.expression else "")
                 addProperty("stopCron", if (on && stop is ServiceCronParseResult.Valid) stop.expression else "")
