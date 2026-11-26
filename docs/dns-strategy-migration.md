@@ -360,3 +360,52 @@ A separate local DNS input path (with owned, downstream-only delivery,
 listener isolation, IPv4/IPv6, lifecycle cleanup and boot/hot-refresh
 verification) is still needed. Do not call this a full DNS leak fix.
 NDK compilation and Android integration remain unverified.
+
+## HEV gateway DNS: staged rule planner, not enabled
+
+The existing mark-based IPv4 non-local interception is unchanged. The
+local destination is delivered by Linux's priority-0 local table. An
+extra transparent listener is not sufficient: sing-box TProxy UDP
+writeback opens a socket at the original destination (port 53), which
+can conflict with Android's existing DNS listener (original v1.14.3
+protocol/redirect/tproxy.go). Prefer a distinct high-port direct inbound
+with a first, inbound-specific hijack-dns action and reverse NAT. The
+direct inbound supports both transports (protocol/direct/inbound.go,
+option/direct.go). Do not globally change the local table or enable
+route_localnet.
+
+buildScript/experiments/hev-gateway-dns contains an isolated Kotlin
+rule planner with 18 host checks. It does not execute commands or enter
+the APK. Exact verified active downstream names only, never upstream,
+ignored, reserved or wildcard names. For each enabled family it plans
+LOCAL destination TCP/UDP 53 REDIRECT to a reserved high port, and
+INPUT acceptance only for original-direction DNAT with original port
+53 on those downstreams. Direct connections to the high port are
+dropped. The caller must expand ignored selectors, verify link identity,
+reserve the port and check real kernel support. The IPv6 rules are
+candidates, not proven support; test link-local gateway and response
+source/conntrack separately.
+
+Required before activation:
+1. Register distinct NAT and INPUT chain/hook identities in the native
+   transaction plan and owned resource catalog, with exact cleanup and
+   crash reconciliation. Do not reuse FakeIP ICMP resources.
+2. Install and verify input isolation before opening the listener.
+   Bind TCP/UDP to the selected port, validate exclusive ownership, and
+   prepend a tag-specific hijack-dns rule. The listener must be ready
+   before NAT hooks are published. Reject collisions/unsupported
+   core configs and fail safely with no interception.
+3. Extend hot-refresh transaction to NAT and filter groups, preserve
+   guard order during cross-table commits, and verify every family.
+   Keep input guard until redirects/owned conntrack are removed and
+   listener stopped; retain cleanup obligations on failure. Handle
+   established flows and reused interfaces by precise conntrack
+   cleanup rather than flushing shared state. Verify Service Control,
+   boot config publication and failure rollback before enabling.
+4. Test IPv4/IPv6 UDP/TCP on a real Android device (SELinux, addrtype,
+   REDIRECT, conntrack DNAT state, INPUT policy, reverse NAT, DHCP,
+   local access, switching Wi-Fi/USB, shutdown, core crash).
+   Host here has no CAP_NET_ADMIN, so no live netfilter validation.
+
+Do not present the planner as runtime gateway interception. Existing
+TUN2SOCKS behavior and experimental opt-in are unchanged.
