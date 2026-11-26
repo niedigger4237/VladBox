@@ -87,6 +87,7 @@ fun buildSettingsTree(manager: PreferenceManager): PreferenceScreen {
         addPreference(EditTextPreference(ctx).apply { key = "rootTunBypassRuleSets"; setTitle(R.string.root_tun_bypass_rulesets); setSummary(R.string.root_tun_bypass_rulesets_sum) })
         addPreference(EditTextPreference(ctx).apply { key = "rootIgnoredInterfaces"; setTitle(R.string.root_ignored_interfaces); setSummary(R.string.root_ignored_interfaces_sum) })
         addPreference(SwitchPreference(ctx).apply { key = "tetherDnsHijack"; setTitle(R.string.tether_dns_hijack); setSummary(R.string.tether_dns_hijack_summary); setDefaultValue(false) })
+        addPreference(SwitchPreference(ctx).apply { key = "tetherHevDnsHijack"; setTitle(R.string.tether_dns_hijack); setSummary(R.string.tether_hev_dns_hijack_summary); setDefaultValue(false) })
         addPreference(SwitchPreference(ctx).apply { key = "tetherWifi"; setTitle(R.string.tether_wifi); setDefaultValue(false) })
         addPreference(SwitchPreference(ctx).apply { key = "tetherBluetooth"; setTitle(R.string.tether_bluetooth); setDefaultValue(false) })
         addPreference(SwitchPreference(ctx).apply { key = "tetherUsb"; setTitle(R.string.tether_usb); setDefaultValue(false) })

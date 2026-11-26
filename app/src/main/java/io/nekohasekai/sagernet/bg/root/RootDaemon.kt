@@ -395,7 +395,7 @@ object RootDaemon {
             addProperty("enableIpv6", ipv6)
             addProperty("disableSystemIpv6", !ipv6 && DataStore.rootDisableSystemIpv6)
             addProperty("enableLocalDns", false)
-            // Optional extension: only emit for the patched native TPROXY path.
+            // Optional extension: only emit for an eligible patched native mode.
             if (tetherDnsHijack) addProperty("nfTetherDnsHijack", true)
             addProperty("enableFakeDns", false)
             add("fakeDnsIpv4Pool", JsonNull.INSTANCE)
@@ -728,16 +728,21 @@ object RootDaemon {
         // selectors for daemon-managed modes when start-on-boot is enabled.
         val daemonDownstreams = if (mode != Mode.TUN &&
             DataStore.configurationStore.getBoolean("startOnBoot", false)) null else dynamicDownstreams?.names
+        val dnsCaptureRequested = when (mode) {
+            Mode.TPROXY -> DataStore.tetherDnsHijack
+            Mode.TUN2SOCKS -> DataStore.tetherHevDnsHijack
+            else -> false
+        }
         val tetherDnsHijack = RootTetherDnsPolicy.enabled(
-            requested = DataStore.tetherDnsHijack,
+            requested = dnsCaptureRequested,
             managed = managed && core.bundled,
-            tproxy = mode == Mode.TPROXY,
+            supportedMode = mode == Mode.TPROXY || mode == Mode.TUN2SOCKS,
             exactDownstreams = daemonDownstreams != null,
             startOnBoot = DataStore.configurationStore.getBoolean("startOnBoot", false),
             coreConfig = effectiveConfig
         )
-        if (DataStore.tetherDnsHijack && mode == Mode.TPROXY)
-            Logs.i("ROOT tether DNS interception: ${if (tetherDnsHijack) "enabled" else "not eligible"}")
+        if (dnsCaptureRequested)
+            Logs.i("ROOT ${mode.wire} tether DNS interception: ${if (!tetherDnsHijack) "not eligible" else if (mode == Mode.TUN2SOCKS) "IPv4 non-local unicast only" else "enabled"}")
         val dcfg = File(stage, "asteriskd.json").apply {
             writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, daemonDownstreams,
                 dynamicDownstreams?.ipv6Prefixes.orEmpty().map { it.subnet }, serviceControl, tetherDnsHijack))

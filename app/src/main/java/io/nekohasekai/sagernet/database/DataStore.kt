@@ -107,6 +107,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var directDnsPreset by configurationStore.string("directDnsPreset") { "quad9" }
     var hijackDns by configurationStore.string("hijackDns") { "both" }
     var tetherDnsHijack by configurationStore.boolean("tetherDnsHijack") { false }
+    var tetherHevDnsHijack by configurationStore.boolean("tetherHevDnsHijack") { false }
     var tetherWifi by configurationStore.boolean("tetherWifi")
     var tetherBluetooth by configurationStore.boolean("tetherBluetooth")
     var tetherUsb by configurationStore.boolean("tetherUsb")

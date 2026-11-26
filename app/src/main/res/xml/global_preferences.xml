@@ -63,6 +63,7 @@
     </PreferenceCategory>
     <PreferenceCategory app:title="@string/cat_tethering">
         <SwitchPreference app:key="tetherDnsHijack" app:title="@string/tether_dns_hijack" app:summary="@string/tether_dns_hijack_summary" app:defaultValue="false" />
+        <SwitchPreference app:key="tetherHevDnsHijack" app:title="@string/tether_dns_hijack" app:summary="@string/tether_hev_dns_hijack_summary" app:defaultValue="false" />
         <SwitchPreference app:icon="@drawable/ic_device_data_usage" app:key="tetherWifi" app:title="@string/tether_wifi" app:defaultValue="false" />
         <SwitchPreference app:icon="@drawable/ic_device_data_usage" app:key="tetherBluetooth" app:title="@string/tether_bluetooth" app:defaultValue="false" />
         <SwitchPreference app:icon="@drawable/ic_device_data_usage" app:key="tetherUsb" app:title="@string/tether_usb" app:defaultValue="false" />

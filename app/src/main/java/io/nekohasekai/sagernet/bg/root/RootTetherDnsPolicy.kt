@@ -4,10 +4,10 @@ import com.google.gson.JsonParser
 
 internal object RootTetherDnsPolicy {
     // Only an unqualified port-53 hijack at the head of the effective route
-    // can justify intercepting arbitrary local DNS before the native bypass.
-    fun enabled(requested: Boolean, managed: Boolean, tproxy: Boolean,
+    // can justify intercepting DNS before the native private-CIDR bypass.
+    fun enabled(requested: Boolean, managed: Boolean, supportedMode: Boolean,
                 exactDownstreams: Boolean, startOnBoot: Boolean, coreConfig: String): Boolean {
-        if (!requested || !managed || !tproxy || !exactDownstreams || startOnBoot) return false
+        if (!requested || !managed || !supportedMode || !exactDownstreams || startOnBoot) return false
         return runCatching {
             val root = JsonParser.parseString(coreConfig).asJsonObject
             val rules = root.getAsJsonObject("route").getAsJsonArray("rules")

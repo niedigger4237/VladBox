@@ -340,3 +340,23 @@ Boot prefix selectors, raw/custom overridden capture, external cores and
 other ROOT modes are not enabled. TUN2SOCKS local routing, ROOT TUN
 nftables and BPF2SOCKS TC/cgroup handling require separate work.
 Native build/Android device testing outstanding; no leak-free claim.
+
+## Scoped tether DNS interception (stage 2: partial HEV)
+
+ROOT TUN2SOCKS gets its own opt-in preference, default off, independent
+of TPROXY. Requires the same managed bundled core, exact downstreams,
+boot off and effective unconditional port-53 hijack. No change to the
+global enableLocalDns flag or native route effects. For IPv4 non-local
+UNICAST only, the owned HEV PREROUTING chain marks UDP/TCP 53 and returns
+before private-CIDR bypass, after the native IPsec and local-address
+exclusions. This reuses existing routing table 168 and the existing
+hot refresh/rollback machinery. The addrtype match is required; native
+rule creation must succeed. IPv6 is deliberately unchanged.
+
+This does not intercept the handset's own gateway DNS: Linux's priority-0
+local routing table precedes asteriskd's mark rule at priority 14599.
+Do not move the local routing rule or enable route_localnet globally.
+A separate local DNS input path (with owned, downstream-only delivery,
+listener isolation, IPv4/IPv6, lifecycle cleanup and boot/hot-refresh
+verification) is still needed. Do not call this a full DNS leak fix.
+NDK compilation and Android integration remain unverified.
