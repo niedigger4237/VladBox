@@ -1181,3 +1181,40 @@ eligibility checks, quiesce it before upstream rule withdrawal,
 and reconcile downstream changes in the existing supervisor. The
 mark verifier remains mandatory for the marked deletion path; do not
 enable it from a collision-free snapshot.
+
+## Runtime rule boundary: native-only NAT experiment
+
+The existing supervisor rule-install callback now calls the gateway
+publisher after the upstream rules have passed verification. Quiesce
+calls gateway withdrawal before removing upstream traffic hooks.
+Ordinary app-generated configs still omit nfHevGatewayDnsPort and
+both hooks are no-ops. The native-only test opt-in uses unmarked
+REDIRECT plus read-only conntrack drain; it is not a replacement for
+the proposed marked targeted-delete production path, which remains
+disabled because the mark lease is not proven.
+
+The test publisher probes NAT6 before creating the guard, requires
+the closed guard and verified core identity, exact selected downstream
+names that are UP and have an IPv4 address, stable ifindices around
+publication, and explicit owned TCP/UDP listener observations in each
+required family. IPv6 wildcard does not prove IPv4 readiness. Empty
+downstreams keep the guard closed. The test does not yet independently
+verify upstream/downstream role, address changes on an unchanged
+ifindex, or dynamic reconciliation. It checks old conntrack port
+absence before publishing; old mappings are never actively deleted.
+Guard open precedes REDIRECT; guard close precedes NAT removal.
+The final stop path can discharge historical NAT/flow debt only
+after the core is gone, NAT is absent and read-only conntrack drain
+succeeds. A busy or unreadable table can defer cleanup and prevent
+resume; no claim of seamless service-control cycles is made.
+
+Validation: the four new rule-hook substitutions were applied twice
+to the local previously patched pinned upstream source (idempotent).
+supervisor.c and supervisor_rules.c compiled with GCC C17
+-Wall -Wextra -Werror. An isolated host harness with the exact
+link-snapshot function and stubbed eligibility passed invalid port,
+empty selection, loopback and nonexistent link cases. The new
+NF_RUNTIME_SESSION_HOST_TEST assertions are committed but not run.
+No full adapter link, NDK/APK build, privileged firewall operation or
+Android test was performed. Dynamic tethering and a trustworthy
+marked cleanup contract remain necessary before user activation.
