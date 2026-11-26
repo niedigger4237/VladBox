@@ -36,7 +36,7 @@ static bool valid(const struct nf_lifecycle *s, const struct nf_backend *b) {
  * owned NAT tuples; never flush shared conntrack. Keep debts across failure. */
 static int withdraw(struct nf_lifecycle *s, const struct nf_backend *b) {
     int rc = 0;
-    if (s->guard && invoke(s,b,NF_GUARD_CLOSED)) rc = -1;
+    if (s->guard && (s->core || s->nat || s->flows) && invoke(s,b,NF_GUARD_CLOSED)) rc = -1;
     if (s->nat) {
         if (invoke(s,b,NF_NAT_REMOVE)) rc = -1;
         else s->nat = false;
@@ -185,6 +185,9 @@ int main(void) {
     f=(struct fake){.persistent=-1}; CHECK(!nf_gateway_prepare(&s,&b,15353));
     f.persistent=NF_STOP_CORE; CHECK(nf_gateway_stop(&s,&b)!=0 && f.core && f.guard);
     f.persistent=-1; CHECK(!nf_gateway_stop(&s,&b) && clean(&f));
+    f=(struct fake){.persistent=-1}; CHECK(!nf_gateway_prepare(&s,&b,15353)); CHECK(!nf_gateway_resume(&s,&b,10));
+    f.persistent=NF_GUARD_CLOSED; CHECK(nf_gateway_stop(&s,&b)!=0 && !f.core && f.guard && !f.nat && !f.flows);
+    CHECK(!nf_gateway_stop(&s,&b) && clean(&f));
     CHECK(nf_gateway_prepare(&s,&b,53)!=0); CHECK(nf_gateway_resume(&s,&b,0)!=0);
     printf("PASS %u checks (%u fault positions)\n",checks,normal_calls); return 0;
 }
