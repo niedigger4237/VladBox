@@ -316,6 +316,43 @@ int nf_gateway_ct_delete_owned(const struct nf_ct_owner *owner,const struct nf_c
     return nf_delete_checked(owner,old,recheck,ctx,nf_gateway_ct_get,nf_delete_exchange);
 }
 
+/* Bounded cleanup pass. No entry is sent until the entire inventory is
+ * accepted; a nonempty final scan retains debt for the caller to retry. */
+#include <stdlib.h>
+#define NF_CT_DRAIN_CAPACITY 4096U
+#define NF_CT_DRAIN_LIMIT 32U
+static int nf_drain_checked(const struct nf_ct_owner *owner,nf_ct_recheck_fn recheck,void *ctx,
+        int (*inventory)(const struct nf_ct_owner *,struct nf_ct_record *,size_t,size_t *),
+        int (*delete_one)(const struct nf_ct_owner *,const struct nf_ct_record *,nf_ct_recheck_fn,void *)) {
+    if(!nf_scan_owner_valid(owner) || !owner->verified_exclusive || !recheck || !inventory || !delete_one || recheck(ctx,owner))return -1;
+    struct nf_ct_record *records=calloc(NF_CT_DRAIN_CAPACITY,sizeof(*records));if(!records)return -1;
+    size_t count=0;int rc=-1;
+    if(inventory(owner,records,NF_CT_DRAIN_CAPACITY,&count) || count>NF_CT_DRAIN_CAPACITY || recheck(ctx,owner))goto done;
+    for(size_t i=0;i<count;i++)if(!nf_ct_valid(owner,&records[i]))goto done;
+    int64_t start=nf_monotonic_ms();if(start<0)goto done;
+    for(size_t i=0;i<count && i<NF_CT_DRAIN_LIMIT;i++) {
+        int64_t now=nf_monotonic_ms();if(now<start)goto done;
+        if(now-start>=2000)break;
+        if(delete_one(owner,&records[i],recheck,ctx))goto done;
+    }
+    if(recheck(ctx,owner) || inventory(owner,records,NF_CT_DRAIN_CAPACITY,&count) || count>NF_CT_DRAIN_CAPACITY || recheck(ctx,owner))goto done;
+    rc=count?1:0;
+ done: free(records);return rc;
+}
+struct nf_drain_bridge {int (*check)(void *);void *ctx;};
+static int nf_drain_bridge_check(void *ctx,const struct nf_ct_owner *owner) {
+    struct nf_drain_bridge *b=ctx;(void)owner;return b->check(b->ctx);
+}
+/* The caller must hold an exclusive session lock and independently prove
+ * ownership for the lifetime of the mask. No authorization is inferred here. */
+int nf_gateway_ct_drain(uint32_t mark,uint32_t mask,uint16_t port,uint16_t zone,
+                        int (*check)(void *),void *ctx) {
+    if(!check)return -1;
+    struct nf_ct_owner owner={.mark=mark,.mask=mask,.port=port,.zone=zone,.verified_exclusive=true};
+    struct nf_drain_bridge bridge={check,ctx};
+    return nf_drain_checked(&owner,nf_drain_bridge_check,&bridge,nf_gateway_ct_inventory,nf_gateway_ct_delete_owned);
+}
+
 #ifdef NF_NETLINK_HOST_TEST
 #include <stdio.h>
 #include <stdlib.h>
@@ -440,5 +477,37 @@ int main(void) {
     reset();owner.verified_exclusive=false;CHECK(RUN()<0 && !mock.gets && !mock.sends);
     CHECK(nf_gateway_ct_delete_owned(&owner,&sample,NULL,NULL)<0);
     printf("PASS %u delete transport checks (simulated; no live DELETE)\n",checks);return 0;
+}
+#endif
+#ifdef NF_DRAIN_HOST_TEST
+#include <stdio.h>
+static unsigned checks;
+#define CHECK(x) do {if(!(x)){fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x);exit(1);}++checks;}while(0)
+static struct {unsigned scans,deletes,checks,fail_check,fail_delete;size_t count,remaining;int scan_error;bool invalid;} f;
+static int fake_check(void *ctx,const struct nf_ct_owner *o){(void)ctx;(void)o;return ++f.checks==f.fail_check?-1:0;}
+static int fake_inventory(const struct nf_ct_owner *o,struct nf_ct_record *r,size_t cap,size_t *n) {
+    if(++f.scans==1 && f.scan_error)return f.scan_error;
+    *n=f.scans==1?f.count:f.remaining;if(*n>cap)return 0;
+    for(size_t i=0;i<*n;i++)r[i]=(struct nf_ct_record){.orig={.family=AF_INET,.proto=IPPROTO_UDP,.sport=(uint16_t)(10000+i),.dport=53},.reply={.family=AF_INET,.proto=IPPROTO_UDP,.sport=o->port,.dport=(uint16_t)(10000+i)},.id=(uint32_t)i+1,.mark=o->mark,.status=IPS_DST_NAT|IPS_DST_NAT_DONE,.zone=o->zone,.has_id=true,.has_mark=true,.has_status=true,.has_zone=true};
+    if(f.invalid && *n)r[*n-1].mark=0;
+    return 0;
+}
+static int fake_delete(const struct nf_ct_owner *o,const struct nf_ct_record *r,nf_ct_recheck_fn check,void *ctx){(void)r;return ++f.deletes==f.fail_delete || check(ctx,o)?-1:0;}
+int main(void) {
+    struct nf_ct_owner o={.mark=0x100000,.mask=0x300000,.port=15353,.verified_exclusive=true};
+#define RUN() nf_drain_checked(&o,fake_check,NULL,fake_inventory,fake_delete)
+#define RESET() memset(&f,0,sizeof(f))
+    RESET();CHECK(!RUN() && f.scans==2 && !f.deletes);
+    RESET();f.count=3;CHECK(!RUN() && f.scans==2 && f.deletes==3);
+    RESET();f.count=40;f.remaining=8;CHECK(RUN()==1 && f.deletes==32 && f.scans==2);
+    RESET();f.count=2;f.invalid=true;CHECK(RUN()<0 && !f.deletes);
+    RESET();f.count=2;f.scan_error=1;CHECK(RUN()<0 && !f.deletes);
+    RESET();f.count=4097;CHECK(RUN()<0 && !f.deletes);
+    RESET();f.count=2;f.fail_delete=1;CHECK(RUN()<0 && f.deletes==1 && f.scans==1);
+    RESET();f.count=2;f.fail_check=2;CHECK(RUN()<0 && !f.deletes);
+    RESET();f.count=2;f.fail_check=5;CHECK(RUN()<0 && f.deletes==2 && f.scans==1);
+    RESET();o.verified_exclusive=false;CHECK(RUN()<0 && !f.scans && !f.deletes);
+    CHECK(nf_gateway_ct_drain(0,0,15353,0,NULL,NULL)<0);
+    printf("PASS %u drain checks (simulated)\n",checks);return 0;
 }
 #endif
