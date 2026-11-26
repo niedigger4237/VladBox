@@ -29,10 +29,15 @@ for p in "$PATCH_DIR"/*.patch; do
 done
 popd
 
-####  uTLS Firefox 148 (sing-box-lx SPEC 086)
-# Keep the metacubex module path and pin the reviewed fork revision.
+####  MetaCubeX uTLS upstream (Firefox 148, Safari 26.3)
+# Keep the existing local directory name for libcore and ROOT build compatibility.
 if [ ! -d "utls-lx/.git" ]; then
   git clone --no-checkout "$UTLS_REPO" utls-lx
+else
+  git -C utls-lx remote set-url origin "$UTLS_REPO"
+fi
+if ! git -C utls-lx cat-file -e "$UTLS_COMMIT^{commit}" 2>/dev/null; then
+  git -C utls-lx fetch --no-tags origin "$UTLS_COMMIT"
 fi
 git -C utls-lx checkout --detach "$UTLS_COMMIT"
 [ "$(git -C utls-lx rev-parse HEAD)" = "$UTLS_COMMIT" ]

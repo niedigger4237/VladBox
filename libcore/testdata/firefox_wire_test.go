@@ -12,7 +12,7 @@ import (
 )
 
 // Read actual TLS records over an in-memory connection.
-func captureHello(t *testing.T, config *utls.Config) []byte {
+func captureHello(t *testing.T, config *utls.Config, id utls.ClientHelloID) []byte {
 	t.Helper()
 	client, peer := net.Pipe()
 	defer client.Close()
@@ -24,7 +24,7 @@ func captureHello(t *testing.T, config *utls.Config) []byte {
 	if err := peer.SetDeadline(deadline); err != nil {
 		t.Fatal(err)
 	}
-	u := utls.UClient(client, config, utls.HelloFirefox_Auto)
+	u := utls.UClient(client, config, id)
 	done := make(chan error, 1)
 	go func() { done <- u.Handshake() }()
 	defer func() {
@@ -87,7 +87,7 @@ func TestFirefox148Wire(t *testing.T) {
 		if i == 1 {
 			config.NextProtos = []string{"h2", "http/1.1"}
 		}
-		c := cursor{t, captureHello(t, config)}
+		c := cursor{t, captureHello(t, config, utls.HelloFirefox_Auto)}
 		c.take(34)
 		c.take(c.u8())
 		c.take(c.u16())
@@ -139,5 +139,48 @@ func TestFirefox148Wire(t *testing.T) {
 		if !bytes.Equal(h[len(h)-32:], x) {
 			t.Fatal("Firefox hybrid and classical X25519 key shares do not reuse the same public key")
 		}
+	}
+}
+
+func TestModernBrowserHybridWire(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		id utls.ClientHelloID
+		version string
+	}{
+		{"chrome", utls.HelloChrome_Auto, "133"},
+		{"safari", utls.HelloSafari_Auto, "26.3"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.id.Version != tc.version {
+				t.Fatalf("unexpected version %s, expected %s", tc.id.Version, tc.version)
+			}
+			c := cursor{t, captureHello(t, &utls.Config{ServerName:"example.test"}, tc.id)}
+			c.take(34)
+			c.take(c.u8())
+			c.take(c.u16())
+			c.take(c.u8())
+			ext := cursor{t, c.take(c.u16())}
+			groups := map[int]bool{}
+			shares := map[int]int{}
+			for len(ext.b) > 0 {
+				kind := ext.u16()
+				field := cursor{t, ext.take(ext.u16())}
+				switch kind {
+				case 10:
+					list := cursor{t, field.take(field.u16())}
+					for len(list.b) > 0 { groups[list.u16()] = true }
+				case 51:
+					list := cursor{t, field.take(field.u16())}
+					for len(list.b) > 0 {
+						group := list.u16()
+						shares[group] = len(list.take(list.u16()))
+					}
+				}
+			}
+			if !groups[0x11ec] || !groups[29] || shares[0x11ec] != 1216 || shares[29] != 32 {
+				t.Fatalf("missing or malformed hybrid/classical key shares: %v %v", groups, shares)
+			}
+		})
 	}
 }

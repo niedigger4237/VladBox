@@ -20,7 +20,7 @@ import (
 // fingerprint resolver. The test server deliberately aborts after ClientHello;
 // it does not impersonate a REALITY server or test certificate authentication.
 func TestNieFiggerRealityHybridOffer(t *testing.T) {
-	for _, fingerprint := range []string{"chrome", "firefox"} {
+	for _, fingerprint := range []string{"chrome", "firefox", "safari"} {
 		for _, enabled := range []bool{false, true} {
 			name := "disabled"
 			if enabled { name = "automatic" }
