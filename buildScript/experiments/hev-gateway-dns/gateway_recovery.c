@@ -68,11 +68,14 @@ int nf_gateway_recovery_load(struct nf_native_backend *b,const uint8_t boot[16])
     struct nf_wal_record r;int rc=nf_gateway_wal_load(b->wal_fd,&r,payload,NF_WAL_MAX);
     if(rc) {free(payload);return rc;}
     rc=-1;
-    if(memcmp(boot,r.boot,16) || r.length<8 || memcmp(payload,"NFFW01",6) || payload[7] ||
+    if(memcmp(boot,r.boot,16) || r.length<8 || memcmp(payload,"NFFW01",6) || payload[7]>1 ||
        (payload[6]!=NF_GUARD_CLOSED && payload[6]!=NF_GUARD_OPEN && payload[6]!=NF_NAT_INSTALL && payload[6]!=NF_NAT_REMOVE && payload[6]!=NF_GUARD_REMOVE))goto done;
     size_t pos=8;
     if(nf_recovery_slot(&r,&pos,&b->guard,true) || nf_recovery_slot(&r,&pos,&b->nat,false) || pos!=r.length ||
        (b->guard.owned && !(r.debts&2U)) || (b->nat.owned && (r.debts&24U)!=24U))goto done;
+    if(payload[7] && (r.debts!=3U || r.epoch || !b->guard.owned || b->nat.owned || b->nat.plan.private_group_count ||
+       (payload[6]!=NF_GUARD_CLOSED && payload[6]!=NF_GUARD_REMOVE)))goto done;
+    b->precore_certified=payload[7]==1U;
     b->wal=r;b->wal.payload=NULL;b->wal.length=0;b->wal_ready=true;rc=0;
 done:
     if(rc){nf_native_clear(&b->guard);nf_native_clear(&b->nat);}
@@ -213,12 +216,46 @@ static int nf_reboot_reconcile(int directory,const uint8_t boot[16],int (*absenc
     if(b){nf_native_clear(&b->guard);nf_native_clear(&b->nat);free(b);}
     free(payload);close(lock);return rc;
 }
+/* Only an explicitly certified pre-spawn checkpoint can be recovered in
+ * the same boot without durable child/flow identities. Old NFFW01 records
+ * (byte 7 = 0) never qualify. No NAT was published in this state. */
+static bool nf_precore_safe(const struct nf_native_backend *b) {
+    if(!b->precore_certified || b->wal.debts!=3U || b->wal.epoch || !b->guard.owned ||
+       b->nat.owned || b->nat.plan.private_group_count)return false;
+    for(size_t i=0;i<b->guard.plan.private_group_count;i++) {
+        const struct asteriskd_byte_buffer *v[]={&b->guard.expected[i],&b->guard.pending[i]};
+        for(size_t j=0;j<2;j++)if(v[j]->length && memmem(v[j]->bytes,v[j]->length,"-j ACCEPT",9))return false;
+    }
+    return true;
+}
+static int nf_precore_remove(void *ctx,struct nf_native_backend *b) {
+    b->system=ctx;
+    if(nf_recovery_preflight(b,&b->guard) || nf_native_remove(b,&b->guard))return -1;
+    return nf_reboot_live_absence(ctx);
+}
+static int nf_precore_reconcile(int directory,const uint8_t boot[16],
+        int (*remove_guard)(void *,struct nf_native_backend *),void *ctx) {
+    if(!boot || !remove_guard)return -1;
+    int lock=nf_gateway_wal_lock(directory);if(lock<0)return -1;
+    struct stat st;int rc=-1;
+    struct nf_native_backend *b=calloc(1,sizeof(*b));if(!b)goto done;
+    b->wal_fd=lock;
+    if(fstatat(lock,NF_WAL_TEMP,&st,AT_SYMLINK_NOFOLLOW)==0 || errno!=ENOENT ||
+       nf_gateway_recovery_load(b,boot) || !nf_precore_safe(b) || b->wal.generation==UINT64_MAX)goto done;
+    if(remove_guard(ctx,b) || b->guard.owned || b->wal.generation==UINT64_MAX)goto done;
+    struct nf_wal_record clean=b->wal;clean.generation++;clean.debts=0;clean.epoch=0;clean.payload=NULL;clean.length=0;
+    rc=nf_gateway_wal_save(lock,&clean,clean.generation-1);
+ done:
+    if(b){nf_native_clear(&b->guard);nf_native_clear(&b->nat);free(b);}
+    close(lock);return rc;
+}
 int nf_gateway_startup_reconcile(struct asteriskd_system_supervisor *s) {
     if(!s)return -1;
     int d=s->store.directory_fd;
     if(!nf_gateway_admission_check(d))return 0;
     uint8_t boot[16];
-    if(nf_boot_read(boot) || nf_reboot_reconcile(d,boot,nf_reboot_live_absence,s))return -1;
+    if(nf_boot_read(boot))return -1;
+    if(nf_reboot_reconcile(d,boot,nf_reboot_live_absence,s) && nf_precore_reconcile(d,boot,nf_precore_remove,s))return -1;
     return nf_gateway_admission_check(d);
 }
 
@@ -320,5 +357,50 @@ int main(void) {
     CHECK(nf_reboot_reconcile(d,boot,fake_absence,&f)<0 && f.calls==2);
     CHECK(!unlinkat(d,NF_WAL_NAME,0));close(d);CHECK(!rmdir(path));nf_native_clear(&b->guard);free(b);free(s);
     printf("PASS %u reboot recovery checks\n",checks);return 0;
+}
+#endif
+#ifdef NF_PRECORE_HOST_TEST
+static unsigned checks;
+#define CHECK(x) do {if(!(x)){fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x);exit(1);}++checks;}while(0)
+struct pre_fake {struct nf_native_backend *b;unsigned starts,removes;bool fail;};
+static int pre_step(void *ctx,enum nf_step op,unsigned port,uint64_t epoch) {
+    struct pre_fake *f=ctx;(void)port;(void)epoch;
+    if(op==NF_RESERVE)return 0;
+    if(op==NF_START_CORE) {
+        uint8_t raw[4096];struct nf_wal_record r;
+        if(nf_gateway_wal_load(f->b->wal_fd,&r,raw,sizeof(raw)) || !(r.debts&4U) || raw[7])return -1;
+        f->starts++;return 0;
+    }
+    return -1;
+}
+static int pre_remove_fake(void *ctx,struct nf_native_backend *b) {
+    struct pre_fake *f=ctx;f->removes++;
+    if(f->fail)return -1;
+    nf_native_clear(&b->guard);return 0;
+}
+int main(void) {
+    char path[]="/tmp/nf-precore-XXXXXX";CHECK(mkdtemp(path));int d=open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC);CHECK(d>=0);
+    struct asteriskd_system_supervisor *s=calloc(1,sizeof(*s));struct nf_native_backend *b=calloc(1,sizeof(*b));CHECK(s&&b);
+    struct asteriskd_config *c=&s->loaded_config.config;c->owner=ASTERISKD_OWNER_BOX;c->core_type=ASTERISKD_CORE_SING_BOX;c->mode=ASTERISKD_MODE_TUN2SOCKS;
+    b->system=s;b->wal_fd=nf_gateway_wal_lock(d);CHECK(b->wal_fd>=0);b->wal_ready=true;b->wal=(struct nf_wal_record){.boot={1},.session={2},.port=15353};
+    struct pre_fake f={.b=b};b->lifecycle_operations=(struct nf_backend){&f,pre_step};
+    CHECK(!nf_gateway_native_step(b,NF_RESERVE,15353,0) && b->precore_certified);
+    CHECK(!nf_gateway_plan(c,15353,true,&b->guard.plan));CHECK(!nf_native_render(s,&b->guard,15353,false));b->guard.pending_valid=b->guard.owned=true;
+    CHECK(!nf_native_checkpoint(b,NF_GUARD_CLOSED));CHECK(nf_precore_safe(b));
+    CHECK(nf_gateway_native_step(b,NF_GUARD_OPEN,15353,0)<0);CHECK(nf_gateway_native_step(b,NF_NAT_INSTALL,15353,0)<0);
+    uint8_t boot[16]={1},wrong[16]={3};close(b->wal_fd);
+    CHECK(nf_precore_reconcile(d,wrong,pre_remove_fake,&f)<0 && !f.removes);
+    f.fail=true;CHECK(nf_precore_reconcile(d,boot,pre_remove_fake,&f)<0 && f.removes==1);CHECK(nf_gateway_admission_check(d)<0);
+    b->wal_fd=nf_gateway_wal_lock(d);CHECK(b->wal_fd>=0);
+    CHECK(!nf_gateway_native_step(b,NF_START_CORE,15353,0) && f.starts==1 && !b->precore_certified && (b->wal.debts&4U));close(b->wal_fd);
+    CHECK(nf_precore_reconcile(d,boot,pre_remove_fake,&f)<0 && f.removes==1);
+    CHECK(!unlinkat(d,NF_WAL_NAME,0));b->wal_fd=nf_gateway_wal_lock(d);CHECK(b->wal_fd>=0);b->wal.generation=0;b->wal.debts=0;
+    CHECK(!nf_native_checkpoint(b,NF_GUARD_CLOSED));close(b->wal_fd);
+    CHECK(nf_precore_reconcile(d,boot,pre_remove_fake,&f)<0 && f.removes==1); // old format
+    CHECK(!unlinkat(d,NF_WAL_NAME,0));b->wal_fd=nf_gateway_wal_lock(d);CHECK(b->wal_fd>=0);b->wal.generation=0;b->wal.debts=0;b->precore_certified=true;
+    CHECK(!nf_native_checkpoint(b,NF_GUARD_CLOSED));close(b->wal_fd);f.fail=false;
+    CHECK(!nf_precore_reconcile(d,boot,pre_remove_fake,&f) && f.removes==2);CHECK(!nf_gateway_admission_check(d));
+    CHECK(!unlinkat(d,NF_WAL_NAME,0));close(d);CHECK(!rmdir(path));nf_native_clear(&b->guard);free(b);free(s);
+    printf("PASS %u pre-core recovery checks\n",checks);return 0;
 }
 #endif
