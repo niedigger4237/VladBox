@@ -70,6 +70,43 @@ parse() {
     }' "$1" "$2" "$3" "$4" "$5"
 }
 
+# Render a daemon template with only validated exact downstreams.
+# The core listener config is unchanged. Empty selection is phone-only.
+# Reject malformed/duplicate link identities and repeated placeholders.
+render_hev_daemon() {
+    [ "$#" -eq 3 ] || return 1
+    ifaces=$(awk '
+        $1=="link" {
+            if(NF!=3 || $2!~/^[0-9]+$/ || $2+0<1 || $2+0>4294967295 ||
+                length($3)<1 || length($3)>15 || $3!~/^[A-Za-z0-9_.-]+$/ ||
+                $3=="lo" || $3=="asterisk0" || $3=="hevtun0" || $3=="." ||
+                $3==".." || $3=="all" || $3=="default" || seen[$3]++ ||
+                indices[$2+0]++ || ++n>16) {bad=1;next}
+            if(n>1)printf ","
+            printf "\"%s\"",$3
+        }
+        END {if(bad)exit 1}
+    ' "$1") || return 1
+    awk -v a="$ifaces" '
+        {
+            marker="\"__NF_BOOT_IFACES__\""
+            if(index($0,marker)) {
+                i++
+                sub(/"__NF_BOOT_IFACES__"/,a)
+                if(index($0,marker))exit 1
+            }
+            print
+        }
+        END {if(i!=1)exit 1}
+    ' "$2" > "$3"
+}
+
+if [ "${1:-}" = "--render-hev" ]; then
+    shift
+    render_hev_daemon "$@"
+    exit
+fi
+
 if [ "${1:-}" = "--parse" ]; then
     shift
     [ "$#" -eq 5 ] || exit 2
@@ -90,6 +127,11 @@ BOOT_ID=$(cat /proc/sys/kernel/random/boot_id)
 MODE=$(awk '$1=="mode"{print $2}' "$POLICY")
 IPV6=$(awk '$1=="ipv6"{print $2}' "$POLICY")
 BLOCK6=$(awk '$1=="block6"{print $2}' "$POLICY")
+GATEWAY=$(awk '$1=="gateway"{print $2}' "$POLICY")
+case "$GATEWAY" in ""|0) GATEWAY=0;; 1) [ "$MODE" = tun2socks ] || exit 1;; *) exit 1;; esac
+if [ "$GATEWAY" = 1 ]; then
+    [ -f "$BOOT/daemon-template.json" ] || exit 1
+fi
 command -v flock >/dev/null 2>&1 || exit 0
 command -v timeout >/dev/null 2>&1 || exit 1
 [ -f "$POLICY" ] || exit 0
@@ -215,7 +257,7 @@ wait_running() {
 reconcile() (
     timeout 5 flock -x 9 || exit 1
     owned || exit 1
-    if [ "$MODE" != tun ]; then
+    if [ "$MODE" != tun ] && [ "$GATEWAY" != 1 ]; then
         # Native selector handling owns these modes. Only maintain the
         # supplemental software IPv6 guard for confirmed downstreams.
         if [ "$BLOCK6" = 1 ]; then
@@ -230,7 +272,8 @@ reconcile() (
         cp "$work/current" "$work/applied"
         exit 0
     fi
-    [ -f "$BOOT/tun-template.json" ] && [ -f "$BOOT/daemon-template.json" ] || exit 0
+    [ -f "$BOOT/daemon-template.json" ] || exit 0
+    if [ "$MODE" = tun ]; then [ -f "$BOOT/tun-template.json" ] || exit 0; fi
     if [ ! -f "$work/attempted" ] && cmp -s "$work/current" "$work/applied"; then
         apply_rules "$work/current"
         exit
@@ -238,7 +281,12 @@ reconcile() (
     now=$(date +%s)
     last=$(cat "$work/last-restart" 2>/dev/null || echo 0)
     [ "$((now-last))" -ge 15 ] || exit 1
-    render_tun || exit 1
+    if [ "$GATEWAY" = 1 ]; then
+        cp "$BOOT/config.json" "$work/core.json" || exit 1
+        render_hev_daemon "$work/current" "$BOOT/daemon-template.json" "$work/daemon.json" || exit 1
+    else
+        render_tun || exit 1
+    fi
     # Only bundled sing-box is used to validate. External cores are excluded
     # from autonomous dynamic TUN until their executable identity is verified.
     [ -x "$CORE" ] || exit 1
@@ -256,10 +304,12 @@ reconcile() (
             guard6 "$n" add || exit 1
         done
     fi
-    for n in $(names "$work/applied" | sort -u); do
-        forward_rule iptables "$n" remove || exit 1
-        if [ "$IPV6" = 1 ]; then forward_rule ip6tables "$n" remove || exit 1; fi
-    done
+    if [ "$MODE" = tun ]; then
+        for n in $(names "$work/applied" | sort -u); do
+            forward_rule iptables "$n" remove || exit 1
+            if [ "$IPV6" = 1 ]; then forward_rule ip6tables "$n" remove || exit 1; fi
+        done
+    fi
     # The app's handoff waits on this lock; check generation once more.
     owned || exit 1
     response=$(timeout 30 "$DAEMON" shutdown 2>/dev/null) || exit 1
@@ -271,6 +321,13 @@ reconcile() (
         sleep 1
     done
     [ "$stopped" = 1 ] && current || exit 1
+    # Reclassify after teardown; do not publish a stale rendered snapshot.
+    if [ "$GATEWAY" = 1 ]; then
+        cp "$work/current" "$work/rendered" || exit 1
+        if ! snapshot || ! cmp -s "$work/current" "$work/rendered"; then
+            : > "$work/current" # launch known-empty base; reclassify on next iteration
+        fi
+    fi
     launch=$CONFIG
     if [ -n "$(names "$work/current")" ]; then
         mv -f "$work/core.json" "$BOOT/runtime-config.json" || exit 1
