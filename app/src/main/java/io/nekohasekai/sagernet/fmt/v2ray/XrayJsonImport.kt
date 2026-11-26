@@ -42,6 +42,17 @@ object XrayJsonImport {
         require(unsupported.isEmpty()) { "Unsupported Xray $context: " + unsupported.joinToString() }
     }
 
+    // Display metadata is independent of the raw outbound tag used for chains.
+    private fun displayName(value: JSONObject): String =
+        listOf("remarks", "name").firstNotNullOfOrNull { key ->
+            (value.opt(key) as? String)?.trim()?.takeIf { it.isNotEmpty() }
+        }.orEmpty()
+
+    private fun meaningfulTag(value: JSONObject): String =
+        value.optString("tag").trim().takeUnless {
+            it.matches(Regex("(?i)^(?:proxy|outbound|vless|vmess|trojan)(?:[-_ ]?\\d+)?$"))
+        }.orEmpty()
+
     private fun required(value: JSONObject, key: String): String =
         value.optString(key).takeIf { it.isNotBlank() } ?: throw IllegalArgumentException("Missing Xray $key")
 
@@ -83,6 +94,9 @@ object XrayJsonImport {
             }
             else -> throw IllegalArgumentException("Expected Xray JSON object")
         }
+        val configName = (value as? JSONObject)?.takeIf { it.has("outbounds") }?.let(::displayName).orEmpty()
+        val sourceName = fileName.substringAfterLast('/').substringAfterLast('\\').trim()
+            .replace(Regex("(?i)\\.json$"), "")
         val proxies = outbounds.filter { it.optString("protocol") !in helpers }
         require(proxies.isNotEmpty()) { "No supported Xray client outbounds" }
         val tagged = linkedMapOf<String, JSONObject>()
@@ -120,7 +134,7 @@ object XrayJsonImport {
                 throw IllegalArgumentException("Xray chained tcpFastOpen has no equivalent on an inner dialer")
             }
             require(!obj(outbound, "mux").optBoolean("enabled")) { "Xray Mux.Cool is not equivalent to sing-box multiplex" }
-            checkKeys(outbound, setOf("protocol", "tag", "settings", "streamSettings", "mux", "proxySettings"), "outbound")
+            checkKeys(outbound, setOf("protocol", "tag", "settings", "streamSettings", "mux", "proxySettings", "remarks", "name"), "outbound")
             val settings = outbound.getJSONObject("settings")
             val arrayKey = if (protocol == "trojan") "servers" else "vnext"
             val flat = settings.has("address")
@@ -162,7 +176,15 @@ object XrayJsonImport {
             }
             bean.serverAddress = address
             bean.serverPort = port
-            bean.name = outbound.optString("tag").ifBlank { fileName.substringAfterLast('/').removeSuffix(".json").ifBlank { "$protocol $address" } }
+            val tagName = meaningfulTag(outbound)
+            val endpointName = "${protocol.uppercase(java.util.Locale.ROOT)} — $address"
+            val parentName = configName.ifBlank { sourceName }
+            bean.name = displayName(outbound).ifBlank {
+                if (parentName.isNotBlank()) {
+                    if (proxies.size == 1) parentName
+                    else "$parentName — ${tagName.ifBlank { endpointName }}"
+                } else tagName.ifBlank { endpointName }
+            }
             bean.initializeDefaultValues()
             val localStream = JSONObject(stream.toString())
             localStream.optJSONObject("sockopt")?.remove("dialerProxy")

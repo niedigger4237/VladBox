@@ -63,6 +63,24 @@ class XrayJsonImportTest {
         assertTrue(runCatching { withSocket("""{"domainStrategy":"AsIs","customSockopt":[{"opt":"1"}]}""") }.isFailure)
     }
 
+    @Test fun prefersExplicitProfileName() {
+        val outbound = JSONObject("""{"protocol":"vless","tag":"proxy","remarks":"Swiss VPN","name":"Other","settings":{"address":"example.org","port":443,"id":"$id"}}""")
+        assertEquals("Swiss VPN", XrayJsonImport.parse(outbound, "file.json").single().name)
+        outbound.remove("remarks")
+        assertEquals("Other", XrayJsonImport.parse(outbound, "file.json").single().name)
+        outbound.remove("name")
+        val full = JSONObject().put("remarks", "Config title").put("outbounds", org.json.JSONArray().put(outbound))
+        assertEquals("Config title", XrayJsonImport.parse(full, "file.json").single().name)
+    }
+
+    @Test fun genericTagFallsBackToFilenameOrEndpoint() {
+        val outbound = JSONObject("""{"protocol":"vless","tag":"proxy","settings":{"address":"example.org","port":443,"id":"$id"}}""")
+        assertEquals("My VPN", XrayJsonImport.parse(outbound, "My VPN.JSON").single().name)
+        assertEquals("VLESS — example.org", XrayJsonImport.parse(outbound).single().name)
+        outbound.put("tag", "Zurich")
+        assertEquals("Zurich", XrayJsonImport.parse(outbound).single().name)
+    }
+
     @Test fun nativeSingBoxNotMisidentified() {
         assertFalse(XrayJsonImport.recognizes(JSONObject("""{"outbounds":[{"type":"vless","server":"example.org","server_port":443}]}""")))
     }
