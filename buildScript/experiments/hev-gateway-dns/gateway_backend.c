@@ -32,6 +32,8 @@ struct nf_native_backend {
     bool precore_certified;
     uint32_t session_mark, session_mask;
     bool mark_authorized; // live assertion; never restored from disk
+    int (*mark_recheck)(void *,uint32_t,uint32_t);
+    void *mark_ctx;
     bool core_evidence_valid;
     struct nf_core_evidence core_evidence;
     struct nf_wal_record wal;
@@ -45,6 +47,21 @@ int nf_gateway_native_bind_mark(struct nf_native_backend *b,uint32_t mark,uint32
        b->session_mark || b->session_mask || !nf_gateway_mark_valid(mark,mask))return -1;
     b->session_mark=mark;b->session_mask=mask;b->mark_authorized=true;return 0;
 }
+/* Register the independent live ownership verifier before reservation.
+ * Not a mask allocator; the verifier must hold the lifetime contract. */
+int nf_gateway_native_set_mark_recheck(struct nf_native_backend *b,
+        int (*check)(void *,uint32_t,uint32_t),void *ctx) {
+    if(!b || !check || !b->mark_authorized || !b->wal_ready || b->wal.debts || b->wal.epoch ||
+       b->precore_certified || b->guard.owned || b->nat.owned || b->mark_recheck)return -1;
+    b->mark_recheck=check;b->mark_ctx=ctx;return 0;
+}
+static int nf_native_mark_recheck(struct nf_native_backend *b) {
+    if(!b->session_mask && !b->session_mark)return 0;
+    return !b->mark_authorized || !nf_gateway_mark_valid(b->session_mark,b->session_mask) || !b->mark_recheck ||
+        b->mark_recheck(b->mark_ctx,b->session_mark,b->session_mask)?-1:0;
+}
+/* Implemented in the recovery unit, sharing its kernel absence checks. */
+int nf_gateway_native_drain_marked(struct nf_native_backend *b);
 /* Persist exact old/pending chain images before any kernel mutation.
  * The schema stores guard then NAT, with family order fixed by the planner.
  * No raw struct/pointer serialization. Caller must separately journal core,
@@ -265,7 +282,7 @@ int nf_gateway_native_step(void *opaque,enum nf_step op,unsigned port,uint64_t e
     if(b->wal_ready && epoch)b->wal.epoch=epoch;
     switch(op) {
     case NF_RESERVE: {
-        if((b->session_mark || b->session_mask) && (!b->mark_authorized || !nf_gateway_mark_valid(b->session_mark,b->session_mask)))return -1;
+        if(nf_native_mark_recheck(b))return -1;
         int rc=b->lifecycle_operations.step(b->lifecycle_operations.ctx,op,port,epoch);
         if(!rc && b->wal_ready && !b->wal.debts && !b->wal.epoch &&
            b->wal.port==port && !b->guard.owned && !b->nat.owned) b->precore_certified=true;
@@ -281,12 +298,14 @@ int nf_gateway_native_step(void *opaque,enum nf_step op,unsigned port,uint64_t e
         if(b->lifecycle_operations.step(b->lifecycle_operations.ctx,op,port,epoch))return -1;
         return nf_native_record_core(b);
     case NF_GUARD_CLOSED: return nf_native_write(b,&b->guard,port,true,false);
-    case NF_GUARD_OPEN: if(b->precore_certified || !(b->wal.debts&4U) || !b->core_evidence_valid || nf_native_record_core(b))return -1; return nf_native_write(b,&b->guard,port,true,true);
+    case NF_GUARD_OPEN: if(nf_native_mark_recheck(b) || b->precore_certified || !(b->wal.debts&4U) || !b->core_evidence_valid || nf_native_record_core(b))return -1; return nf_native_write(b,&b->guard,port,true,true);
     case NF_GUARD_VERIFY: return b->guard.pending_valid?-1:nf_native_verify(b->system,&b->guard,false);
-    case NF_NAT_INSTALL: if(b->precore_certified || !(b->wal.debts&4U) || !b->core_evidence_valid || nf_native_record_core(b))return -1; return nf_native_write(b,&b->nat,port,false,true);
+    case NF_NAT_INSTALL: if(nf_native_mark_recheck(b) || b->precore_certified || !(b->wal.debts&4U) || !b->core_evidence_valid || nf_native_record_core(b))return -1; return nf_native_write(b,&b->nat,port,false,true);
     case NF_NAT_VERIFY: return b->nat.pending_valid?-1:nf_native_verify(b->system,&b->nat,false);
     case NF_NAT_REMOVE: return nf_native_remove(b,&b->nat);
     case NF_GUARD_REMOVE: return nf_native_remove(b,&b->guard);
+    case NF_CONNTRACK_DRAIN: if(b->session_mask || b->session_mark)return nf_gateway_native_drain_marked(b);
+        return b->lifecycle_operations.step(b->lifecycle_operations.ctx,op,port,epoch);
     default: return b->lifecycle_operations.step(b->lifecycle_operations.ctx,op,port,epoch);
     }
 }
