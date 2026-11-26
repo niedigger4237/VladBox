@@ -126,4 +126,19 @@
         <item>direct_only</item>
         <item>remote</item>
     </string-array>
+    <string name="dns_cache_storage">DNS Cache Storage</string>
+    <string name="dns_cache_memory">Memory (Default)</string>
+    <string name="dns_cache_persistent">Persistent (experimental; VPN only)</string>
+    <string name="dns_cache_clear">Clear Saved DNS Cache</string>
+    <string name="dns_cache_clear_summary">Delete the managed disk cache when idle, or on the next managed VPN connection. Does not clear FakeIP or custom cache files.</string>
+    <string name="dns_cache_cleared">Saved DNS cache cleared</string>
+    <string name="dns_cache_clear_pending">Cache busy or unavailable. Reset requested for the next managed VPN connection.</string>
+    <string-array name="dns_cache_storage_names">
+        <item>@string/dns_cache_memory</item>
+        <item>@string/dns_cache_persistent</item>
+    </string-array>
+    <string-array name="dns_cache_storage_values" translatable="false">
+        <item>memory</item>
+        <item>persistent</item>
+    </string-array>
 </resources>

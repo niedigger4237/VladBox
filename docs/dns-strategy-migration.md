@@ -218,3 +218,29 @@ Optimistic DNS Cache independently, and test restart/expiry, profile and
 resolver switching, selector switching, embedded VPN and each ROOT mode
 (including boot start and tethering). No runtime settings or native
 lifecycle changes are introduced by this audit.
+
+## Experimental embedded VPN implementation
+
+Modern + ordinary VPN only, default memory. Runtime injection (not exports,
+URL tests, temporary selector checks, ROOT, or raw/custom selected ConfigBean
+profiles). Selector groups, external plugins and unrecognized outbound types
+fall back to memory. Explicit experimental.cache_file is never modified or
+cleared by managed startup. Disabling persistence clears the reserved file
+on the next ordinary managed VPN start; it does not clear user cache files.
+The storage choice remains saved when temporarily ineligible.
+
+One private no_backup/nf-dns-cache-v1/cache.db (0600, directory 0700).
+No per-profile file or cache_id accumulation. A SHA-256 scope identifies
+the effective static DNS/route/egress config, selected proxy/routing profile
+and clear generation; scope changes reset the database rather than reuse
+answers. Scope metadata contains no raw configuration. Core lease + actual
+DB flock checked before unlink; fallback to memory on unavailable lock or
+preparation failure. Raw external process/core is not modified. A 32 MiB
+startup threshold resets an oversized file after acquiring locks; not a
+hard live size cap. No automatic FakeIP persistence. The existing memory
+capacity remains a memory-only option. Optimistic TTL is unchanged.
+Clear Saved DNS Cache attempts immediate deletion only when both locks
+permit it; otherwise increments the clear generation and requests reload.
+An unavailable file is retried at next eligible VPN startup. Active RAM
+cache is not cleared by this action. Android build/device validation and
+ROOT implementation (boot/handoff, native cache locks) remain outstanding.

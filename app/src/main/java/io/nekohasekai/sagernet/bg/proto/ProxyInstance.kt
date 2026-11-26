@@ -39,7 +39,30 @@ open class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interfac
     }
 
     override suspend fun loadConfig() {
-        super.loadConfig()
+        // Only real, managed embedded VPN sessions own this optional database.
+        // RootProxyInstance and TestInstance have independent loadConfig methods.
+        if (!notTmp || service == null ||
+            io.nekohasekai.sagernet.database.DataStore.serviceMode != io.nekohasekai.sagernet.Key.MODE_VPN ||
+            profile.type == ProxyEntity.TYPE_CONFIG) {
+            super.loadConfig()
+            return
+        }
+        val data = io.nekohasekai.sagernet.database.DataStore
+        val cache = io.nekohasekai.sagernet.fmt.PersistentDnsPolicy
+        val scope = if (data.dnsEngineMode == "modern" && data.dnsCacheStorage == "persistent" &&
+            config.selectorGroupId < 0 && config.externalIndex.all { it.chain.isEmpty() }) {
+            cache.scope(config.config, profile.id,
+                io.nekohasekai.sagernet.database.RouteProfiles.selectedId(), data.dnsCacheGeneration)
+        } else null
+        val directory = cache.directory()
+        if (scope == null && !directory.exists()) {
+            super.loadConfig()
+            return
+        }
+        box = io.nekohasekai.sagernet.bg.core.LibcoreBox(
+            libcore.Libcore.newManagedDnsCacheInstance(config.config,
+                moe.matsuri.nb4a.net.LocalResolverImpl, directory.absolutePath, scope.orEmpty())
+        )
     }
 
     override fun launch() {

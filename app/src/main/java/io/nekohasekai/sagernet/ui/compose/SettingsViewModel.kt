@@ -44,6 +44,7 @@ internal fun settingVisible(key: String?, mode: String, access: Access = Access.
     if (access == Access.UNAVAILABLE && key in rootOnlySettings) return false
     return when (key) {
     "dnsGlobalStrategy", "dnsOptimisticWindow", "dnsQueryTimeout", "dnsCacheCapacity" -> DataStore.dnsEngineMode == "modern"
+    "dnsCacheStorage", "dnsCacheClear" -> mode == "vpn" && DataStore.dnsEngineMode == "modern"
     "dnsBootstrapAddress", "dnsBootstrapTlsName" -> DataStore.dnsBootstrapPreset == "custom"
     "remoteDnsPreset", "remoteDns" -> DataStore.dnsMain != "direct_only"
     "domain_strategy_for_remote" -> DataStore.dnsEngineMode != "modern" && DataStore.dnsMain != "direct_only"

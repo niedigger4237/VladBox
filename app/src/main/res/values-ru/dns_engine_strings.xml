@@ -27,4 +27,11 @@
     <string name="dns_mode_split">Split DNS (по правилам; прямой по умолчанию)</string>
     <string name="dns_mode_direct_only">Direct Only (без удалённого DNS)</string>
     <string name="dns_mode_remote_preferred">Remote Preferred (через прокси по умолчанию)</string>
+    <string name="dns_cache_storage">Хранилище кеша DNS</string>
+    <string name="dns_cache_memory">Оперативная память (по умолчанию)</string>
+    <string name="dns_cache_persistent">На диске (экспериментально; только VPN)</string>
+    <string name="dns_cache_clear">Очистить сохранённый кеш DNS</string>
+    <string name="dns_cache_clear_summary">Удаление дискового кеша при остановленном ядре или при следующем управляемом VPN-подключении. Не затрагивает FakeIP и пользовательские базы.</string>
+    <string name="dns_cache_cleared">Сохранённый кеш DNS очищен</string>
+    <string name="dns_cache_clear_pending">Кеш занят или недоступен. Очистка запрошена при следующем управляемом VPN-подключении.</string>
 </resources>

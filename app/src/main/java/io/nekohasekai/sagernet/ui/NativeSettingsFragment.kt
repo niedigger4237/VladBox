@@ -254,9 +254,19 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
         bypassLanInCore.onPreferenceChangeListener = reloadListener
         mtu.onPreferenceChangeListener = reloadListener
 
-        for (key in listOf(Key.DNS_ENGINE_MODE, Key.DNS_GLOBAL_STRATEGY, Key.DNS_OPTIMISTIC_WINDOW, Key.DNS_QUERY_TIMEOUT, Key.DNS_CACHE_CAPACITY, Key.DNS_MAIN,
+        for (key in listOf(Key.DNS_ENGINE_MODE, Key.DNS_GLOBAL_STRATEGY, Key.DNS_OPTIMISTIC_WINDOW, Key.DNS_QUERY_TIMEOUT, Key.DNS_CACHE_CAPACITY, Key.DNS_CACHE_STORAGE, Key.DNS_MAIN,
             "domain_strategy_for_direct", "domain_strategy_for_remote", "domain_strategy_for_server")) {
             findPreference<Preference>(key)?.onPreferenceChangeListener = reloadListener
+        }
+        findPreference<Preference>(Key.DNS_CACHE_CLEAR)?.setOnPreferenceClickListener {
+            DataStore.dnsCacheGeneration = java.util.UUID.randomUUID().toString()
+            val directory = io.nekohasekai.sagernet.fmt.PersistentDnsPolicy.directory()
+            val cleared = runCatching { libcore.Libcore.clearManagedDnsCache(directory.absolutePath) }.isSuccess
+            android.widget.Toast.makeText(requireContext(),
+                if (cleared) R.string.dns_cache_cleared else R.string.dns_cache_clear_pending,
+                android.widget.Toast.LENGTH_LONG).show()
+            if (!cleared) needReload()
+            true
         }
         val bootstrapAddress = findPreference<EditTextPreference>(Key.DNS_BOOTSTRAP_ADDRESS)!!
         val bootstrapTlsName = findPreference<EditTextPreference>(Key.DNS_BOOTSTRAP_TLS_NAME)!!

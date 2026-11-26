@@ -197,7 +197,14 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             .setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
         setupRootCore()
 
-        serviceMode.setOnPreferenceChangeListener { _, _ ->
+        fun updatePersistentDnsVisibility(engine: String, service: String) {
+            val visible = engine == "modern" && service == Key.MODE_VPN
+            findPreference<Preference>(Key.DNS_CACHE_STORAGE)?.isVisible = visible
+            findPreference<Preference>(Key.DNS_CACHE_CLEAR)?.isVisible = visible
+        }
+        updatePersistentDnsVisibility(DataStore.dnsEngineMode, DataStore.serviceMode)
+        serviceMode.setOnPreferenceChangeListener { _, value ->
+            updatePersistentDnsVisibility(DataStore.dnsEngineMode, value.toString())
             if (DataStore.serviceState.started) SagerNet.stopService()
             true
         }
@@ -221,6 +228,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         mtu.onPreferenceChangeListener = reloadListener
 
         fun updateDnsModeVisibility(mode: String) {
+            updatePersistentDnsVisibility(mode, DataStore.serviceMode)
             findPreference<Preference>(Key.DNS_GLOBAL_STRATEGY)?.isVisible = mode == "modern"
             findPreference<Preference>(Key.DNS_OPTIMISTIC_WINDOW)?.isVisible = mode == "modern"
             findPreference<Preference>(Key.DNS_QUERY_TIMEOUT)?.isVisible = mode == "modern"
@@ -235,9 +243,19 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             needReload()
             true
         }
-        for (key in listOf(Key.DNS_GLOBAL_STRATEGY, Key.DNS_OPTIMISTIC_WINDOW, Key.DNS_QUERY_TIMEOUT, Key.DNS_CACHE_CAPACITY, Key.DNS_MAIN,
+        for (key in listOf(Key.DNS_GLOBAL_STRATEGY, Key.DNS_OPTIMISTIC_WINDOW, Key.DNS_QUERY_TIMEOUT, Key.DNS_CACHE_CAPACITY, Key.DNS_CACHE_STORAGE, Key.DNS_MAIN,
             "domain_strategy_for_direct", "domain_strategy_for_remote", "domain_strategy_for_server")) {
             findPreference<Preference>(key)?.onPreferenceChangeListener = reloadListener
+        }
+        findPreference<Preference>(Key.DNS_CACHE_CLEAR)?.setOnPreferenceClickListener {
+            DataStore.dnsCacheGeneration = java.util.UUID.randomUUID().toString()
+            val directory = io.nekohasekai.sagernet.fmt.PersistentDnsPolicy.directory()
+            val cleared = runCatching { libcore.Libcore.clearManagedDnsCache(directory.absolutePath) }.isSuccess
+            android.widget.Toast.makeText(requireContext(),
+                if (cleared) R.string.dns_cache_cleared else R.string.dns_cache_clear_pending,
+                android.widget.Toast.LENGTH_LONG).show()
+            if (!cleared) needReload()
+            true
         }
         val bootstrapAddress = findPreference<EditTextPreference>(Key.DNS_BOOTSTRAP_ADDRESS)!!
         val bootstrapTlsName = findPreference<EditTextPreference>(Key.DNS_BOOTSTRAP_TLS_NAME)!!

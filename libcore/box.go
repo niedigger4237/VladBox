@@ -7,6 +7,7 @@ import (
 	"io"
 	"libcore/device"
 	"log"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -75,6 +76,7 @@ type BoxInstance struct {
 	*box.Box
 	cancel context.CancelFunc
 	state  int
+	managedDNSCacheLease *os.File
 
 	v2api        *boxapi.SbV2rayServer
 	selector     *group.Selector
@@ -148,6 +150,12 @@ func (b *BoxInstance) Close() (err error) {
 		return nil
 	}
 	b.state = 2
+	if b.managedDNSCacheLease != nil {
+		// Retain the lease until Box.Close returns. The preflight also checks
+		// the DB's own flock if the native close did not release it.
+		defer b.managedDNSCacheLease.Close()
+		b.managedDNSCacheLease = nil
+	}
 
 	// clear main instance
 	if mainInstance == b {
