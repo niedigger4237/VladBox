@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.nekohasekai.sagernet.R
+import io.nekohasekai.sagernet.bg.root.ServiceControl
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ui.compose.HubTheme
 
@@ -133,7 +134,7 @@ private fun ControlField(key: String, title: String, enabled: Boolean, cron: Boo
         Text(if (value.isBlank()) title else "$title: $value")
     }
     if (editing) {
-        val valid = !cron || draft.isBlank() || draft.trim().split(Regex("\\s+")).size == 5
+        val valid = !cron || draft.isBlank() || ServiceControl.validCron(draft)
         AlertDialog(onDismissRequest = { editing = false }, title = { Text(title) },
             text = { OutlinedTextField(value = draft, onValueChange = { draft = it }, isError = !valid,
                 singleLine = cron, modifier = Modifier.fillMaxWidth()) },
