@@ -2,10 +2,15 @@ diff --git a/route/network.go b/route/network.go
 index a9dacbf4..7f95b68e 100644
 --- a/route/network.go
 +++ b/route/network.go
-@@ -493,6 +493,11 @@ func (r *NetworkManager) notifyInterfaceUpdate(_ *control.Interface, _ int) {
+@@ -493,6 +493,16 @@ func (r *NetworkManager) notifyInterfaceUpdate(_ *control.Interface, _ int) {
  func (r *NetworkManager) dispatchInterfaceUpdateLocked() {
  	defaultInterface := r.interfaceMonitor.DefaultInterface()
  	if defaultInterface == nil {
++		// Cancel any update started for the interface that just disappeared.
++		if r.interfaceUpdateCancel != nil {
++			r.interfaceUpdateCancel()
++			r.interfaceUpdateCancel = nil
++		}
 +		if r.platformInterface != nil && r.platformInterface.UsePlatformDefaultInterfaceMonitor() {
 +			// the platform owns the default network (Android VpnService); a monitor without an
 +			// interface must not pause the endpoints
