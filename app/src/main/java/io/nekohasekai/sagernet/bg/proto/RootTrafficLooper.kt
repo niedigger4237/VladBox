@@ -185,7 +185,7 @@ object RootClashApi {
 
 class RootTrafficLooper(private val data: BaseService.Data, private val sc: CoroutineScope) {
     private var job: Job? = null
-    private var stream: RootClashApi.TrafficStream? = null
+    @Volatile private var stream: RootClashApi.TrafficStream? = null
 
     @Synchronized
     fun start() {
@@ -225,7 +225,7 @@ class RootTrafficLooper(private val data: BaseService.Data, private val sc: Coro
                     val now = SystemClock.elapsedRealtime()
                     if (now >= nextPost) {
                         nextPost = now + interval.toLong()
-                        post(SpeedDisplayData(up, down, 0L, 0L, txTotal, rxTotal))
+                        post(handle, SpeedDisplayData(up, down, 0L, 0L, txTotal, rxTotal))
                     }
                 }
             } catch (e: CancellationException) {
@@ -239,11 +239,12 @@ class RootTrafficLooper(private val data: BaseService.Data, private val sc: Coro
         }
     }
 
-    private fun post(speed: SpeedDisplayData) {
-        sc.launch {
-            if (data.state == BaseService.State.Connected
-                && data.binder.callbackIdMap.containsValue(SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND)
-            ) {
+    private fun post(handle: RootClashApi.TrafficStream, speed: SpeedDisplayData) {
+        sc.launch(Dispatchers.Main.immediate) {
+            // Samples queued before a policy pause must not overwrite the
+            // waiting notification or statistics from a resumed session.
+            if (stream !== handle || data.state != BaseService.State.Connected) return@launch
+            if (data.binder.callbackIdMap.containsValue(SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND)) {
                 data.binder.broadcast { b ->
                     if (data.binder.callbackIdMap[b] == SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND) {
                         b.cbSpeedUpdate(speed)

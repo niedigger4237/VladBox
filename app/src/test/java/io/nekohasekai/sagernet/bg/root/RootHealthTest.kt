@@ -14,6 +14,13 @@ class RootHealthTest {
         assertEquals(RootHealth.INACTIVE, parse("""{"code":"ok","snapshot":{"owner":"asteriskbox","supervisorPid":123,"phase":"stopped"}}"""))
         assertEquals(RootHealth.RUNNING, parse("""{"code":"ok","snapshot":{"owner":"asteriskbox","supervisorPid":123,"phase":"running"}}"""))
     }
+    @Test fun distinguishesPolicyPauseFromTransitions() {
+        assertEquals(RootHealth.INACTIVE, parse("""{"code":"ok","snapshot":{"owner":"asteriskbox","supervisorPid":123,"phase":"paused"}}"""))
+        assertEquals(RootHealth.TRANSITIONING, parse("""{"code":"ok","snapshot":{"owner":"asteriskbox","supervisorPid":123,"phase":"stopping"}}"""))
+        assertEquals(RootHealth.UNKNOWN, parse("""{"code":"ok","snapshot":{"owner":"asteriskbox","supervisorPid":123,"phase":"other"}}"""))
+        val c = RootHealthConfirmation()
+        repeat(4) { assertFalse(c.observe(RootHealth.INACTIVE)) }
+    }
     @Test fun doesNotActOnUnknownOrForeignStatus() {
         assertEquals(RootHealth.UNKNOWN, RootHealth.parse(null, "asteriskbox"))
         assertEquals(RootHealth.UNKNOWN, parse("""{"code":"ok","snapshot":{"owner":"other","supervisorPid":123,"phase":"failed"}}"""))

@@ -102,10 +102,14 @@ current() {
     [ "$(cat "$BOOT/manual-owner" 2>/dev/null || true)" != "$BOOT_ID" ]
 }
 owned() { current && owned_process; }
-owned_process() {
+owned_process() { resident_process && [ "$native_phase" = running ]; }
+# A policy STOP may leave the same supervisor resident with no active core.
+# Keep discovery alive across that interval; authorize mutations only when running.
+resident_process() {
     status=$(timeout 5 "$DAEMON" status 2>/dev/null) || return 1
     printf '%s\n' "$status" | grep -Eq '"owner"[[:space:]]*:[[:space:]]*"asteriskbox"' || return 1
-    printf '%s\n' "$status" | grep -Eq '"phase"[[:space:]]*:[[:space:]]*"running"' || return 1
+    native_phase=$(printf '%s\n' "$status" | sed -n 's/.*"phase"[[:space:]]*:[[:space:]]*"\([a-z-]*\)".*/\1/p' | head -n 1)
+    case "$native_phase" in running|paused|stopped|starting|stopping) ;; *) return 1;; esac
     pid=$(printf '%s\n' "$status" | sed -n 's/.*"supervisorPid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)
     case "$pid" in ""|0|*[!0-9]*) return 1;; esac
     tr '\000' '\n' < "/proc/$pid/cmdline" | grep -Fx -e "$CONFIG" -e "$RUNTIME" >/dev/null
@@ -306,12 +310,27 @@ reconcile() (
 # Wait only for a bounded initial readiness window.
 for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
     current || exit 0
-    if owned; then break; fi
+    if resident_process; then break; fi
     sleep 2
 done
-owned || exit 0
+current && resident_process || exit 0
 : > "$work/applied"
-while owned; do
+misses=0
+while current; do
+    if ! resident_process; then
+        misses=$((misses+1))
+        [ "$misses" -lt 3 ] || break
+        sleep 5
+        continue
+    fi
+    misses=0
+    if [ "$native_phase" != running ]; then
+        # Do not replace a policy-paused daemon with a fresh boot/start.
+        # Keep the IPv6 safety guard and revalidate downstreams on resume.
+        rm -f "$work/candidate"
+        sleep 5
+        continue
+    fi
     if snapshot && owned; then
         # Require two consecutive identical observations before publishing.
         if [ -f "$work/candidate" ] && cmp -s "$work/current" "$work/candidate"; then
