@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dns_engine_mode">DNS Engine Mode</string>
+    <string name="dns_global_strategy">DNS Strategy</string>
+    <string name="dns_engine_legacy">Legacy (per-resolver strategies)</string>
+    <string name="dns_engine_modern">Modern (global strategy)</string>
+    <string-array name="dns_engine_mode_names">
+        <item>@string/dns_engine_legacy</item>
+        <item>@string/dns_engine_modern</item>
+    </string-array>
+    <string-array name="dns_engine_mode_values" translatable="false">
+        <item>legacy</item>
+        <item>modern</item>
+    </string-array>
+</resources>

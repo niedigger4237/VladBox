@@ -26,6 +26,8 @@ object Key {
     const val REMOTE_DNS = "remoteDns"
     const val DIRECT_DNS = "directDns"
     const val DNS_MAIN = "dnsMain"
+    const val DNS_ENGINE_MODE = "dnsEngineMode"
+    const val DNS_GLOBAL_STRATEGY = "dnsGlobalStrategy"
     const val ROUTE_FINAL = "routeFinal"
     const val ENABLE_DNS_ROUTING = "enableDnsRouting"
     const val ENABLE_FAKEDNS = "enableFakeDns"

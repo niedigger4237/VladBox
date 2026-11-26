@@ -8,6 +8,20 @@ internal object DnsRuleStrategy {
     fun overrideOrNull(rule: String?, default: String?): String? =
         rule?.takeIf { it.isNotBlank() && it != default }
 
+    fun isModern(mode: String): Boolean = mode == "modern"
+
+    fun globalStrategy(modern: Boolean, legacyDefault: String?, modernPreference: String?): String? =
+        if (modern) modernPreference else legacyDefault
+
+    fun ruleOverride(modern: Boolean, rule: String?, default: String?): String? =
+        if (modern) null else overrideOrNull(rule, default)
+
+    fun fakeDnsEnabled(requested: Boolean, modern: Boolean, default: String?): Boolean =
+        requested && !(modern && default == "ipv6_only")
+
+    fun fakeQueryTypes(modern: Boolean): List<String>? =
+        if (modern) listOf("A", "AAAA") else null
+
     data class FakeDnsPolicy(val ruleOverride: String?, val ipv6Range: String?)
 
     /**

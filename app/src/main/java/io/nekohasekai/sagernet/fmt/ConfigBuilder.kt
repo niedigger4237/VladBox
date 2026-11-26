@@ -1,5 +1,7 @@
 package io.nekohasekai.sagernet.fmt
 
+import io.nekohasekai.sagernet.ktx.Logs
+
 import android.widget.Toast
 import io.nekohasekai.sagernet.*
 import io.nekohasekai.sagernet.bg.VpnService
@@ -152,7 +154,7 @@ fun buildConfig(
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
     val enableDnsRouting = DataStore.enableDnsRouting
     // root TUN: traffic to the FakeIP range (198.18.0.0/15) is not captured by auto_redirect, so no FakeIP there
-    val useFakeDns = DataStore.enableFakeDns && !forTest && !isRootTun
+    val requestedFakeDns = DataStore.enableFakeDns && !forTest && !isRootTun
     val needSniff = DataStore.trafficSniffing > 0
     val needSniffOverride = DataStore.trafficSniffing == 2
     val externalIndexMap = ArrayList<IndexEntity>()
@@ -222,12 +224,19 @@ fun buildConfig(
         val directDnsStrategy = autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("dns-direct"))
         val remoteDnsStrategy = autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("dns-remote"))
         val dnsMainDirect = forTest || DataStore.dnsMain == "direct"
-        val defaultDnsStrategy = if (dnsMainDirect) directDnsStrategy else remoteDnsStrategy
-        // Modern FakeIP can return an empty AAAA response when no IPv6
-        // range is configured. Keep the legacy exception for an IPv6-only
-        // global strategy: that strategy would otherwise reject A before
-        // the FakeIP transport is reached.
+        val modernDns = DnsRuleStrategy.isModern(DataStore.dnsEngineMode)
+        val defaultDnsStrategy = DnsRuleStrategy.globalStrategy(
+            modernDns,
+            if (dnsMainDirect) directDnsStrategy else remoteDnsStrategy,
+            autoDnsDomainStrategy(DataStore.dnsGlobalStrategy.takeUnless { it == "auto" }.orEmpty())
+        )
+        // FakeIP remains IPv4-only. Modern IPv6-only cannot return fake IPv4
+        // addresses: use the normal DNS servers rather than a legacy override.
+        val useFakeDns = DnsRuleStrategy.fakeDnsEnabled(requestedFakeDns, modernDns, defaultDnsStrategy)
         val fakeDnsPolicy = DnsRuleStrategy.fakeDnsPolicy(defaultDnsStrategy)
+        if (requestedFakeDns && !useFakeDns) {
+            Logs.i("Modern DNS: IPv4 FakeDNS disabled for IPv6-only strategy")
+        }
 
         inbounds = mutableListOf()
 
@@ -626,21 +635,22 @@ fun buildConfig(
                     -1L -> {
                         userDNSRuleList += makeDnsRuleObj().apply {
                             server = "dns-direct"
-                            strategy = DnsRuleStrategy.overrideOrNull(directDnsStrategy, defaultDnsStrategy)
+                            strategy = DnsRuleStrategy.ruleOverride(modernDns, directDnsStrategy, defaultDnsStrategy)
                         }
                     }
 
                     0L -> {
                         if (useFakeDns) userDNSRuleList += makeDnsRuleObj().apply {
                             server = "dns-fake"
-                            strategy = fakeDnsPolicy.ruleOverride
+                            strategy = DnsRuleStrategy.ruleOverride(modernDns, fakeDnsPolicy.ruleOverride, defaultDnsStrategy)
+                            query_type = DnsRuleStrategy.fakeQueryTypes(modernDns)
                             inbound = listOf("tun-in")
                         }
                         userDNSRuleList += makeDnsRuleObj().apply {
                             server = "dns-remote"
                             // Remote rules must honor the remote preference even
                             // when Direct is selected as the default DNS.
-                            strategy = DnsRuleStrategy.overrideOrNull(remoteDnsStrategy, defaultDnsStrategy)
+                            strategy = DnsRuleStrategy.ruleOverride(modernDns, remoteDnsStrategy, defaultDnsStrategy)
                         }
                     }
 
@@ -835,7 +845,8 @@ fun buildConfig(
                 dns.rules.add(DNSRule_DefaultOptions().apply {
                     inbound = listOf("tun-in")
                     server = "dns-fake"
-                    strategy = fakeDnsPolicy.ruleOverride
+                    strategy = DnsRuleStrategy.ruleOverride(modernDns, fakeDnsPolicy.ruleOverride, defaultDnsStrategy)
+                    query_type = DnsRuleStrategy.fakeQueryTypes(modernDns)
                     disable_cache = true
                 })
             }
@@ -846,7 +857,7 @@ fun buildConfig(
                 dns.rules.add(0, DNSRule_DefaultOptions().apply {
                     makeSingBoxRule(domainListDNSDirectForce.toHashSet().toList())
                     server = "dns-direct"
-                    strategy = DnsRuleStrategy.overrideOrNull(directDnsStrategy, defaultDnsStrategy)
+                    strategy = DnsRuleStrategy.ruleOverride(modernDns, directDnsStrategy, defaultDnsStrategy)
                 })
             }
         }

@@ -29,6 +29,8 @@
         <moe.matsuri.nb4a.ui.SimpleMenuPreference app:defaultValue="0" app:entries="@array/rules_dat_provider" app:entryValues="@array/srs_provider_values" app:icon="@drawable/ic_baseline_rule_folder_24" app:key="rulesProvider" app:title="@string/route_rules_provider" app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
     <PreferenceCategory app:title="@string/cag_dns">
+        <moe.matsuri.nb4a.ui.SimpleMenuPreference app:defaultValue="legacy" app:entries="@array/dns_engine_mode_names" app:entryValues="@array/dns_engine_mode_values" app:key="dnsEngineMode" app:title="@string/dns_engine_mode" app:useSimpleSummaryProvider="true" />
+        <moe.matsuri.nb4a.ui.SimpleMenuPreference app:defaultValue="auto" app:entries="@array/dns_network_select" app:entryValues="@array/dns_network_select" app:key="dnsGlobalStrategy" app:title="@string/dns_global_strategy" app:useSimpleSummaryProvider="true" />
         <moe.matsuri.nb4a.ui.SimpleMenuPreference app:defaultValue="google" app:entries="@array/dns_preset_names" app:entryValues="@array/dns_preset_values" app:icon="@drawable/ic_action_dns" app:key="remoteDnsPreset" app:title="@string/remote_dns" app:useSimpleSummaryProvider="true" />
         <EditTextPreference app:icon="@drawable/ic_action_dns" app:key="remoteDns" app:title="@string/dns_custom_remote" app:useSimpleSummaryProvider="true" />
         <moe.matsuri.nb4a.ui.SimpleMenuPreference app:defaultValue="auto" app:entries="@array/dns_network_select" app:entryValues="@array/dns_network_select" app:key="domain_strategy_for_remote" app:title="@string/domain_strategy_for_remote" app:useSimpleSummaryProvider="true" />

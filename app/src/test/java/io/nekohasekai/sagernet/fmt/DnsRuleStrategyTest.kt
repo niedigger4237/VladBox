@@ -2,9 +2,32 @@ package io.nekohasekai.sagernet.fmt
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class DnsRuleStrategyTest {
+    @Test fun modernModeUsesGlobalPreferenceAndNeverGeneratesRuleStrategy() {
+        assertEquals("prefer_ipv6", DnsRuleStrategy.globalStrategy(true, "ipv4_only", "prefer_ipv6"))
+        assertEquals("ipv4_only", DnsRuleStrategy.globalStrategy(false, "ipv4_only", "prefer_ipv6"))
+        for (strategy in listOf("prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only")) {
+            assertNull(DnsRuleStrategy.ruleOverride(true, strategy, "prefer_ipv4"))
+        }
+        assertEquals("prefer_ipv6", DnsRuleStrategy.ruleOverride(false, "prefer_ipv6", "prefer_ipv4"))
+        assertFalse(DnsRuleStrategy.isModern("legacy"))
+        assertFalse(DnsRuleStrategy.isModern("unknown"))
+        assertTrue(DnsRuleStrategy.isModern("modern"))
+    }
+
+    @Test fun modernFakeDnsOnlyHandlesAddressQueriesAndRespectsIpv6Only() {
+        assertEquals(listOf("A", "AAAA"), DnsRuleStrategy.fakeQueryTypes(true))
+        assertNull(DnsRuleStrategy.fakeQueryTypes(false))
+        assertFalse(DnsRuleStrategy.fakeDnsEnabled(true, true, "ipv6_only"))
+        assertTrue(DnsRuleStrategy.fakeDnsEnabled(true, false, "ipv6_only"))
+        assertTrue(DnsRuleStrategy.fakeDnsEnabled(true, true, "prefer_ipv6"))
+        assertFalse(DnsRuleStrategy.fakeDnsEnabled(false, true, "ipv4_only"))
+    }
+
     @Test fun fakeDnsDoesNotRequireLegacyRuleForDualStackOrIpv4Defaults() {
         for (default in listOf(null, "", "prefer_ipv4", "prefer_ipv6", "ipv4_only")) {
             val policy = DnsRuleStrategy.fakeDnsPolicy(default)

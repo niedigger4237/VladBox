@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dns_engine_mode">Режим DNS</string>
+    <string name="dns_global_strategy">Стратегия DNS</string>
+    <string name="dns_engine_legacy">Legacy (отдельные стратегии)</string>
+    <string name="dns_engine_modern">Modern (общая стратегия)</string>
+</resources>

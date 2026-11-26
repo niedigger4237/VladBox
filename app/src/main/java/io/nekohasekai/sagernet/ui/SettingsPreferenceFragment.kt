@@ -220,6 +220,22 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         bypassLanInCore.onPreferenceChangeListener = reloadListener
         mtu.onPreferenceChangeListener = reloadListener
 
+        fun updateDnsModeVisibility(mode: String) {
+            findPreference<Preference>(Key.DNS_GLOBAL_STRATEGY)?.isVisible = mode == "modern"
+            for (key in listOf("domain_strategy_for_direct", "domain_strategy_for_remote")) {
+                findPreference<Preference>(key)?.isVisible = mode != "modern"
+            }
+        }
+        updateDnsModeVisibility(DataStore.dnsEngineMode)
+        findPreference<Preference>(Key.DNS_ENGINE_MODE)?.setOnPreferenceChangeListener { _, value ->
+            updateDnsModeVisibility(value.toString())
+            needReload()
+            true
+        }
+        for (key in listOf(Key.DNS_GLOBAL_STRATEGY, Key.DNS_MAIN,
+            "domain_strategy_for_direct", "domain_strategy_for_remote", "domain_strategy_for_server")) {
+            findPreference<Preference>(key)?.onPreferenceChangeListener = reloadListener
+        }
         enableFakeDns.onPreferenceChangeListener = reloadListener
         remoteDns.onPreferenceChangeListener = reloadListener
         directDns.onPreferenceChangeListener = reloadListener
