@@ -493,6 +493,9 @@ object RootDaemon {
 
     fun status(): String = RootShell.run("${RootShell.q(binary)} status 2>&1", timeoutMs = 5_000).out.trim()
 
+    /** Actual traffic lifecycle, independent of the Android foreground service. */
+    fun phase(): String? = PHASE.find(status())?.groupValues?.get(1)
+
     private fun alive(): Boolean =
         RootShell.run("pgrep -x libasteriskd.so >/dev/null", timeoutMs = 3_000).ok
 
