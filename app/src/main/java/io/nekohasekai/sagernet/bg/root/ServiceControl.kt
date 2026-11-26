@@ -20,10 +20,40 @@ object ServiceControl {
     private fun normBssid(v: String) = v.lowercase().replace('-', ':')
     private val BSSID = Regex("[0-9a-f]{2}(:[0-9a-f]{2}){5}")
 
+    // Numeric five-field cron syntax: lists, ranges, wildcards and positive steps.
+    fun validCron(value: String): Boolean {
+        val fields = value.trim().split(Regex("\\s+"))
+        val limits = listOf(0..59, 0..23, 1..31, 1..12, 0..7)
+        if (fields.size != limits.size) return false
+        return fields.zip(limits).all { (field, limit) ->
+            field.split(',').all { item ->
+                val parts = item.split('/')
+                if (parts.size > 2 || (parts.size == 2 && (parts[1].toIntOrNull() ?: 0) <= 0)) {
+                    false
+                } else {
+                    val base = parts[0]
+                    if (base == "*") true else {
+                        val bounds = base.split('-')
+                        val first = bounds.first().toIntOrNull()
+                        val last = bounds.last().toIntOrNull()
+                        bounds.size in 1..2 && first != null && last != null &&
+                            first in limit && last in limit && first <= last
+                    }
+                }
+            }
+        }
+    }
+
     fun toJson(): JsonObject {
         val master = b("scEnabled")
         fun rule(name: String) = JsonObject().apply {
-            val on = master && b("scWifi") && b("scWifi_$name")
+            val oppositeStart = when (name) {
+                "connectStop" -> "connectStart"
+                "disconnectStop" -> "disconnectStart"
+                else -> null
+            }
+            val on = master && b("scWifi") && b("scWifi_$name") &&
+                (oppositeStart == null || !b("scWifi_$oppositeStart"))
             val ssids = lines(t("scWifi_${name}_ssids")).filter { it.toByteArray().size in 1..32 }.take(64)
             val bssids = lines(t("scWifi_${name}_bssids")).map(::normBssid).filter { BSSID.matches(it) }.distinct().take(64)
             // a rule without identifiers would match nothing: keep it disabled
@@ -36,7 +66,7 @@ object ServiceControl {
             add("schedule", JsonObject().apply {
                 val start = t("scStartCron").trim()
                 val stop = t("scStopCron").trim()
-                val on = master && b("scSchedule") && start.isNotEmpty() && stop.isNotEmpty()
+                val on = master && b("scSchedule") && validCron(start) && validCron(stop)
                 addProperty("enabled", on)
                 addProperty("startCron", if (on) start else "")
                 addProperty("stopCron", if (on) stop else "")
