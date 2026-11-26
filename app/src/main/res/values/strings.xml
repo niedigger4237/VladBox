@@ -731,4 +731,5 @@
     <string name="sc_invalid_cron">Invalid cron expression. Use five numeric fields: minute, hour, day, month, weekday.</string>
     <string name="sc_invalid_ssid">SSID must be 1–32 UTF-8 bytes. Maximum 64 entries.</string>
     <string name="sc_invalid_bssid">Invalid BSSID. Enter up to 64 MAC addresses.</string>
+    <string name="sc_waiting">Waiting for conditions</string>
 </resources>

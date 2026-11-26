@@ -216,6 +216,8 @@ object RootDaemon {
 
     @Volatile internal var appliedDownstreams: DownstreamSnapshot? = null
         private set
+    @Volatile internal var startedWaiting = false
+        private set
 
     internal fun isRunning(): Boolean = health() == RootHealth.RUNNING
 
@@ -289,7 +291,7 @@ object RootDaemon {
         return names.filter { exactInterface.matches(it) && it !in internalInterfaces }.distinct()
     }
 
-    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String, flowToken: String? = null, matcher: Boolean = false, downstreams: List<String>? = null, downstreamIpv6: List<String> = emptyList()): String {
+    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String, flowToken: String? = null, matcher: Boolean = false, downstreams: List<String>? = null, downstreamIpv6: List<String> = emptyList(), serviceControl: JsonObject = ServiceControl.toJson()): String {
         val root = JsonObject()
         root.addProperty("schemaVersion", SCHEMA)
         root.addProperty("owner", OWNER)
@@ -387,7 +389,7 @@ object RootDaemon {
             else -> JsonNull.INSTANCE
         })
 
-        root.add("serviceControl", ServiceControl.toJson())
+        root.add("serviceControl", serviceControl.deepCopy())
         root.add("dnsEnhancement", JsonNull.INSTANCE)
         root.add("runtimeEventReceiver", JsonNull.INSTANCE)
         return gson.toJson(root) + "\n"
@@ -585,7 +587,11 @@ object RootDaemon {
      * Writes the configs, starts asteriskd and waits until the core is up.
      * @return null on success, otherwise a readable error
      */
-    fun start(mode: Mode, core: RootCore.Active, singBoxConfig: String, tproxyPort: Int, ipv6: Boolean, managed: Boolean = false): String? {
+    fun start(mode: Mode, core: RootCore.Active, singBoxConfig: String, tproxyPort: Int, ipv6: Boolean, managed: Boolean = false,
+              serviceControl: JsonObject = ServiceControl.toJson(), monitorOnly: Boolean = false): String? {
+        if (monitorOnly && !ServiceControl.hasStartRule(serviceControl))
+            return "Service Control requires at least one valid start condition"
+        startedWaiting = false
         val startedAt = SystemClock.elapsedRealtime()
         var lastMark = startedAt
         fun mark(stage: String) {
@@ -630,7 +636,7 @@ object RootDaemon {
             DataStore.configurationStore.getBoolean("startOnBoot", false)) null else dynamicDownstreams?.names
         val dcfg = File(stage, "asteriskd.json").apply {
             writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, daemonDownstreams,
-                dynamicDownstreams?.ipv6Prefixes.orEmpty().map { it.subnet }))
+                dynamicDownstreams?.ipv6Prefixes.orEmpty().map { it.subnet }, serviceControl))
         }
         mark("generate configs")
         try {
@@ -666,8 +672,9 @@ object RootDaemon {
             return "ROOT tether: cannot install IPv6 forwarding guard"
         }
         // Publication happened only after the previous control socket disappeared.
+        val command = if (monitorOnly) "monitor" else "start"
         val r = RootShell.run(
-            "nohup ${RootShell.q(binary)} start --config ${RootShell.q(daemonConfigPath)} </dev/null >${RootShell.q("$logDir/asteriskd.out")} 2>&1 &",
+            "nohup ${RootShell.q(binary)} $command --config ${RootShell.q(daemonConfigPath)} </dev/null >${RootShell.q("$logDir/asteriskd.out")} 2>&1 &",
             timeoutMs = 10_000,
         )
         if (!r.ok) {
@@ -686,9 +693,13 @@ object RootDaemon {
             val st = status()
             last = st
             val phase = PHASE.find(st)?.groupValues?.get(1)
-            if (phase == "running") {
+            val nativeHealth = RootHealth.parse(runCatching {
+                com.google.gson.JsonParser.parseString(st).asJsonObject.getAsJsonObject("result")
+            }.getOrNull(), OWNER)
+            val waiting = monitorOnly && nativeHealth == RootHealth.INACTIVE
+            if (nativeHealth == RootHealth.RUNNING || waiting) {
                 mark("wait for readiness")
-                if (mode == Mode.TUN && managed && dynamicDownstreams != null &&
+                if (!waiting && mode == Mode.TUN && managed && dynamicDownstreams != null &&
                     !RootTunForwarding.ensure(dynamicDownstreams.names, dynamicDownstreams.ipv6Enabled)) {
                     shutdown()
                     return "ROOT TUN: cannot install Android hotspot forwarding exceptions"
@@ -704,7 +715,7 @@ object RootDaemon {
                         withTunDownstreams(singBoxConfig, null) else effectiveConfig
                     val bootDaemon = com.google.gson.JsonParser.parseString(
                         buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort,
-                            ipv6, bootCore, flowToken, useMatcher)
+                            ipv6, bootCore, flowToken, useMatcher, serviceControl = serviceControl)
                     ).asJsonObject.apply {
                         addProperty("coreConfigPath", RootBoot.bootCoreConfigPath)
                     }
@@ -745,8 +756,9 @@ object RootDaemon {
                         Logs.i("ROOT boot: managed TUN starts phone-only; autonomous templates=${templateCore != null}")
                 }
                 appliedDownstreams = dynamicDownstreams
+                startedWaiting = waiting
                 startLogForward(mode)
-                if (mode == Mode.TUN && managed) startTunDiagnostics(dynamicDownstreams ?: DownstreamSnapshot(emptyList(), emptyList()), ipv6)
+                if (!waiting && mode == Mode.TUN && managed) startTunDiagnostics(dynamicDownstreams ?: DownstreamSnapshot(emptyList(), emptyList()), ipv6)
                 return null
             }
             if (phase == "failed") break

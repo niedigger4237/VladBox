@@ -51,6 +51,7 @@ class ServiceButton @JvmOverloads constructor(
         composeState.value = state
         val (icon, color) = when (state) {
             BaseService.State.Connected -> R.drawable.ic_service_stop to COLOR_CONNECTED
+            BaseService.State.Waiting -> R.drawable.ic_service_stop to COLOR_BUSY
             BaseService.State.Connecting, BaseService.State.Stopping -> R.drawable.ic_service_wait to COLOR_BUSY
             else -> R.drawable.ic_service_play to COLOR_IDLE
         }
@@ -59,7 +60,7 @@ class ServiceButton @JvmOverloads constructor(
         val dark = androidx.core.graphics.ColorUtils.calculateLuminance(surface) < 0.5
         val tint = when (state) {
             BaseService.State.Connected -> if (dark) Color.parseColor("#A5D5B1") else Color.parseColor("#386A49")
-            BaseService.State.Connecting, BaseService.State.Stopping -> color
+            BaseService.State.Connecting, BaseService.State.Stopping, BaseService.State.Waiting -> color
             else -> com.google.android.material.color.MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary)
         }
         backgroundTintList = ColorStateList.valueOf(tint)

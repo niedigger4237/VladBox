@@ -5,7 +5,7 @@ import com.google.gson.JsonObject
 /** Only explicit terminal status is actionable. An idle/paused supervisor
  * remains owned by native service-control policy. */
 internal enum class RootHealth {
-    RUNNING, ABSENT, FAILED, INACTIVE, UNKNOWN;
+    RUNNING, ABSENT, FAILED, INACTIVE, TRANSITIONING, UNKNOWN;
 
     companion object {
         fun parse(result: JsonObject?, owner: String): RootHealth = runCatching {
@@ -19,8 +19,9 @@ internal enum class RootHealth {
                     when (snapshot.get("phase")?.asString) {
                         "running" -> RUNNING
                         "failed" -> FAILED
-                        null -> UNKNOWN
-                        else -> INACTIVE
+                        "stopped", "paused" -> INACTIVE
+                        "starting", "stopping" -> TRANSITIONING
+                        else -> UNKNOWN
                     }
                 }
                 else -> UNKNOWN

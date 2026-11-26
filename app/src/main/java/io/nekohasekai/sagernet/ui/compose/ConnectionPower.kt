@@ -25,13 +25,14 @@ fun ConnectionPower(state: BaseService.State, onClick: () -> Unit) =
 fun ConnectionPower(state: BaseService.State, onClick: () -> Unit, tonalRing: Boolean) {
     val busy = state == BaseService.State.Connecting || state == BaseService.State.Stopping
     val connected = state == BaseService.State.Connected
+    val waiting = state == BaseService.State.Waiting
     val colors = MaterialTheme.colorScheme
     val tint = when {
         tonalRing && connected -> colors.tertiary
-        tonalRing && busy -> colors.secondary
+        tonalRing && (busy || waiting) -> colors.secondary
         tonalRing -> colors.primary
         connected -> Color(0xFFA5D5B1)
-        busy -> Color(0xFFF9A825)
+        busy || waiting -> Color(0xFFF9A825)
         else -> colors.primary
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -47,7 +48,7 @@ fun ConnectionPower(state: BaseService.State, onClick: () -> Unit, tonalRing: Bo
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(painterResource(when {
-                    connected && !tonalRing -> R.drawable.ic_service_stop
+                    (connected && !tonalRing) || waiting -> R.drawable.ic_service_stop
                     busy -> R.drawable.ic_service_wait
                     else -> R.drawable.ic_service_play
                 }), stringResource(if (state.canStop) R.string.stop else R.string.connect), Modifier.size(30.dp))

@@ -42,6 +42,8 @@ class BaseService {
          * Idle state is only used by UI and will never be returned by BaseService.
          */
         Idle, Connecting(true, true, false), Connected(true, true, true), Stopping, Stopped,
+        // Append: existing AIDL state ordinals stay stable.
+        Waiting(true, true, false),
     }
 
     interface ExpectedException
@@ -88,6 +90,7 @@ class BaseService {
         var networkListenerKey: Any? = null
         var networkReconnectJob: Job? = null
         @Volatile var restartAfterStop = false
+        var nextRootStartWaiting: Boolean? = null
 
         fun changeState(s: State, msg: String? = null) {
             if (state == s && msg == null) return
@@ -217,6 +220,11 @@ class BaseService {
                 return
             }
             val s = data.state
+            if (s == State.Waiting && !io.nekohasekai.sagernet.bg.root.ServiceControl.hasStartRule(
+                    io.nekohasekai.sagernet.bg.root.ServiceControl.toJson())) {
+                stopRunner(false)
+                return
+            }
             when {
                 s == State.Stopped -> startRunner()
                 s.canStop -> stopRunner(true)
@@ -270,10 +278,15 @@ class BaseService {
         fun stopRunner(restart: Boolean = false, msg: String? = null) {
             if (data.state == State.Stopping) {
                 // A user stop or permission revocation must win over a pending reconnect.
-                if (!restart && msg == null) data.restartAfterStop = false
+                if (!restart && msg == null) {
+                    data.restartAfterStop = false
+                    data.nextRootStartWaiting = null
+                }
                 return
             }
             data.restartAfterStop = restart
+            data.nextRootStartWaiting = if (restart && data.proxy is io.nekohasekai.sagernet.bg.proto.RootProxyInstance)
+                data.state == State.Waiting else null
             if (this is VpnService) Logs.i("VPN service stop: state=${data.state}, restart=$restart, error=${msg != null}")
             data.networkReconnectJob?.cancel()
             data.networkReconnectJob = null
@@ -441,6 +454,9 @@ class BaseService {
             }
 
             val proxy = newProxyInstance(profile)
+            if (proxy is io.nekohasekai.sagernet.bg.proto.RootProxyInstance)
+                proxy.startWaitingOverride = data.nextRootStartWaiting
+            data.nextRootStartWaiting = null
             data.proxy = proxy
             BootReceiver.enabled = DataStore.persistAcrossReboot
             if (!data.closeReceiverRegistered) {
@@ -502,8 +518,10 @@ class BaseService {
 
                     startProcesses()
                     markRootStartup("start processes")
-                    data.changeState(State.Connected)
-                    markRootStartup("connected")
+                    val waiting = (proxy as? io.nekohasekai.sagernet.bg.proto.RootProxyInstance)?.waitingAtStart == true
+                    data.changeState(if (waiting) State.Waiting else State.Connected)
+                    if (waiting) data.notification?.postServiceControlWaiting(true)
+                    markRootStartup(if (waiting) "waiting for conditions" else "connected")
 
                     lateInit()
                 } catch (_: CancellationException) { // if the job was cancelled, it is canceller's responsibility to call stopRunner
