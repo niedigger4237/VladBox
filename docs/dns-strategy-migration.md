@@ -996,3 +996,42 @@ proposed rules, followed by the actual exclusive ownership mechanism.
 A read-only iptables/ip6tables snapshot helps identify conflicts but
 cannot prove exclusivity against future rules, nftables, eBPF or vendor
 writers. Do not automatically approve a mask based on the snapshot.
+
+## Bounded marked drain connected to staged lifecycle
+
+The existing Netlink transport now offers a complete-inventory drain pass,
+limited to 32 deletes and stopping initiation of additional deletes after
+two seconds in its deletion loop. This is not a hard whole-call deadline:
+dumps, live verification and individual requests have their own costs.
+It validates the entire initial inventory, checks each entry, and
+requires a second complete empty inventory before success. A nonempty
+result or any ambiguity retains debt. No table flush is performed.
+
+The native backend now requires a separate live mark verification
+callback before marked reservation, opening the guard or installing NAT.
+NF_CONNTRACK_DRAIN for a marked session uses the native drain pass only
+with a verified exact closed INPUT guard, no NAT references, and an
+independently maintained ownership contract. The default zone is used;
+other zones cause collisions rather than deletion. The existing unmarked
+callback and conservative crash recovery remain unchanged. Restored WAL
+metadata never authorizes live deletion.
+
+Host tests against the locally patched pinned upstream source: 11 drain,
+22 DELETE, 64 Netlink, 42 request-builder, 18 drain guard, 32 marked WAL,
+26 backend, 32 recovery, 27 admission, 31 reboot, 28 pre-core, 32 post-core,
+20 active recovery and 73 lifecycle assertions (458 total).
+The three changed C blobs match locally tested files. Native C17
+compilation with warnings-as-errors and x86-64 Linux supervisor link
+succeeded. Live GET/DUMP were unsuccessful; DELETE was simulated.
+No Android NDK build or real Android firewall mutation was performed.
+
+The runtime supervisor still does not call the marked reservation
+and ownership-verifier API. A device audit is now needed before that
+choice: capture iptables-save, ip6tables-save, IPv4/IPv6 ip rules and
+nft/bpftool net listings if available, with hotspot and target ROOT mode
+running. Review for vendor/netd and other mark writers; a snapshot can
+rule out observed conflicts but cannot guarantee future exclusive
+ownership. Do not grant the callback based solely on a successful
+snapshot or an empty conntrack dump. If a trustworthy contract cannot
+be established, keep exact DELETE disabled and use the conservative
+drain path instead. Gateway hijacking itself remains inactive.
