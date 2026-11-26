@@ -49,6 +49,7 @@ struct nf_native_backend {
     enum nf_step recovered_op; // validated last WAL operation; recovery only
     bool ipv6_nat_disabled; // session capability, does not change core routing
     bool links_published;
+    bool service_links_valid; // preserve last trusted snapshot over service pause
     struct nf_link_snapshot published_links;
     uint32_t session_mark, session_mask;
     bool mark_authorized; // live assertion; never restored from disk
