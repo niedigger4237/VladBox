@@ -47,6 +47,6 @@ fun main() {
     checkCase(prepare(source = output) == null)
     checkCase(prepare(source = obj("inbounds" to array(socks))) == null)
     checkCase(prepare(source = obj("inbounds" to array(socks), "dns" to obj(), "route" to obj("rules" to array()))) == null)
-    checkCase(!HevGatewayDnsConfig.ENABLE_RUNTIME)
+    checkCase(HevGatewayDnsConfig.ENABLE_RUNTIME) // restricted preview branch
     println("PASS $count/$count")
 }
