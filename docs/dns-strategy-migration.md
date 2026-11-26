@@ -640,3 +640,32 @@ Both translation units compile with C17 -Wall -Wextra -Werror in the host
 tests; full GCC host link with previous gateway modules succeeded. No live
 firewall mutation or Android NDK/device validation was performed. File
 system durability across actual power loss has not been tested.
+
+## Same-boot gateway firewall recovery reader
+
+gateway_recovery.c decodes NFFW01 checkpoints, reconstructs only the four
+fixed gateway chain/hook identities independent of today's configuration,
+validates every saved image against the narrow generated rule grammar and
+rejects wrong boot IDs, unknown flags, mismatched family/port, malformed
+lengths and trailing data. Saved commands are evidence only, never replayed.
+The recovery preflight compares current chain contents with old/pending
+images and rejects additional foreign references. The existing backend
+checks ownership again during deletion and verifies absence.
+
+The recovery cleanup API requires actual non-firewall callbacks proving
+the old listener stopped and old flows drained; NAT removal precedes flow
+drain and INPUT removal. It does not clear the journal or assert that
+process/conntrack/port recovery completed. No call site is activated.
+A different boot must be reconciled separately; current recovery refuses
+it. A foreign or ambiguous resource blocks removal rather than guessing.
+Preflight and commit are not atomic against external firewall writers.
+
+Host validation: PASS 32 recovery checks using real filesystem records,
+native generated rule images and synthetic listings, including different
+current settings, mismatched boot, invalid flags with valid CRC, foreign
+references and changed rules. C17 -Wall -Wextra -Werror compile and full
+GCC host link with previous gateway modules succeeded. The native build
+now compiles gateway_recovery.c including gateway_backend.c once.
+No live iptables operations, Android NDK build or device tests performed.
+Still required: durable process/link/conntrack evidence, actual recovery
+callbacks, new-boot handling and supervisor/Service Control call sites.
