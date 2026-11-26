@@ -609,3 +609,34 @@ C17 -Wall -Wextra -Werror compile and full GCC host link with prior
 gateway modules succeeded. No netfilter operations were executed; the
 host lacks CAP_NET_ADMIN. Android NDK and device tests remain pending.
 The build links this module but runtime gateway capture remains disabled.
+
+## Durable gateway firewall write-ahead journal
+
+gateway_journal.c stores a separate bounded, versioned record with generation,
+boot/session identifiers, port, downstream epoch, cleanup debt and a
+payload. It uses a trusted private directory descriptor, a cooperating
+exclusive flock, no-follow opens, regular single-link 0600 files, CRC32
+(integrity, not authentication), file fsync, atomic rename and directory
+fsync. A damaged or unknown record blocks replacement; a stale temporary
+file is not interpreted as a committed record. A failed save after rename
+requires reload rather than assuming the previous generation is current.
+
+gateway_backend.c now includes the journal and serializes exact old and
+pending IPv4/IPv6 guard and NAT rule images before any batch flush for
+creation, refresh or removal. A missing journal or failed checkpoint
+prevents firewall mutation. Firewall checkpoints preserve cleanup debts
+and never assert completion for core/conntrack. The session owner must
+supply the lock and verified identities. No startup call site has been
+enabled; decoding the firewall payload, reconciling actual owned resources
+and implementing durable process/link/conntrack obligations remain required.
+The ordinary upstream state format and other root modes are unchanged.
+
+Host validation against the supplied pinned source with prior IPv6 patch:
+PASS 34 journal checks (real filesystem, independent process exits with an
+uncommitted temp, corrupted record, generation conflict, lock contention,
+foreign session, symlink and private-directory checks); PASS 26 backend
+checks (including exact persistent pending rule image and failed checkpoint).
+Both translation units compile with C17 -Wall -Wextra -Werror in the host
+tests; full GCC host link with previous gateway modules succeeded. No live
+firewall mutation or Android NDK/device validation was performed. File
+system durability across actual power loss has not been tested.
