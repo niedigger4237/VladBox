@@ -466,3 +466,45 @@ redirect publication only after readiness, closed guard during service pause,
 precise conntrack cleanup and retained obligations after failure. The boot
 monitor must resolve exact downstreams before enabling NAT. Do not treat the
 prototype as a working gateway DNS redirect. No APK build inputs changed.
+
+## HEV gateway lifecycle coordinator (staged)
+
+The existing upstream lifecycle pause retains core and, for HEV, the helper.
+Full stop returns early if quiescing or removal cannot be verified, before
+stopping the core. A gateway listener must not rely solely on that traffic
+lifetime. The isolated gateway_lifecycle.c coordinates two independent
+rule lifetimes via a synchronous, verified, idempotent backend contract:
+
+- Prepare: reserve exclusive ownership, install and verify closed INPUT
+  guard for both families, start the owned core, verify listener readiness
+  and guard again. No NAT or open guard during startup or waiting.
+- Resume: verify the exact downstream snapshot, open only the guarded DNAT
+  exceptions, publish NAT, verify NAT and INPUT and recheck link identities.
+- Pause: close INPUT first, withdraw NAT, drain only the old snapshot's
+  owned conntrack tuples. Keep core and closed guard alive.
+- Refresh: pause and drain the old immutable snapshot before using the new
+  one. A reused interface name is not proof of unchanged ifindex/address.
+- Failure/stop: attempt to stop owned core even if NAT withdrawal or
+  conntrack cleanup fails; preserve the guard, old snapshot and outstanding
+  obligations until verified cleanup succeeds. Never release the port
+  ownership while rules or flows remain. Failed verification triggers stop.
+
+The epoch token refers to an immutable backend snapshot; the controller does
+not itself resolve interfaces or implement conntrack. All callbacks remain
+unwired. The production backend must implement ownership, exact link and
+listener checks, cross-table commits, precise conntrack deletion, and durable
+crash recovery. It must use existing core process identities, not spawn a
+second core. A stopped coordinator after an error is not a successful
+resume or refresh; callers must propagate the failure to the native lifecycle.
+
+Reproduce the host fault-injection test:
+
+    cc -std=c17 -Wall -Wextra -Werror -DNF_LIFECYCLE_TEST buildScript/experiments/hev-gateway-dns/gateway_lifecycle.c -o /tmp/nf-lifecycle
+    /tmp/nf-lifecycle
+
+Actual host output: PASS 69 checks (47 fault positions). The backend is a
+simulation, including partial installs and persistent NAT, conntrack and
+core-stop failures; this is not live firewall validation. The staged file
+also compiles without the test macro with -Wall -Wextra -Werror.
+No APK build inputs, app settings, existing MANGLE refresh or other root
+modes changed in this stage.
