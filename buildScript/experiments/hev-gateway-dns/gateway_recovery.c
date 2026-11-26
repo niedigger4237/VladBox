@@ -183,25 +183,29 @@ static int nf_boot_read(uint8_t out[16]) {
     rc=nf_boot_parse(buf,n,out);
  done: close(fd);return rc;
 }
-static bool nf_reboot_view_absent(const struct system_rule_view *v) {
+static bool nf_names_view_absent(const struct system_rule_view *v,bool nat_only) {
     if(!v || !v->present || !v->bytes ||  v->length<3 || v->bytes[v->length-1]!='\n' || memchr(v->bytes,0,v->length))return false;
     // A complete table listing must contain at least one builtin policy.
     if(strncmp(v->bytes,"-P ",3))return false;
-    for(size_t i=0;i<sizeof(nf_chains)/sizeof(nf_chains[0]);i++)
+    for(size_t i=nat_only?2U:0U;i<sizeof(nf_chains)/sizeof(nf_chains[0]);i++)
         if(memmem(v->bytes,v->length,nf_chains[i].name,strlen(nf_chains[i].name)))return false;
     return true;
 }
-static int nf_reboot_live_absence(void *ctx) {
+static int nf_live_names_absence(void *ctx,bool nat_only) {
     struct asteriskd_system_supervisor *s=ctx;
     if(!nf_native_available(s))return -1;
     for(unsigned f=0;f<ASTERISKD_IP_FAMILY_COUNT;f++)for(unsigned t=0;t<ASTERISKD_IP_TABLE_COUNT;t++) {
         struct system_rule_view v={0};
         int rc=asteriskd_supervisor_rule_view_capture_table(s,f,t,&v);
-        bool absent=!rc && nf_reboot_view_absent(&v);
+        bool absent=!rc && nf_names_view_absent(&v,nat_only);
         asteriskd_supervisor_rule_view_destroy(&v);if(!absent)return -1;
     }
     return 0;
 }
+static int nf_reboot_live_absence(void *ctx) {return nf_live_names_absence(ctx,false);}
+#ifdef NF_REBOOT_HOST_TEST
+static bool nf_reboot_view_absent(const struct system_rule_view *v) {return nf_names_view_absent(v,false);}
+#endif
 /* Different kernel boot means old processes and in-memory conntrack cannot
  * survive. Still require the old journal to decode and all fixed resources
  * to be absent; never delete current kernel objects by stale ownership. */
@@ -287,13 +291,46 @@ static int nf_precore_reconcile(int directory,const uint8_t boot[16],
     return nf_guard_only_reconcile(directory,boot,remove_guard,NULL,ctx);
 }
 #endif
+/* No conntrack DELETE or session mark is needed to reconcile an exited
+ * session whose old mappings have drained. Keep the closed guard and WAL
+ * while any matching port is busy or the kernel cannot be inspected. */
+extern int nf_gateway_ct_port_absent(unsigned port);
+static int nf_active_cleanup(void *ctx,struct nf_native_backend *b) {
+    b->system=ctx;
+    if(nf_postcore_absent(NULL,b) || nf_recovery_preflight(b,&b->guard) ||
+       nf_recovery_preflight(b,&b->nat))return -1;
+    if(nf_native_write(b,&b->guard,b->wal.port,true,false) || nf_native_remove(b,&b->nat))return -1;
+    if(nf_live_names_absence(ctx,true) || nf_gateway_ct_port_absent(b->wal.port) ||
+       nf_postcore_absent(NULL,b) || nf_gateway_ct_port_absent(b->wal.port) ||
+       nf_recovery_preflight(b,&b->guard) || nf_native_remove(b,&b->guard))return -1;
+    return nf_reboot_live_absence(ctx);
+}
+static int nf_active_reconcile(int directory,const uint8_t boot[16],
+        int (*cleanup)(void *,struct nf_native_backend *),void *ctx) {
+    if(!boot || !cleanup)return -1;
+    int lock=nf_gateway_wal_lock(directory);if(lock<0)return -1;
+    struct stat st;int rc=-1;
+    struct nf_native_backend *b=calloc(1,sizeof(*b));if(!b)goto done;
+    b->wal_fd=lock;
+    if(fstatat(lock,NF_WAL_TEMP,&st,AT_SYMLINK_NOFOLLOW)==0 || errno!=ENOENT ||
+       nf_gateway_recovery_load(b,boot) || !b->core_evidence_valid || b->precore_certified ||
+       b->wal.debts!=31U || !b->wal.epoch || !b->guard.owned || b->wal.generation==UINT64_MAX)goto done;
+    if(cleanup(ctx,b) || b->guard.owned || b->nat.owned || b->wal.generation==UINT64_MAX)goto done;
+    struct nf_wal_record clean=b->wal;clean.generation++;clean.debts=0;clean.epoch=0;clean.payload=NULL;clean.length=0;
+    rc=nf_gateway_wal_save(lock,&clean,clean.generation-1);
+ done:
+    if(b){nf_native_clear(&b->guard);nf_native_clear(&b->nat);free(b);}
+    close(lock);return rc;
+}
+
 int nf_gateway_startup_reconcile(struct asteriskd_system_supervisor *s) {
     if(!s)return -1;
     int d=s->store.directory_fd;
     if(!nf_gateway_admission_check(d))return 0;
     uint8_t boot[16];
     if(nf_boot_read(boot))return -1;
-    if(nf_reboot_reconcile(d,boot,nf_reboot_live_absence,s) && nf_guard_only_reconcile(d,boot,nf_precore_remove,nf_postcore_absent,s))return -1;
+    if(nf_reboot_reconcile(d,boot,nf_reboot_live_absence,s) && nf_guard_only_reconcile(d,boot,nf_precore_remove,nf_postcore_absent,s) &&
+       nf_active_reconcile(d,boot,nf_active_cleanup,s))return -1;
     return nf_gateway_admission_check(d);
 }
 
@@ -478,5 +515,39 @@ int main(void) {
     CHECK(!nf_guard_only_reconcile(d,boot,remove_fake,nf_postcore_absent,&removes) && removes==1);CHECK(!nf_gateway_admission_check(d));
     CHECK(!unlinkat(d,NF_WAL_NAME,0));close(d);CHECK(!rmdir(path));nf_native_clear(&b->guard);free(b);free(s);
     printf("PASS %u post-core recovery checks\n",checks);return 0;
+}
+#endif
+#ifdef NF_ACTIVE_HOST_TEST
+static unsigned checks;
+#define CHECK(x) do{if(!(x)){fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x);exit(1);}++checks;}while(0)
+struct active_fake {unsigned calls;bool busy;};
+static int active_fake_cleanup(void *ctx,struct nf_native_backend *b) {
+    struct active_fake *f=ctx;f->calls++;
+    if(!b->guard.owned || !b->nat.owned)return -1;
+    if(f->busy)return -1;
+    nf_native_clear(&b->nat);nf_native_clear(&b->guard);return 0;
+}
+int main(void) {
+    char path[]="/tmp/nf-active-XXXXXX";CHECK(mkdtemp(path));int d=open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC);CHECK(d>=0);
+    struct asteriskd_system_supervisor *s=calloc(1,sizeof(*s));struct nf_native_backend *b=calloc(1,sizeof(*b));CHECK(s&&b);
+    struct asteriskd_config *c=&s->loaded_config.config;c->owner=ASTERISKD_OWNER_BOX;c->core_type=ASTERISKD_CORE_SING_BOX;c->mode=ASTERISKD_MODE_TUN2SOCKS;
+    c->enable_ipv6=true;strcpy(c->hotspot_interfaces[0],"ap0");c->hotspot_interface_count=1;
+    b->system=s;b->wal_fd=nf_gateway_wal_lock(d);CHECK(b->wal_fd>=0);b->wal_ready=true;
+    b->wal=(struct nf_wal_record){.boot={1},.session={2},.port=15353,.epoch=5,.debts=5};
+    b->core_evidence_valid=true;b->core_evidence=(struct nf_core_evidence){.pid=100,.group=100,.start=10,.device=1,.inode=2};
+    CHECK(!nf_gateway_plan(c,15353,true,&b->guard.plan));CHECK(!nf_native_render(s,&b->guard,15353,true));b->guard.pending_valid=b->guard.owned=true;
+    CHECK(!nf_gateway_plan(c,15353,false,&b->nat.plan));CHECK(!nf_native_render(s,&b->nat,15353,true));b->nat.pending_valid=b->nat.owned=true;
+    CHECK(!nf_native_checkpoint(b,NF_NAT_INSTALL));close(b->wal_fd);
+    struct active_fake f={.busy=true};uint8_t boot[16]={1},wrong[16]={2};
+    CHECK(nf_active_reconcile(d,wrong,active_fake_cleanup,&f)<0 && !f.calls);
+    CHECK(nf_active_reconcile(d,boot,active_fake_cleanup,&f)<0 && f.calls==1);CHECK(nf_gateway_admission_check(d)<0);
+    uint8_t raw[4096];struct nf_wal_record rec;CHECK(!nf_gateway_wal_load(d,&rec,raw,sizeof(raw)) && rec.debts==31 && rec.generation==1);
+    // Closing the recovered guard is independent of the next selected mode.
+    struct nf_native_slot closed={0};closed.plan=b->guard.plan;memset(c,0,sizeof(*c));
+    CHECK(!nf_native_render(s,&closed,15353,false));CHECK(closed.pending[0].length && !memmem(closed.pending[0].bytes,closed.pending[0].length,"ACCEPT",6));nf_native_clear(&closed);
+    f.busy=false;CHECK(!nf_active_reconcile(d,boot,active_fake_cleanup,&f) && f.calls==2);CHECK(!nf_gateway_admission_check(d));
+    CHECK(!nf_gateway_wal_load(d,&rec,raw,sizeof(raw)) && rec.generation==2 && !rec.debts);
+    CHECK(!unlinkat(d,NF_WAL_NAME,0));close(d);CHECK(!rmdir(path));nf_native_clear(&b->guard);nf_native_clear(&b->nat);free(b);free(s);
+    printf("PASS %u active recovery checks\n",checks);return 0;
 }
 #endif
