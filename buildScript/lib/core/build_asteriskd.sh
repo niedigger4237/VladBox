@@ -597,6 +597,21 @@ for name, old, new in replacements:
     path.write_text(source.replace(old, new, 1))
 NF_GATEWAY_TETHER_HOOKS
 
+# Service Control resumes through the existing apply_rules callback.
+python3 - "$SRC" <<'NF_GATEWAY_SERVICE_HOOKS'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+replacements = [["supervisor/supervisor_rules.c","extern int nf_gateway_runtime_publish(struct asteriskd_system_supervisor *system);\n","extern int nf_gateway_runtime_publish(struct asteriskd_system_supervisor *system);\nextern int nf_gateway_runtime_prepare_rules(struct asteriskd_system_supervisor *system);\n"],["supervisor/supervisor_rules.c","    if (!system->rules_initialized) system_rules_backend_init(system);\n    if (system->loaded_config.config.dns_enhancement)","    if (!system->rules_initialized) system_rules_backend_init(system);\n    if (nf_gateway_runtime_prepare_rules(system) != 0) {\n        asteriskd_supervisor_log_failure(system, ASTERISKD_COMPONENT_RULES,\n            \"gateway DNS resume blocked: stale downstream, busy conntrack or unverified guard/listener\");\n        return -1;\n    }\n    if (system->loaded_config.config.dns_enhancement)"]]
+for name, old, new in replacements:
+    path = root / name
+    source = path.read_text()
+    if source.count(new) == 1:
+        continue
+    if source.count(old) != 1:
+        raise SystemExit("asteriskd gateway service hook mismatch: " + name)
+    path.write_text(source.replace(old, new, 1))
+NF_GATEWAY_SERVICE_HOOKS
+
 SOURCES=$(cd "$SRC" && find . -name '*.c' -not -path './.git/*' | LC_ALL=C sort)
 # Compile the HEV gateway backend with the pinned supervisor. Runtime activation
 # remains gated until owned listener, conntrack and crash recovery are wired.
