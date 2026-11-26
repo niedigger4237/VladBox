@@ -553,6 +553,7 @@ SOURCES=$(cd "$SRC" && find . -name '*.c' -not -path './.git/*' | LC_ALL=C sort)
 # Marked gateway rules and WAL metadata are connected; live mark ownership remains unverified.
 # Bounded marked drain is connected to the staged lifecycle; production ownership is not enabled.
 # Gateway NAT6 capability is checked independently from core IPv6 routing.
+# Marked reservation now checks complete xtables saves and conntrack occupancy.
 HEV_GATEWAY_BACKEND="$ROOT/buildScript/experiments/hev-gateway-dns/gateway_recovery.c"
 
 build() { # abi cc-prefix
