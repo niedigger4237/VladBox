@@ -9,6 +9,7 @@ struct nf_native_slot {
     struct asteriskd_byte_buffer expected[2];
     struct asteriskd_byte_buffer pending[2];
     bool owned, expected_valid, pending_valid;
+    bool block_ipv6; // guard stays closed for IPv6 when gateway NAT is unavailable
 };
 /* Stable same-boot process identity, never a pointer or raw native struct. */
 struct nf_core_evidence {
@@ -30,6 +31,7 @@ struct nf_native_backend {
     int wal_fd;
     bool wal_ready;
     bool precore_certified;
+    bool ipv6_nat_disabled; // session capability, does not change core routing
     uint32_t session_mark, session_mask;
     bool mark_authorized; // live assertion; never restored from disk
     int (*mark_recheck)(void *,uint32_t,uint32_t);
@@ -107,6 +109,38 @@ fail:
     free(data);return -1;
 }
 
+/* Recognize only the exact legacy ENOENT diagnostic; a command error,
+ * permission failure, truncated output or nft backend is not absence. */
+static bool nf_nat6_missing(int run,int status,bool overflow,size_t stdout_len,const char *err,size_t n) {
+    static const char prefix[]="ip6tables v";
+    static const char suffix[]=" (legacy): can't initialize ip6tables table `nat': Table does not exist (do you need to insmod?)\nPerhaps ip6tables or your kernel needs to be upgraded.\n";
+    if(run || status!=3 || overflow || stdout_len || !err || n>=512U || n<sizeof(prefix)+sizeof(suffix)-1U ||
+       memcmp(err,prefix,sizeof(prefix)-1U))return false;
+    size_t p=sizeof(prefix)-1U;unsigned dots=0;bool digit=false;
+    while(p<n && ((err[p]>='0' && err[p]<='9') || err[p]=='.')) {
+        if(err[p]=='.'){if(!digit || ++dots>2)return false;digit=false;}else digit=true;
+        p++;
+    }
+    return dots==2 && digit && n-p==sizeof(suffix)-1U && !memcmp(err+p,suffix,sizeof(suffix)-1U);
+}
+/* 0=readable legacy/nft listing, 1=legacy NAT table reported missing,
+ * -1=unknown. The caller must still verify all other tables normally. */
+static int nf_nat6_view(struct asteriskd_system_supervisor *s,struct system_rule_view *v) {
+    const char *argv[]={"ip6tables","-w","5","-t","nat","-S",NULL};
+    int status=-1;
+    int run=asteriskd_supervisor_action_run_argv(s,argv,true,&status);
+    if(nf_nat6_missing(run,status,s->action_stdout_overflow,s->action_stdout_length,s->action_stderr,s->action_stderr_length))return 1;
+    size_t n=s->action_stdout_length;
+    if(run || status || s->action_stdout_overflow || s->action_stderr_length || !s->action_stdout || n<3 ||
+       strncmp(s->action_stdout,"-P ",3) || s->action_stdout[n-1]!='\n' || memchr(s->action_stdout,0,n))return -1;
+    v->bytes=malloc(n);if(!v->bytes)return -1;
+    memcpy(v->bytes,s->action_stdout,n);v->length=n;v->present=true;return 0;
+}
+static int nf_nat6_probe(struct asteriskd_system_supervisor *s) {
+    struct system_rule_view v={0};int rc=nf_nat6_view(s,&v);
+    asteriskd_supervisor_rule_view_destroy(&v);return rc;
+}
+
 static bool nf_native_available(const struct asteriskd_system_supervisor *s) {
     return s && !s->rule_commands.active && !s->verify_private_rules &&
         s->rule_snapshot.phase == SYSTEM_RULE_SNAPSHOT_NONE && !s->action_spawned;
@@ -151,6 +185,20 @@ static int nf_native_verify(struct asteriskd_system_supervisor *s,
     asteriskd_supervisor_rule_snapshot_destroy(&s->rule_snapshot);
     return rc;
 }
+/* Keep the dual-stack INPUT guard; trim only the gateway NAT plan. */
+static int nf_native_plan(struct nf_native_backend *b,struct nf_native_slot *slot,unsigned port,bool guard) {
+    if(nf_gateway_plan(&b->system->loaded_config.config,port,guard,&slot->plan))return -1;
+    slot->block_ipv6=b->ipv6_nat_disabled;
+    if(!guard && b->ipv6_nat_disabled && slot->plan.private_group_count==2) {
+        slot->plan.private_group_count=slot->plan.hook_group_count=1;
+        memset(&slot->plan.private_groups[1],0,sizeof(slot->plan.private_groups[1]));
+        memset(&slot->plan.hook_groups[1],0,sizeof(slot->plan.hook_groups[1]));
+    }
+    return 0;
+}
+static bool nf_family_active(const struct nf_native_slot *slot,const struct asteriskd_private_chain_group *g,bool active) {
+    return active && !(slot->block_ipv6 && g->family==ASTERISKD_IP_FAMILY_IPV6);
+}
 static int nf_native_populate(struct asteriskd_system_supervisor *s,
         const struct asteriskd_private_chain_group *g,unsigned port,bool active,
         uint32_t mark,uint32_t mask,bool authorized) {
@@ -168,7 +216,7 @@ static int nf_native_render(struct asteriskd_system_supervisor *s,
     int rc=0;
     for(size_t i=0;i<slot->plan.private_group_count;i++) {
         const struct asteriskd_private_chain_group *g=&slot->plan.private_groups[i];
-        if(nf_native_populate(s,g,port,active,mark,mask,authorized)!=0) {rc=-1;break;}
+        if(nf_native_populate(s,g,port,nf_family_active(slot,g,active),mark,mask,authorized)!=0) {rc=-1;break;}
         const struct asteriskd_byte_buffer *b=&s->rule_commands.xtables[0][g->family][g->table];
         if(b->length && asteriskd_byte_buffer_append(&slot->pending[i],b->bytes,b->length)!=0) {rc=-1;break;}
     }
@@ -196,7 +244,7 @@ static int nf_native_write(struct nf_native_backend *b,
         asteriskd_supervisor_rule_snapshot_destroy(&s->rule_snapshot);
         slot->expected_valid=true;slot->pending_valid=false;
     }
-    if (fresh && nf_gateway_plan(&s->loaded_config.config,port,guard,&slot->plan)!=0) return -1;
+    if (fresh && nf_native_plan(b,slot,port,guard)!=0) return -1;
     int rc=nf_native_snapshot(s,slot);
     if(!rc) for(size_t i=0;i<slot->plan.private_group_count;i++)
         if(nf_native_classify(s,slot,i,!fresh,false)!=(fresh?0:1)) rc=-1;
@@ -207,7 +255,7 @@ static int nf_native_write(struct nf_native_backend *b,
     for(size_t i=0;i<slot->plan.private_group_count;i++) {
         const struct asteriskd_private_chain_group *g=&slot->plan.private_groups[i];
         if(asteriskd_supervisor_xtables_zero(s,g->family,g->table,fresh?"-N":"-F",g->names[0],NULL,0)!=0 ||
-           nf_native_populate(s,g,port,active,b->session_mark,b->session_mask,b->mark_authorized)!=0 ||
+           nf_native_populate(s,g,port,nf_family_active(slot,g,active),b->session_mark,b->session_mask,b->mark_authorized)!=0 ||
            (fresh && asteriskd_supervisor_apply_hook_group(s,&slot->plan.hook_groups[i])!=0)) {rc=-1;break;}
     }
     if(!rc) {
@@ -283,6 +331,14 @@ int nf_gateway_native_step(void *opaque,enum nf_step op,unsigned port,uint64_t e
     switch(op) {
     case NF_RESERVE: {
         if(nf_native_mark_recheck(b))return -1;
+        // Probe only when IPv6 gateway capture was requested, before core/guard.
+        b->ipv6_nat_disabled=true;
+        if(b->system->loaded_config.config.enable_ipv6) {
+            if(!nf_native_available(b->system))return -1;
+            int capability=nf_nat6_probe(b->system);
+            if(capability<0)return -1;
+            b->ipv6_nat_disabled=capability==1;
+        }
         int rc=b->lifecycle_operations.step(b->lifecycle_operations.ctx,op,port,epoch);
         if(!rc && b->wal_ready && !b->wal.debts && !b->wal.epoch &&
            b->wal.port==port && !b->guard.owned && !b->nat.owned) b->precore_certified=true;
@@ -362,7 +418,26 @@ int main(void) {
     BTEST(!nf_gateway_wal_load(backend->wal_fd,&rec,payload,NF_WAL_MAX) && rec.generation==1);
     BTEST(!unlinkat(backend->wal_fd,NF_WAL_NAME,0));close(backend->wal_fd);close(d);BTEST(!rmdir(path));
     nf_native_clear(&backend->guard);free(payload);free(backend);
-    nf_native_clear(slot);free(slot);free(s);
+    nf_native_clear(slot);
+    struct nf_native_backend *cap=calloc(1,sizeof(*cap));BTEST(cap!=NULL);cap->system=s;
+    c->enable_ipv6=true;cap->ipv6_nat_disabled=true;
+    BTEST(!nf_native_plan(cap,&cap->nat,15353,false) && cap->nat.plan.private_group_count==1 && cap->nat.plan.hook_group_count==1);
+    BTEST(!nf_native_plan(cap,&cap->guard,15353,true) && cap->guard.plan.private_group_count==2);
+    BTEST(!nf_native_render(s,&cap->guard,15353,true,0,0,false));
+    BTEST(memmem(cap->guard.pending[0].bytes,cap->guard.pending[0].length,"-j ACCEPT",9)!=NULL);
+    BTEST(memmem(cap->guard.pending[1].bytes,cap->guard.pending[1].length,"-j ACCEPT",9)==NULL);
+    BTEST(memmem(cap->guard.pending[1].bytes,cap->guard.pending[1].length,"-j DROP",7)!=NULL);
+    BTEST(c->enable_ipv6);nf_native_clear(&cap->guard);nf_native_clear(&cap->nat);
+    cap->ipv6_nat_disabled=false;BTEST(!nf_native_plan(cap,&cap->nat,15353,false) && cap->nat.plan.private_group_count==2);
+    nf_native_clear(&cap->nat);free(cap);
+    const char *missing="ip6tables v1.8.11 (legacy): can't initialize ip6tables table `nat': Table does not exist (do you need to insmod?)\nPerhaps ip6tables or your kernel needs to be upgraded.\n";
+    BTEST(nf_nat6_missing(0,3,false,0,missing,strlen(missing)));
+    BTEST(!nf_nat6_missing(-1,3,false,0,missing,strlen(missing)));
+    BTEST(!nf_nat6_missing(0,4,false,0,missing,strlen(missing)));
+    BTEST(!nf_nat6_missing(0,3,true,0,missing,strlen(missing)));
+    BTEST(!nf_nat6_missing(0,3,false,1,missing,strlen(missing)));
+    BTEST(!nf_nat6_missing(0,3,false,0,missing,strlen(missing)-1));
+    free(slot);free(s);
     printf("PASS %u backend checks\n",backend_checks);return 0;
 }
 #endif
