@@ -95,3 +95,32 @@ refresh, not the entire proxy connection; rule/explicit resolver overrides
 can take precedence. No changes to FakeIP cache, disk caching, resolver
 routing, legacy managed settings, URL-test settings or raw full imports.
 User JSON overrides retain their existing precedence.
+
+## Server domain resolver and bootstrap audit
+
+Original v1.14.3 `common/dialer/dialer.go` selects an explicit
+domain_resolver before route.default_domain_resolver. With an explicit
+resolver it can resolve the server locally even with a detour; the detour
+still carries the outbound connection. WireGuard endpoint peer resolution
+also uses these query options (`protocol/wireguard/endpoint.go`).
+Do not remove explicit resolvers from chained outbounds or change the
+selected DNS transport automatically.
+
+Managed bootstrap stays dns-local -> dns-direct -> dns-remote
+(dependency order; dns-remote has proxy detour). The default outbound
+resolver remains dns-direct. Explicit resolver values provided by protocol
+builders (WireGuard advanced dialer) and custom outbound JSON are preserved
+instead of being overwritten by the generated default. URL tests retain
+their prior direct resolver behavior; customOutboundJson still merges
+after generated fields, as before. Raw full config imports are unchanged.
+An explicitly configured resolver using a proxy that requires that same
+resolver to start can still cause a cycle; the core validates dependencies,
+and user overrides are not silently redirected. No change to system local
+DNS selection or firewall/tethering.
+
+A shared first hop can already have tag "proxy" or a selector name rather
+than the proposed g-ID. Resolve its actual existing tag before linking
+the previous outbound's detour or external mapping route. No change to
+the order or intended members of chains. Unit tests exercise tag selection
+and resolver policy; full chain startup and Android network tests remain
+required.

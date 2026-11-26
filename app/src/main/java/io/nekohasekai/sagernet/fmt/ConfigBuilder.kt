@@ -372,6 +372,11 @@ fun buildConfig(
                 }
 
 
+                // A shared first hop may already have a different tag (for example
+                // "proxy" or a selector name). Link to the actual existing tag.
+                val reusedTag = if (needGlobal) globalOutbounds[proxyEntity.id] else null
+                tagOut = ServerResolverPolicy.effectiveHopTag(tagOut, reusedTag)
+
                 // chain rules
                 if (index > 0) {
                     // chain route/proxy rules
@@ -390,10 +395,7 @@ fun buildConfig(
 
                 // now tagOut is determined
                 if (needGlobal) {
-                    globalOutbounds[proxyEntity.id]?.let {
-                        if (index == 0) chainTagOut = it // single, duplicate chain
-                        return@forEachIndexed
-                    }
+                    if (reusedTag != null) return@forEachIndexed
                     globalOutbounds[proxyEntity.id] = tagOut
                 }
 
@@ -471,9 +473,14 @@ fun buildConfig(
                     }
                     // sing-box >= 1.12: domain_strategy -> domain_resolver
                     val serverStrategy = if (forTest) "" else defaultServerDomainStrategy
+                    // Keep explicit resolver options supplied by a managed protocol
+                    // builder (notably WireGuard's advanced dialer) or custom outbound.
+                    // URL tests retain their existing direct resolver policy.
+                    val customResolver = if (this is CustomSingBoxOption)
+                        getBasicMap()["domain_resolver"] else null
+                    val explicitResolver = _hack_config_map["domain_resolver"] ?: customResolver
                     _hack_config_map["domain_resolver"] =
-                        if (serverStrategy.isEmpty()) "dns-direct"
-                        else mapOf("server" to "dns-direct", "strategy" to serverStrategy)
+                        ServerResolverPolicy.options(forTest, serverStrategy, explicitResolver)
 
                     _hack_config_map["tag"] = tagOut
 
