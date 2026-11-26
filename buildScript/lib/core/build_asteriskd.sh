@@ -554,6 +554,7 @@ SOURCES=$(cd "$SRC" && find . -name '*.c' -not -path './.git/*' | LC_ALL=C sort)
 # Bounded marked drain is connected to the staged lifecycle; production ownership is not enabled.
 # Gateway NAT6 capability is checked independently from core IPv6 routing.
 # Marked reservation now checks complete xtables saves and conntrack occupancy.
+# Recovery accepts interrupted pre-NAT activation and retries final guard removal.
 HEV_GATEWAY_BACKEND="$ROOT/buildScript/experiments/hev-gateway-dns/gateway_recovery.c"
 
 build() { # abi cc-prefix
