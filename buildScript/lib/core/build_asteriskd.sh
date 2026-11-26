@@ -522,6 +522,8 @@ hev_path = root / "supervisor/supervisor_xtables.c"
 hev_source = hev_path.read_text()
 if hev_source.count(legacy_hev) == 1:
     hev_path.write_text(hev_source.replace(legacy_hev, replacements[-1][2], 1))
+# Admission must run before telemetry reset, after the control listener is acquired.
+replacements += [["supervisor/supervisor.c","#if defined(__linux__) || defined(__ANDROID__)\n","#if defined(__linux__) || defined(__ANDROID__)\n\nextern int nf_gateway_admission_check(int directory);\n"],["supervisor/supervisor.c","    int state_result = system_reset_telemetry_state(\n","    // The global control listener is held. Do not overwrite the old state\n    // or start an owned service if gateway DNS recovery is unresolved.\n    if (system.loaded_config.config.owner == ASTERISKD_OWNER_BOX &&\n        nf_gateway_admission_check(system.store.directory_fd) != 0) {\n        (void)close(listener);\n        *has_early_result = true;\n        (void)system_start_result(early_result, ASTERISKD_CONTROL_RESULT_START_FAILED,\n            \"HEV gateway DNS recovery pending or journal unreadable\", NULL);\n        system_runtime_cleanup(&system);\n        (void)sigprocmask(SIG_SETMASK, &previous, NULL);\n        return 1;\n    }\n\n    int state_result = system_reset_telemetry_state(\n"]]
 for name, old, new in replacements:
     path = root / name
     source = path.read_text()
