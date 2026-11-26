@@ -409,3 +409,22 @@ Required before activation:
 
 Do not present the planner as runtime gateway interception. Existing
 TUN2SOCKS behavior and experimental opt-in are unchanged.
+
+## HEV non-local IPv6 DNS (opt-in extension)
+
+The existing HEV IPv4 mark/return rule pair remains unchanged. When IPv6 is
+already enabled, additional pairs match TCP/UDP 53 only on exact eligible
+downstreams and destinations in 2000::/3 or fc00::/7, explicitly excluding
+addrtype LOCAL (IPv6 UNICAST is not sufficient to exclude local addresses).
+Existing local-address and IPsec exemptions stay first. No link-local,
+multicast, gateway DNS, additional route, NAT hook, or OUTPUT rule is added.
+The same owned MANGLE chains, dynamic refresh and cleanup path are used.
+The existing opt-in, bundled-core, port-hijack and no-boot constraints remain.
+
+Reviewed the supplied asteriskd a31fd6df source. Baseline and isolated
+modified native rule builder compiled with host GCC; actual queued command
+checks passed for IPv4, IPv6, disabled/empty, ignored and invalid selectors.
+Full patched Android NDK build and on-device packet tests remain outstanding.
+Service Control pause leaves the core alive, so a future gateway listener
+requires a guard spanning core lifetime (not just traffic-rule lifetime).
+The existing gateway config/planner remains unconnected.
