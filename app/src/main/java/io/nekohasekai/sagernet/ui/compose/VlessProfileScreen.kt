@@ -138,7 +138,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                     ProfileChoices(listOf("none" to "None", "tls" to "TLS", "reality" to "Reality"), if (reality) "reality" else security) {
                         reality = it == "reality"
                         write("security", if (reality) "tls" else it)
-                        if (!reality) { write("realityPubKey",""); write("realityShortId",""); toggle("realityHybrid",false) }
+                        if (!reality) { write("realityPubKey",""); write("realityShortId",""); write("realityHybridMode","auto") }
                         else { toggle("tlsDisableSni",false); write("tlsSpoof",""); write("tlsSpoofMethod","") }
                     }
                     if ("tls" in security) {
@@ -157,7 +157,9 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                     ProfileSection("Reality") {
                         ProfileText("Public key","realityPubKey",read("realityPubKey"),::write)
                         ProfileText("Short ID","realityShortId",read("realityShortId"),::write)
-                        ProfileSwitch("X25519MLKEM768",store.getBoolean("realityHybrid",false)) { toggle("realityHybrid",it) }
+                        Text("X25519MLKEM768")
+                        ProfileChoices(listOf("auto" to "Automatic", "enabled" to "Enabled", "disabled" to "Disabled"), read("realityHybridMode").ifBlank { "auto" }) { write("realityHybridMode", it) }
+                        Text("Automatic follows the TLS fingerprint. Enabled requires a hybrid key share in ClientHello. Disabled removes the hybrid group.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 item {

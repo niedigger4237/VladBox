@@ -82,7 +82,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
     private val tlsClientCertificate = pbm.add(PreferenceBinding(Type.Text, "tlsClientCertificate"))
     private val tlsClientKey = pbm.add(PreferenceBinding(Type.Text, "tlsClientKey"))
     private val echQueryName = pbm.add(PreferenceBinding(Type.Text, "echQueryName"))
-    private val realityHybrid = pbm.add(PreferenceBinding(Type.Bool, "realityHybrid"))
+    private val realityHybrid = pbm.add(PreferenceBinding(Type.Text, "realityHybridMode"))
     private val vlessEncryption = pbm.add(PreferenceBinding(Type.Text, "vlessEncryption"))
     private val vlessNetwork = pbm.add(PreferenceBinding(Type.Text, "vlessNetwork"))
     private val kcpMtu = pbm.add(PreferenceBinding(Type.Text, "kcpMtu"))
@@ -128,6 +128,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
             this@StandardV2RaySettingsActivity.password.disable = true
         }
         pbm.fromCacheAll(this)
+        this.realityHybrid = effectiveRealityHybridMode() != "disabled"
         if (this is HttpBean) httpExtra.fromCacheAll(this)
     }
 
