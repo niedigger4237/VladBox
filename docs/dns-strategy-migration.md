@@ -1434,3 +1434,33 @@ hotspot already active, then orderly shutdown after flows expire.
 Boot, Service Control, dual-stack and seamless dynamic tethering
 are not part of this first device trial. The activation commits have
 not yet been built or tested on Android.
+
+## Stop/reconnect failure: opt-in marked live drain
+
+Device log 01:55:28–01:56:29 confirms owned TCP/UDP listener
+readiness and successful DNS resolution. Shutdown fails explicitly
+because conntrack mappings remain; subsequent admission rejects
+unresolved WAL. Waiting briefly does not resolve the lifetime issue.
+
+The preview now falls back to non-local HEV DNS unless a private
+root-owned runtime file nf-hev-ctmark-lease contains exactly
+"NF_HEV_CTMARK_V1 0x00800000" followed by a newline. This is an explicit
+device-owner administrative reservation of a bit for a cooperating
+firewall environment, not a guarantee against arbitrary privileged
+writers. The native path verifies file type, ownership, mode, link
+count, contents and inode/device, audits visible IPv4 and IPv6 legacy
+iptables mark users, and checks candidate conntrack occupancy before
+reservation. The prior device audit suggested this candidate only;
+new kernel evidence is required each time. Closed-guard and NAT
+absence checks precede bounded per-record fresh GET and exact DELETE
+of marked entries. An ambiguous observation, foreign collision,
+lease loss or incomplete drain retains the existing guard and WAL.
+Old unmarked mappings and recovered WALs never authorize deletion.
+The existing recovery path may require expiry or device reboot.
+No global conntrack flush, guard bypass, or WAL deletion is used.
+
+IPv4 only, Start on Boot and Service Control off remain the initial
+trial constraints. The native and Kotlin changes have not yet passed
+an Android build or live marked DELETE validation. Normal operation
+without the reservation uses the prior non-local path. Do not enable
+the reservation if another firewall, module or program uses this bit.
