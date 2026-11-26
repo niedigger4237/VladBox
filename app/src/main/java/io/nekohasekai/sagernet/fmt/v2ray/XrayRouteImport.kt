@@ -75,7 +75,7 @@ object XrayRouteImport {
         }
     }
     private fun dns(root: JSONObject, final: Target, rules: List<Entry>): Dns? {
-        val d = root.optJSONObject("dns") ?: return null
+        val d = if (root.has("dns") && !root.isNull("dns")) root.getJSONObject("dns") else return null
         keys(d, setOf("servers", "queryStrategy", "disableCache", "disableFallback", "disableFallbackIfMatch"), "DNS")
         require(!d.optBoolean("disableCache") && !d.optBoolean("disableFallback") && !d.optBoolean("disableFallbackIfMatch")) { "Unsupported Xray DNS cache/fallback policy" }
         val servers = d.getJSONArray("servers")
@@ -100,7 +100,7 @@ object XrayRouteImport {
             require(uri.rawQuery == null && (uri.scheme == "https" || uri.path.isNullOrEmpty())) { "Unsupported Xray DNS URL parameters" }
         }
         val strategy = when (d.optString("queryStrategy", "UseIP")) {
-            "UseIP" -> null
+            "UseIP" -> ""
             "UseIPv4" -> "ipv4_only"
             "UseIPv6" -> "ipv6_only"
             else -> throw IllegalArgumentException("Unsupported Xray DNS queryStrategy")
@@ -110,10 +110,10 @@ object XrayRouteImport {
     fun plan(root: JSONObject, name: String, targets: Map<String, Target>, first: Target): Plan? {
         if (!root.has("routing") && !root.has("dns")) return null
         require(first.special != -2L) { "Xray default block outbound is unsupported" }
-        val routing = root.optJSONObject("routing") ?: JSONObject()
+        val routing = if (root.has("routing") && !root.isNull("routing")) root.getJSONObject("routing") else JSONObject()
         keys(routing, setOf("domainStrategy", "rules"), "routing")
         require(routing.optString("domainStrategy", "AsIs") in setOf("", "AsIs")) { "Xray IPIfNonMatch/IPOnDemand require a separate resolve policy" }
-        val arr = routing.optJSONArray("rules") ?: JSONArray()
+        val arr = if (routing.has("rules") && !routing.isNull("rules")) routing.getJSONArray("rules") else JSONArray()
         val rules = (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             keys(o, setOf("type", "ruleTag", "domain", "ip", "port", "sourcePort", "source", "network", "protocol", "outboundTag"), "route rule")

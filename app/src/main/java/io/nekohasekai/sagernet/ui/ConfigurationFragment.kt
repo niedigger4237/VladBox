@@ -405,7 +405,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                     try {
                         var xrayProfiles = false
                         val xrayChains = mutableListOf<XrayJsonImport.ImportedChain>()
-                    val xrayRoutes = mutableListOf<XrayRouteImport.Plan>()
+                        val xrayRoutes = mutableListOf<XrayRouteImport.Plan>()
                         val proxies = RawUpdater.parseRaw(text, onXrayChains = { xrayChains.addAll(it) }, onXrayRoutes = { xrayRoutes.addAll(it) }) { xrayProfiles = true }
                         if (proxies.isNullOrEmpty()) onMainDispatcher {
                             snackbar(getString(R.string.no_proxies_found_in_clipboard)).show()

@@ -138,7 +138,7 @@ fun buildConfig(
     val requiredIds = (extraRules.map { it.outbound } + listOfNotNull(importedFinal)).filter { it > 0 && it != proxy.id }.distinct()
     val extraProxies = if (forTest) mapOf() else SagerDatabase.proxyDao.getEntities(requiredIds).associateBy { it.id }
     if (importedRoute != null) require(requiredIds.all { it in extraProxies }) { "Imported Xray route references a deleted profile" }
-    val buildSelector = !forTest && group?.isSelector == true && !forExport
+    val buildSelector = !forTest && group?.isSelector == true && !forExport && importedRoute == null
     val userDNSRuleList = mutableListOf<DNSRule_DefaultOptions>()
     val domainListDNSDirectForce = mutableListOf<String>()
     val bypassDNSBeans = hashSetOf<AbstractBean>()
@@ -155,7 +155,7 @@ fun buildConfig(
     val enableDnsRouting = DataStore.enableDnsRouting && importedRoute?.importedDns == null
     // root TUN: traffic to the FakeIP range (198.18.0.0/15) is not captured by auto_redirect, so no FakeIP there
     val useFakeDns = DataStore.enableFakeDns && !forTest && !isRootTun && importedRoute?.importedDns == null
-    val needSniff = DataStore.trafficSniffing > 0
+    val needSniff = DataStore.trafficSniffing > 0 || (importedRoute != null && extraRules.any { it.protocol.isNotBlank() })
     val needSniffOverride = DataStore.trafficSniffing == 2
     val externalIndexMap = ArrayList<IndexEntity>()
     val ipv6Mode = if (forTest) IPv6Mode.ENABLE else DataStore.ipv6Mode
