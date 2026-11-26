@@ -163,3 +163,58 @@ and custom JSON overrides retain precedence; user overrides explicitly
 referencing dns-remote must be adapted before choosing Direct Only.
 A Remote preset using platform local/DHCP has platform-specific semantics;
 use a network DNS server (e.g. DoH) for DNS through the proxy.
+
+## Persistent DNS cache audit (not enabled)
+
+Verified against original SagerNet/sing-box v1.14.3 and pinned extended
+d9442d14b19ddd02605bf3ee893a171947038e19:
+- option/experimental.go supports experimental.cache_file.enabled,
+  path, cache_id, store_dns and separate store_fakeip. Managed ConfigBuilder
+  does not currently enable a cache file; raw/custom configs may do so.
+- dns/client.go Start initializes the in-memory LRU only if there is no
+  persistent DNS store. storeCache/loadResponse use the disk store instead
+  of LRU when active. dns.cache_capacity does not bound that disk store.
+- DNS cache keys include the transport tag, client subnet and environment
+  hash where available. A reused dns-direct/dns-remote tag alone does not
+  identify the DNS provider or proxy configuration.
+- Persistent responses retain their expiration timestamps and obey the
+  optimistic stale window. FakeIP mappings are controlled independently by
+  store_fakeip; do not enable it as a side effect of store_dns.
+- experimental/cachefile/dns_cache.go uses asynchronous writes; queued
+  responses are not guaranteed to survive an abrupt termination. The core
+  cleans expired entries at startup and periodically (optimistic timeout / 2,
+  otherwise one hour). Cleanup walks only the active cache_id namespace;
+  repeated new IDs can retain inactive namespaces. Bolt file size need not
+  shrink after deleting entries. There is no disk capacity setting analogous
+  to the memory LRU.
+- experimental/cachefile/cache.go opens a Bolt file with a lock; separate
+  simultaneously running cores must not share a writable database.
+  The upstream default creation mode is 0666 before umask/platform
+  restrictions, so directory ownership/permissions matter.
+
+Deployment constraints:
+- Embedded Android core chdirs into app no_backup (libcore/nb4a.go).
+  Use a dedicated private cache directory, not external storage.
+- All four ROOT modes use RootDaemon and asteriskd's workingDirectory
+  /data/adb/nekobox/run; root boot configurations can survive app restarts.
+  Use an explicitly protected root-owned location, not the embedded
+  database and not a generic relative cache.db.
+- DNS cache contains queried names and answers. Disabling persistence must
+  stop writes; an explicit clear operation must remove retained data only
+  after the corresponding core has released the file. Do not unlink a live
+  Bolt database. Keep user-supplied cache files untouched.
+- Managed persistence needs stable isolation by effective resolver/outbound
+  context, including routing profile and proxy selection. A selector can
+  change its remote egress while the core stays alive; a static profile ID
+  is insufficient. Scope churn needs bounded cleanup or a current-scope-only
+  store with a verified shutdown/handoff. Avoid automatic persistence in
+  selector/external-core cases until these are addressed.
+
+First implementation should be opt-in, use a private current-scope store
+with safe invalidation after verified shutdown, exclude URL tests and
+exports, respect custom cache_file settings, and expose clear-cache
+behavior. Explain the memory-vs-disk distinction in UI, preserve
+Optimistic DNS Cache independently, and test restart/expiry, profile and
+resolver switching, selector switching, embedded VPN and each ROOT mode
+(including boot start and tethering). No runtime settings or native
+lifecycle changes are introduced by this audit.
