@@ -208,7 +208,7 @@ wait_running() {
     return 1
 }
 reconcile() (
-    flock -x -w 5 9 || exit 1
+    timeout 5 flock -x 9 || exit 1
     owned || exit 1
     if [ "$MODE" != tun ]; then
         # Native selector handling owns these modes. Only maintain the
@@ -337,7 +337,7 @@ done
 # Clean software rules after a confirmed native stop. On app handoff the app
 # owns cleanup; do not compete with it or delete rules from a new session.
 (
-    flock -x -w 5 9 || exit 0
+    timeout 5 flock -x 9 || exit 0
     current || exit 0
     response=$(timeout 5 "$DAEMON" status 2>/dev/null || true)
     if printf '%s\n' "$response" | grep -Eq '"code"[[:space:]]*:[[:space:]]*"not_running"'; then

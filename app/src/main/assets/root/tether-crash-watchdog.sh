@@ -18,7 +18,7 @@ command -v timeout >/dev/null 2>&1 || exit 1
 # This lock protects recovery and lease publication. A new owner must not
 # publish records until the previous owner has released this lock.
 (
-flock -x -w 30 9 || exit 1
+timeout 30 flock -x 9 || exit 1
 [ -f "$DIR/lease" ] || exit 1
 read -r saved boot pid started extra < "$DIR/lease"
 [ "$saved" = "$token" ] && [ -z "${extra:-}" ] || exit 1

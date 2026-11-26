@@ -2,6 +2,7 @@ package io.nekohasekai.sagernet.bg.root
 
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.database.DataStore
+import io.nekohasekai.sagernet.ktx.Logs
 import java.io.File
 
 /**
@@ -32,9 +33,12 @@ object RootBoot {
             "set -e", "umask 077", "mkdir -p ${RootShell.q(BOOT)}",
             "chmod 700 ${RootShell.q(BOOT)}",
             "cat /proc/sys/kernel/random/boot_id > ${RootShell.q("$BOOT/manual-owner")}",
-            "if command -v flock >/dev/null 2>&1; then (flock -x -w 90 9) 9>${RootShell.q(monitorLock)}; fi",
+            "command -v flock >/dev/null 2>&1 || { echo 'ROOT handoff: flock unavailable' >&2; exit 1; }",
+            "command -v timeout >/dev/null 2>&1 || { echo 'ROOT handoff: timeout unavailable' >&2; exit 1; }",
+            "(timeout 90 flock -x 9) 9>${RootShell.q(monitorLock)}",
             timeoutMs = 95000,
         )
+        if (!result.ok) Logs.w("ROOT monitor handoff failed: code=${result.code}, ${result.err.ifBlank { result.out }}")
         return result.ok
     }
 
@@ -69,7 +73,7 @@ mkdir -p "${'$'}BASE/run/logs" || exit 1
 command -v flock >/dev/null 2>&1 || exit 1
 command -v timeout >/dev/null 2>&1 || exit 1
 (
-flock -x -w 30 9 || exit 1
+timeout 30 flock -x 9 || exit 1
 # A manual connection may already have started during boot.
 BOOT_ID="${'$'}(cat /proc/sys/kernel/random/boot_id)" || exit 1
 [ "${'$'}(cat "${'$'}BASE/boot/manual-owner" 2>/dev/null)" != "${'$'}BOOT_ID" ] || exit 0

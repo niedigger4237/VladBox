@@ -41,9 +41,10 @@ internal object TetherCrashWatchdog {
             "set -e", "umask 077",
             "mkdir -p ${RootShell.q(DIR)} && chmod 700 ${RootShell.q(DIR)}",
             "command -v flock >/dev/null && command -v timeout >/dev/null",
-            "(flock -x -w 8 9) 9>${RootShell.q("$DIR/lock")}",
+            "(timeout 8 flock -x 9) 9>${RootShell.q("$DIR/lock")}",
             timeoutMs = 12000,
         )
+        if (!result.ok) Logs.w("VPN tether recovery handoff failed: code=${result.code}, ${result.err.ifBlank { result.out }}")
         return result.ok
     }
 
@@ -81,7 +82,7 @@ internal object TetherCrashWatchdog {
         val r = RootShell.run(
             "set -e", "umask 077",
             "(",
-            "flock -x -w 5 9",
+            "timeout 5 flock -x 9",
             "test ! -e ${RootShell.q("$DIR/ipv4")} && test ! -e ${RootShell.q("$DIR/ipv6")} && test ! -e ${RootShell.q("$DIR/guard")}",
             "started=\$(sed 's/^.*) //' /proc/$pid/stat | awk '{print \$20}')",
             "case \"\$started\" in ''|*[!0-9]*) exit 1;; esac",
@@ -157,7 +158,7 @@ internal object TetherCrashWatchdog {
             "test ! -e ${RootShell.q("$DIR/ipv4")} && test ! -e ${RootShell.q("$DIR/ipv6")} && test ! -e ${RootShell.q("$DIR/guard")}",
             "printf '%s\\n' ${RootShell.q(id)} > ${RootShell.q("$DIR/release.new")}",
             "mv -f ${RootShell.q("$DIR/release.new")} ${RootShell.q("$DIR/release")}",
-            "(flock -x -w 8 9) 9>${RootShell.q("$DIR/lock")}",
+            "(timeout 8 flock -x 9) 9>${RootShell.q("$DIR/lock")}",
             timeoutMs = 12000,
         )
         if (!r.ok) return false
