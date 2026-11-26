@@ -726,4 +726,9 @@
     <string name="tun_ipv4_subnet_hint">Private network CIDR (/24–/30), e.g. 172.19.0.0/28. TUN and DNS use the first two host addresses.</string>
     <string name="tun_ipv6_subnet_hint">Local IPv6 network CIDR (fd00::/8, /64–/126), e.g. fdfe:dcba:9876::/126.</string>
     <string name="tun_subnet_invalid">Enter a valid private network CIDR with all host bits zero.</string>
+    <string name="sc_any_wifi">Any Wi-Fi network</string>
+    <string name="sc_any_wifi_sum">Match all networks; ignore SSID and BSSID filters for this rule</string>
+    <string name="sc_invalid_cron">Invalid cron expression. Use five numeric fields: minute, hour, day, month, weekday.</string>
+    <string name="sc_invalid_ssid">SSID must be 1–32 UTF-8 bytes. Maximum 64 entries.</string>
+    <string name="sc_invalid_bssid">Invalid BSSID. Enter up to 64 MAC addresses.</string>
 </resources>

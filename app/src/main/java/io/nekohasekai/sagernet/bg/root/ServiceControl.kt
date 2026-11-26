@@ -3,43 +3,50 @@ package io.nekohasekai.sagernet.bg.root
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import io.nekohasekai.sagernet.database.DataStore
+import io.nekohasekai.sagernet.ktx.Logs
 
-/**
- * Service control (asteriskd `serviceControl`): the supervisor starts / stops the service by
- * Wi-Fi connection, cron schedule and lock screen. The settings live in the app's key-value store.
- */
+/** Native schema 7, shared by manual ROOT and boot publication. */
 object ServiceControl {
     val WIFI_RULES = listOf("connectStart", "connectStop", "disconnectStart", "disconnectStop")
-
     private val s get() = DataStore.configurationStore
     private fun b(k: String) = s.getBoolean(k, false)
     private fun t(k: String) = s.getString(k) ?: ""
 
-    private fun lines(v: String) = v.split('\n', ',', ';').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-
-    private fun normBssid(v: String) = v.lowercase().replace('-', ':')
-    private val BSSID = Regex("[0-9a-f]{2}(:[0-9a-f]{2}){5}")
+    fun enabled(): Boolean = b("scEnabled")
 
     fun toJson(): JsonObject {
-        val master = b("scEnabled")
-        fun rule(name: String) = JsonObject().apply {
-            val on = master && b("scWifi") && b("scWifi_$name")
-            val ssids = lines(t("scWifi_${name}_ssids")).filter { it.toByteArray().size in 1..32 }.take(64)
-            val bssids = lines(t("scWifi_${name}_bssids")).map(::normBssid).filter { BSSID.matches(it) }.distinct().take(64)
-            // a rule without identifiers would match nothing: keep it disabled
-            addProperty("enabled", on && (ssids.isNotEmpty() || bssids.isNotEmpty()))
-            add("ssids", JsonArray().also { a -> ssids.forEach(a::add) })
-            add("bssids", JsonArray().also { a -> bssids.forEach(a::add) })
+        val master = enabled()
+        fun rule(name: String): JsonObject {
+            val key = "scWifi_$name"
+            val ssidInput = t("${key}_ssids")
+            val bssidInput = t("${key}_bssids")
+            val any = b("${key}_any")
+            val valid = any || (validServiceControlSsids(ssidInput) && validServiceControlBssids(bssidInput))
+            val ssids = if (any || !valid) emptyList() else serviceControlIdentifiers(ssidInput)
+            val bssids = if (any || !valid) emptyList() else serviceControlIdentifiers(bssidInput).mapNotNull(::normalizeBssidOrNull).distinct()
+            // Asteriskd rejects mutually exclusive rules; STOP wins for a
+            // conflicting restored preference. Do not broaden legacy empty lists.
+            val conflictingStop = name.endsWith("Start") && b("scWifi_" + name.removeSuffix("Start") + "Stop")
+            val requested = master && b("scWifi") && b(key) && !conflictingStop
+            val enabled = requested && valid && (any || ssids.isNotEmpty() || bssids.isNotEmpty())
+            if (requested && !enabled) Logs.w("Service Control: disabled incomplete or invalid Wi-Fi rule $name")
+            return JsonObject().apply {
+                addProperty("enabled", enabled)
+                add("ssids", JsonArray().also { a -> ssids.forEach(a::add) })
+                add("bssids", JsonArray().also { a -> bssids.forEach(a::add) })
+            }
         }
         return JsonObject().apply {
             addProperty("enabled", master)
             add("schedule", JsonObject().apply {
-                val start = t("scStartCron").trim()
-                val stop = t("scStopCron").trim()
-                val on = master && b("scSchedule") && start.isNotEmpty() && stop.isNotEmpty()
+                val start = parseServiceCron(t("scStartCron"))
+                val stop = parseServiceCron(t("scStopCron"))
+                val requested = master && b("scSchedule")
+                val on = requested && start is ServiceCronParseResult.Valid && stop is ServiceCronParseResult.Valid
+                if (requested && !on) Logs.w("Service Control: disabled invalid cron schedule")
                 addProperty("enabled", on)
-                addProperty("startCron", if (on) start else "")
-                addProperty("stopCron", if (on) stop else "")
+                addProperty("startCron", if (on && start is ServiceCronParseResult.Valid) start.expression else "")
+                addProperty("stopCron", if (on && stop is ServiceCronParseResult.Valid) stop.expression else "")
             })
             add("wifi", JsonObject().apply {
                 addProperty("enabled", master && b("scWifi"))
@@ -48,10 +55,10 @@ object ServiceControl {
             add("keyguard", JsonObject().apply {
                 val on = master && b("scKeyguard") && android.os.Build.VERSION.SDK_INT >= 33
                 addProperty("enabled", on)
-                addProperty("lockStart", on && b("scLockStart"))
-                addProperty("lockStop", on && b("scLockStop") && !b("scLockStart"))
-                addProperty("unlockStart", on && b("scUnlockStart"))
-                addProperty("unlockStop", on && b("scUnlockStop") && !b("scUnlockStart"))
+                addProperty("lockStart", on && b("scLockStart") && !b("scLockStop"))
+                addProperty("lockStop", on && b("scLockStop"))
+                addProperty("unlockStart", on && b("scUnlockStart") && !b("scUnlockStop"))
+                addProperty("unlockStop", on && b("scUnlockStop"))
             })
         }
     }

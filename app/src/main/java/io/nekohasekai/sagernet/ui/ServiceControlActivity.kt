@@ -4,11 +4,17 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.preference.Preference
+import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreference
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.needReload
+import io.nekohasekai.sagernet.bg.root.ServiceControl
+import io.nekohasekai.sagernet.bg.root.ServiceCronParseResult
+import io.nekohasekai.sagernet.bg.root.parseServiceCron
+import io.nekohasekai.sagernet.bg.root.validServiceControlSsids
+import io.nekohasekai.sagernet.bg.root.validServiceControlBssids
 
 /** Настройки service control (Wi-Fi / расписание / блокировка экрана) для asteriskd. */
 class ServiceControlActivity : ThemedActivity() {
@@ -36,7 +42,12 @@ class ServiceControlActivity : ThemedActivity() {
             preferenceManager.preferenceDataStore = DataStore.configurationStore
             setPreferencesFromResource(R.xml.service_control_preferences, rootKey)
 
-            // start and stop for the same event are mutually exclusive: the daemon rejects the config otherwise
+            fun changed() { needReload() }
+            fun reject(message: Int): Boolean {
+                Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
+                return false
+            }
+            // Keep STOP/START for the same native event mutually exclusive.
             val pairs = listOf(
                 "scWifi_connectStart" to "scWifi_connectStop",
                 "scWifi_disconnectStart" to "scWifi_disconnectStop",
@@ -46,14 +57,37 @@ class ServiceControlActivity : ThemedActivity() {
             for ((a, b) in pairs) for ((x, y) in listOf(a to b, b to a)) {
                 findPreference<SwitchPreference>(x)!!.setOnPreferenceChangeListener { _, v ->
                     if (v == true) findPreference<SwitchPreference>(y)!!.isChecked = false
+                    changed()
                     true
                 }
             }
-            for (k in listOf("scStartCron", "scStopCron")) findPreference<Preference>(k)!!.apply {
+            for (k in listOf("scEnabled", "scSchedule", "scWifi", "scKeyguard")) {
+                findPreference<SwitchPreference>(k)!!.setOnPreferenceChangeListener { _, _ ->
+                    changed()
+                    true
+                }
+            }
+            for (k in listOf("scStartCron", "scStopCron")) findPreference<EditTextPreference>(k)!!.apply {
+                summaryProvider = Preference.SummaryProvider<EditTextPreference> { preference ->
+                    preference.text?.takeIf { it.isNotBlank() } ?: getString(R.string.sc_cron_sum)
+                }
                 setOnPreferenceChangeListener { _, v ->
-                    val ok = v.toString().isBlank() || v.toString().trim().split(Regex("\\s+")).size == 5
-                    if (!ok) Toast.makeText(requireContext(), R.string.sc_cron_sum, Toast.LENGTH_LONG).show()
-                    ok
+                    if (v.toString().isNotBlank() && parseServiceCron(v.toString()) !is ServiceCronParseResult.Valid)
+                        reject(R.string.sc_invalid_cron)
+                    else { changed(); true }
+                }
+            }
+            for (rule in ServiceControl.WIFI_RULES) {
+                val prefix = "scWifi_$rule"
+                findPreference<SwitchPreference>("${prefix}_any")!!.setOnPreferenceChangeListener { _, _ ->
+                    changed()
+                    true
+                }
+                for ((suffix, validate) in listOf("ssids" to ::validServiceControlSsids, "bssids" to ::validServiceControlBssids)) {
+                    findPreference<EditTextPreference>("${prefix}_$suffix")!!.setOnPreferenceChangeListener { _, v ->
+                        if (!validate(v.toString())) reject(if (suffix == "ssids") R.string.sc_invalid_ssid else R.string.sc_invalid_bssid)
+                        else { changed(); true }
+                    }
                 }
             }
             if (Build.VERSION.SDK_INT < 33) findPreference<Preference>("scKeyguardCat")!!.isVisible = false
