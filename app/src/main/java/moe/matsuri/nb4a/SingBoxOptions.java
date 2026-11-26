@@ -4619,6 +4619,9 @@ public class SingBoxOptions {
 
         public String timeout;
 
+        // action = sniff; null keeps the core's default sniffers.
+        public List<String> sniffer;
+
     }
 
     public static class DNSRule_DefaultOptions extends DNSRule {

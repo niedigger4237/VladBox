@@ -827,21 +827,21 @@ fun buildConfig(
                 if (isRootSocksHelper) add(TAG_SOCKS_HELPER)
             }
             val headRules = mutableListOf<Rule_DefaultOptions>()
-            if (needSniff) {
-                // note: sniff_override_destination has no replacement in 1.13+,
-                // "sniff + override" now behaves like plain "sniff".
+            val hijack = DnsHijackPolicy.plan(DataStore.hijackDns, needSniff)
+            if (hijack.sniff != DnsHijackPolicy.Sniff.NONE) {
+                // Protocol-based DNS capture requires sniffing even if general
+                // Traffic Sniffing is disabled. Limit that case to DNS only.
                 headRules += Rule_DefaultOptions().apply {
                     inbound = entryInbounds
                     action = "sniff"
+                    if (hijack.sniff == DnsHijackPolicy.Sniff.DNS_ONLY) sniffer = listOf("dns")
                 }
             }
-            // hijack-dns: "both" (protocol + port 53), "protocol", "port" or "off"
-            val hijack = DataStore.hijackDns
-            if (hijack == "both" || hijack == "protocol") headRules += Rule_DefaultOptions().apply {
+            if (hijack.protocol) headRules += Rule_DefaultOptions().apply {
                 protocol = listOf("dns")
                 action = "hijack-dns"
             }
-            if (hijack == "both" || hijack == "port") headRules += Rule_DefaultOptions().apply {
+            if (hijack.port) headRules += Rule_DefaultOptions().apply {
                 port = listOf(53)
                 action = "hijack-dns"
             }

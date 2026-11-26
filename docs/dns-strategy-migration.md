@@ -267,3 +267,53 @@ same cache path, and Service Control uses that same static config; no
 native supervisor/firewall/TC/tether script changes. Autonomous restarts
 do not run the size preflight or consume new app preferences until a
 verified interactive start. Native/device validation remains outstanding.
+
+## DNS interception audit (five service modes)
+
+Managed ConfigBuilder prepends sniff, protocol DNS hijack and port 53 hijack
+before user traffic rules. Fixed a dependency: Protocol/Both must request
+DNS-only sniffing when general Traffic Sniffing is disabled. Port/Off do
+not enable additional sniffing. General sniffing retains default sniffers.
+Confirmed the sniffer list is supported in option/rule_action.go in both
+SagerNet/sing-box v1.14.3 and pinned extended d9442d14b19ddd02605bf3ee893a171947038e19.
+URL tests and full raw configs are unaffected; custom JSON can override rules.
+
+- Ordinary VPN: Android VpnService.Builder advertises plan.dns4 and routes
+  it even with bypassLan. TetherVpn and TetherIpv6 install TCP and UDP 53
+  DNAT to the session's virtual DNS address, independent of the hijack
+  setting. LeakGuard drops forwarding and local INPUT port 53 until the
+  owned tunnel route is ready. Turning hijack Off does not necessarily
+  disable the core's intrinsic TUN DNS handling. Do not remove DNAT or
+  change the address plan as part of the sniff fix. Current watchdog checks
+  hooks/routes, not exact DNS rules inside the owned NAT chain; inspect
+  that separately with tests for guard ordering and netd resets.
+- ROOT TUN: core auto_route/auto_redirect and configured UID/interface
+  scopes; strict_route=false, downstream local subnet route exclusions.
+  DNS to local gateway/private resolver can remain outside core capture.
+  No blanket local exclusion removal: this would risk DHCP and hotspot.
+- ROOT TPROXY/TUN2SOCKS: asteriskd pinned v2.3.2
+  a31fd6dfdbfb515b8c18cc91bc3637b523f0b255 has enable_local_dns branches
+  in supervisor/supervisor_xtables.c that act before local bypass and
+  some app policy handling; app explicitly leaves enableLocalDns=false.
+  A public DNS server reached through captured traffic uses core rules,
+  but local gateway/private destinations can bypass those rules.
+  Do not turn on global enableLocalDns: early PREROUTING capture is not
+  limited to selected downstreams; app selection must be preserved.
+- ROOT BPF2SOCKS: helper-fed SOCKS traffic reaching sing-box can be hijacked;
+  traffic excluded by native local/app/interface selection cannot.
+  Audit exact TC/cgroup policies and IPv6 before changing native behavior.
+- DNS Enhancement is a different asteriskd feature requiring a compatible
+  Android resolver companion (network/dns.c, supervisor/supervisor_dns.c).
+  App publishes dnsEnhancement=null; enabling it blindly is not a fix.
+
+DNS hijack only affects traffic actually captured by the core. DoT (TCP
+853), DoQ (UDP 853 or other ports) and DoH (HTTPS/QUIC) are encrypted;
+the DNS sniffer does not decrypt them. Direct/Bootstrap resolver queries
+outside the VPN are intentional, as are selected app exclusions. No
+unconditional DNS leak protection or kill switch claim is warranted.
+Future device matrix: phone and Wi-Fi/USB clients, gateway/private and
+public DNS, UDP/TCP 53, IPv4/IPv6, all four hijack modes, per-app policy,
+Private DNS, DNS over HTTPS, network switching, service-control/boot,
+and tethering hot-refresh. Verify using packet capture at physical
+uplink and core logs without logging user queries by default.
+No changes to native firewall, tethering, Service Control or boot.
