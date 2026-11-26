@@ -478,14 +478,32 @@ static void nf_runtime_free(struct nf_native_backend *b) {
 /* No new clean WAL is written until ownership is checkpointed. Retain the
  * previous generation for CAS; an unresolved record is never replaced. */
 static int nf_runtime_init_wal(struct nf_native_backend *b,int directory,unsigned port) {
-    b->wal_fd=nf_gateway_wal_lock(directory);if(b->wal_fd<0)return -1;
+    b->wal_fd=nf_gateway_wal_lock(directory);
+    if(b->wal_fd<0) {
+        struct stat st;
+        char message[160];
+        if(fstat(directory,&st)==0)
+            snprintf(message,sizeof(message),"gateway DNS journal: directory lock rejected (mode=%o owner=%u euid=%u)",(unsigned)(st.st_mode&0777),(unsigned)st.st_uid,(unsigned)geteuid());
+        else snprintf(message,sizeof(message),"gateway DNS journal: directory descriptor unavailable");
+        asteriskd_supervisor_log_failure(b->system,ASTERISKD_COMPONENT_CORE,message);
+        return -1;
+    }
     struct stat st;
-    if(fstatat(b->wal_fd,NF_WAL_TEMP,&st,AT_SYMLINK_NOFOLLOW)==0 || errno!=ENOENT)return -1;
+    if(fstatat(b->wal_fd,NF_WAL_TEMP,&st,AT_SYMLINK_NOFOLLOW)==0 || errno!=ENOENT) {
+        asteriskd_supervisor_log_failure(b->system,ASTERISKD_COMPONENT_CORE,"gateway DNS journal: pending temporary record or lookup failed");
+        return -1;
+    }
     uint8_t *payload=malloc(NF_WAL_MAX);if(!payload)return -1;
     struct nf_wal_record old;int rc=nf_gateway_wal_load(b->wal_fd,&old,payload,NF_WAL_MAX);free(payload);
-    if(rc<0 || (!rc && (old.debts || old.epoch || old.length || old.generation==UINT64_MAX)))return -1;
+    if(rc<0 || (!rc && (old.debts || old.epoch || old.length || old.generation==UINT64_MAX))) {
+        asteriskd_supervisor_log_failure(b->system,ASTERISKD_COMPONENT_CORE,"gateway DNS journal: unreadable or unresolved previous record");
+        return -1;
+    }
     b->wal=(struct nf_wal_record){.generation=rc==1?0:old.generation,.port=(uint16_t)port,.schema=1};
-    if(nf_boot_read(b->wal.boot) || nf_runtime_session_id(b->wal.session))return -1;
+    if(nf_boot_read(b->wal.boot) || nf_runtime_session_id(b->wal.session)) {
+        asteriskd_supervisor_log_failure(b->system,ASTERISKD_COMPONENT_CORE,"gateway DNS journal: cannot establish boot/session identity");
+        return -1;
+    }
     b->wal_ready=true;b->precore_certified=true;return 0;
 }
 static int nf_gateway_start_error(struct asteriskd_system_supervisor *s,const char *message) {
