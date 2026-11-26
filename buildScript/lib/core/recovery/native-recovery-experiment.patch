@@ -1,0 +1,104 @@
+diff --git a/supervisor/supervisor_rules.c b/supervisor/supervisor_rules.c
+--- a/supervisor/supervisor_rules.c
++++ b/supervisor/supervisor_rules.c
+@@ -1,7 +1,8 @@
+ // Copyright 2026, Asterisk4Magisk contributors
+ // SPDX-License-Identifier: GPL-3.0
+ 
+-#include "supervisor/supervisor.h"
++#include "supervisor/supervisor.h"
++#include "recovery/nf_native_recovery.h"
+ 
+ #if defined(__linux__) || defined(__ANDROID__)
+ 
+@@ -403,9 +404,10 @@
+ static int system_effect_apply_one(
+     void *opaque, const struct asteriskd_effect *effect,
+     char *error, size_t error_size) {
+-    (void)opaque;
+-    if (effect == NULL || effect->kind != ASTERISKD_EFFECT_SYSCTL ||
+-        system_sysctl_write(&effect->resource.sysctl,
++    struct asteriskd_system_supervisor *system = opaque;
++    if (effect == NULL || effect->kind != ASTERISKD_EFFECT_SYSCTL ||
++        nf_native_before_write(system, effect) != 0 ||
++        system_sysctl_write(&effect->resource.sysctl,
+             effect->resource.sysctl.desired_value) != 0) {
+         asteriskd_supervisor_reconcile_error(error, error_size, "failed to apply sysctl value");
+         return -1;
+@@ -453,15 +455,19 @@
+ static int system_effect_verify_restored_one(
+     void *opaque, const struct asteriskd_effect *effect,
+     char *error, size_t error_size) {
+-    (void)opaque;
+-    int result = system_effect_verify_value(effect,
+-        effect->resource.sysctl.original_value, error, error_size);
+-    uint8_t value = 0U;
+-    if (result != 0 && asteriskd_supervisor_sysctl_read(&effect->resource.sysctl, &value) == 1) {
+-        if (error != NULL && error_size != 0U) error[0] = '\0';
+-        return 0;
+-    }
+-    return result;
++    struct asteriskd_system_supervisor *system = opaque;
++    int result = system_effect_verify_value(effect,
++        effect->resource.sysctl.original_value, error, error_size);
++    uint8_t value = 0U;
++    if (result != 0 && asteriskd_supervisor_sysctl_read(&effect->resource.sysctl, &value) == 1) {
++        if (error != NULL && error_size != 0U) error[0] = '\0';
++        result = 0;
++    }
++    if (result == 0 && nf_native_after_restore(system, effect) != 0) {
++        asteriskd_supervisor_reconcile_error(error, error_size, "durable sysctl cleanup not confirmed");
++        return -1;
++    }
++    return result;
+ }
+ 
+ struct asteriskd_effect_backend asteriskd_supervisor_effect_backend(
+diff --git a/supervisor/supervisor.c b/supervisor/supervisor.c
+--- a/supervisor/supervisor.c
++++ b/supervisor/supervisor.c
+@@ -1,7 +1,8 @@
+ // Copyright 2026, Asterisk4Magisk contributors
+ // SPDX-License-Identifier: GPL-3.0
+ 
+-#include "supervisor/supervisor.h"
++#include "supervisor/supervisor.h"
++#include "recovery/nf_native_recovery.h"
+ 
+ #if defined(__linux__) || defined(__ANDROID__)
+ 
+@@ -1663,8 +1664,9 @@
+     system->cleanup_in_progress = true;
+     char error[128U];
+     struct asteriskd_effect_backend backend = asteriskd_supervisor_effect_backend(system);
+-    return asteriskd_effect_journal_rollback(
+-        &system->volatile_effects, &backend, error, sizeof(error));
++    int restored = asteriskd_effect_journal_rollback(
++        &system->volatile_effects, &backend, error, sizeof(error));
++    return restored == 0 ? nf_native_finish(system) : restored;
+ }
+ 
+ static struct asteriskd_runtime_effect_backend system_runtime_effects(
+@@ -1948,8 +1950,20 @@
+         return 1;
+     }
+ 
+-    int state_result = system_reset_telemetry_state(
+-        &system, error, sizeof(error));
++    /* Exclusive listener already acquired; inspect durable evidence before
++     * replacing the prior telemetry or starting another core. */
++    if (nf_native_admit(&system) != 0) {
++        (void)close(listener);
++        *has_early_result = true;
++        (void)system_start_result(early_result, ASTERISKD_CONTROL_RESULT_START_FAILED,
++            "durable sysctl recovery pending or unverifiable", NULL);
++        system_runtime_cleanup(&system);
++        (void)sigprocmask(SIG_SETMASK, &previous, NULL);
++        return 1;
++    }
++
++    int state_result = system_reset_telemetry_state(
++        &system, error, sizeof(error));
+     if (state_result != ASTERISKD_STATE_OK) {
+         (void)close(listener);
+         *has_early_result = true;
