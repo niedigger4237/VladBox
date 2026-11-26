@@ -125,6 +125,29 @@ int nf_gateway_recovery_cleanup(struct nf_native_backend *b,const struct nf_reco
     if(nf_recovery_preflight(b,&b->guard) || nf_native_remove(b,&b->guard))return -1;
     return 0;
 }
+/* Startup fence: called with the global control listener held, before the
+ * old telemetry state is overwritten or any service cycle starts. No
+ * journal is normal for existing installations. Pending resources require
+ * real recovery evidence; never erase the journal to make startup succeed. */
+int nf_gateway_admission_check(int directory) {
+    struct stat st;
+    int exists=fstatat(directory,NF_WAL_NAME,&st,AT_SYMLINK_NOFOLLOW);
+    if(exists<0 && errno!=ENOENT)return -1;
+    if(exists<0) {
+        if(fstatat(directory,NF_WAL_TEMP,&st,AT_SYMLINK_NOFOLLOW)==0 || errno!=ENOENT)return -1;
+        return 0;
+    }
+    int lock=nf_gateway_wal_lock(directory);
+    if(lock<0)return -1;
+    struct nf_wal_record r;
+    uint8_t *payload=malloc(NF_WAL_MAX);
+    int rc=-1;
+    if(payload && !nf_gateway_wal_load(lock,&r,payload,NF_WAL_MAX) &&
+       !r.debts && !r.length && !r.epoch &&
+       fstatat(lock,NF_WAL_TEMP,&st,AT_SYMLINK_NOFOLLOW)<0 && errno==ENOENT)rc=0;
+    free(payload);close(lock);return rc;
+}
+
 #ifdef NF_RECOVERY_HOST_TEST
 static unsigned checks;
 #define CHECK(x) do{if(!(x)){fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x);exit(1);}++checks;}while(0)
@@ -162,5 +185,32 @@ int main(void) {
     CHECK(nf_gateway_recovery_load(b,boot)<0 && !b->wal_ready && !b->guard.owned && !b->nat.owned);free(raw);
     CHECK(!unlinkat(b->wal_fd,NF_WAL_NAME,0));close(b->wal_fd);close(d);CHECK(!rmdir(path));nf_native_clear(&b->guard);nf_native_clear(&b->nat);free(a);free(b);free(s);
     printf("PASS %u recovery checks\n",checks);return 0;
+}
+#endif
+#ifdef NF_ADMISSION_HOST_TEST
+#include <stdio.h>
+static unsigned checks;
+#define CHECK(x) do { if(!(x)) { fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x); exit(1); } ++checks; } while(0)
+int main(void) {
+    char path[]="/tmp/nf-admission-XXXXXX";CHECK(mkdtemp(path)!=NULL);
+    int d=open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC);CHECK(d>=0);
+    CHECK(nf_gateway_admission_check(-1)<0);
+    CHECK(!nf_gateway_admission_check(d));
+    int temp=openat(d,NF_WAL_TEMP,O_CREAT|O_EXCL|O_WRONLY,0600);CHECK(temp>=0);close(temp);
+    CHECK(nf_gateway_admission_check(d)<0);CHECK(!unlinkat(d,NF_WAL_TEMP,0));
+    CHECK(!symlinkat("missing",d,NF_WAL_NAME));CHECK(nf_gateway_admission_check(d)<0);CHECK(!unlinkat(d,NF_WAL_NAME,0));
+    int lock=nf_gateway_wal_lock(d);CHECK(lock>=0);
+    uint8_t raw[]={1};struct nf_wal_record r={.generation=1,.epoch=1,.boot={1},.session={2},.port=15353,.debts=31,.schema=1,.payload=raw,.length=1};
+    CHECK(!nf_gateway_wal_save(lock,&r,0));CHECK(nf_gateway_admission_check(d)<0);close(lock);
+    CHECK(nf_gateway_admission_check(d)<0);
+    lock=nf_gateway_wal_lock(d);CHECK(lock>=0);r.generation++;r.debts=0;r.epoch=0;r.payload=NULL;r.length=0;
+    CHECK(!nf_gateway_wal_save(lock,&r,1));CHECK(nf_gateway_admission_check(d)<0);close(lock);
+    CHECK(!nf_gateway_admission_check(d));
+    temp=openat(d,NF_WAL_TEMP,O_CREAT|O_EXCL|O_WRONLY,0600);CHECK(temp>=0);close(temp);
+    CHECK(nf_gateway_admission_check(d)<0);CHECK(!unlinkat(d,NF_WAL_TEMP,0));
+    int f=openat(d,NF_WAL_NAME,O_RDWR);CHECK(f>=0);CHECK(pwrite(f,"X",1,0)==1);close(f);
+    CHECK(nf_gateway_admission_check(d)<0);CHECK(!unlinkat(d,NF_WAL_NAME,0));
+    CHECK(!nf_gateway_admission_check(d));close(d);CHECK(!rmdir(path));
+    printf("PASS %u admission checks\n",checks);return 0;
 }
 #endif
