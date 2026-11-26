@@ -542,7 +542,7 @@ build() { # abi cc-prefix
   if [ -n "$ROOTCORE_ABIS" ] && [[ " $ROOTCORE_ABIS " != *" $abi "* ]]; then return; fi
   mkdir -p "$ROOT/app/src/main/jniLibs/$abi"
   ( cd "$SRC" && "$TOOLCHAIN/${cc}${API}-clang" -O2 -flto=full -std=c17 -fPIE -pie -I"$SRC" \
-      $SOURCES "$HEV_GATEWAY_BACKEND" "$ROOT/buildScript/experiments/hev-gateway-dns/gateway_socket.c" -ldl -lz -o "$ROOT/app/src/main/jniLibs/$abi/libasteriskd.so" )
+      $SOURCES "$HEV_GATEWAY_BACKEND" "$ROOT/buildScript/experiments/hev-gateway-dns/gateway_socket.c" "$ROOT/buildScript/experiments/hev-gateway-dns/gateway_conntrack.c" -ldl -lz -o "$ROOT/app/src/main/jniLibs/$abi/libasteriskd.so" )
 }
 
 build arm64-v8a  aarch64-linux-android
