@@ -864,6 +864,14 @@ int main(void) {
     CHECK(nf_gateway_runtime_before_core(s)<0);CHECK(nf_gateway_runtime_core_ready(s)<0);
     CHECK(nf_gateway_runtime_publish(s)<0);
     CHECK(nf_gateway_runtime_core_identity(s)<0);CHECK(!s->nf_gateway_session);
+    struct asteriskd_config *c=&s->loaded_config.config;
+    c->owner=ASTERISKD_OWNER_BOX;c->core_type=ASTERISKD_CORE_SING_BOX;c->mode=ASTERISKD_MODE_TUN2SOCKS;
+    unsigned indices[16];CHECK(!nf_runtime_links(s,indices));
+    for(size_t i=0;i<16;i++)CHECK(!indices[i]);
+    c->hotspot_interface_count=1;strcpy(c->hotspot_interfaces[0],"lo");
+    CHECK(nf_runtime_links(s,indices)<0);
+    strcpy(c->hotspot_interfaces[0],"nfmissing0");CHECK(nf_runtime_links(s,indices)<0);
+    c->hotspot_interface_count=0;
     char path[]="/tmp/nf-runtime-session-XXXXXX";CHECK(mkdtemp(path));
     int d=open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC);CHECK(d>=0);
     struct nf_native_backend *a=calloc(1,sizeof(*a)),*b=calloc(1,sizeof(*b));CHECK(a&&b);
