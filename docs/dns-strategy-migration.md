@@ -872,3 +872,29 @@ No NDK/APK build or live Android firewall test was run. Gateway inbound
 and the normal runtime lifecycle are still not wired. Next priority:
 production runtime integration and actual Android build/device validation,
 not further isolated modules.
+
+## Conntrack ownership inventory (return to targeted deletion approach)
+
+The existing gateway_netlink.c dump transport now has an optional scan
+context. nf_gateway_ct_mask_available checks candidate mask occupancy
+across both families, all protocols and the private listener port. It
+rejects the upstream reserved ASTERISKD_DNS_MARK_MASK (0x61000000).
+Zero masked bits at scan time do not imply exclusive future ownership.
+nf_gateway_ct_inventory requires an independently verified exclusive
+owner, prior NAT withdrawal and retained guard. It selects only matching
+TCP/UDP DNS DNAT records with the expected mark, port, zone, original
+and reply tuples, status and ID, rejects partial-mask/port collisions
+and duplicate original tuples, and exposes no partial list on failed
+or interrupted dump. No mark is allocated and no delete is sent.
+Before runtime use, audit device connmark writers (including netd/vendor
+and other VPNs), establish an actual lifetime ownership contract and
+persist the session identity. A fresh GET is still required before
+every DELETE. Do not set verified_exclusive based on a successful dump.
+
+Executed host tests: PASS 64 netlink checks (22 added), PASS 42 original
+conntrack request checks. GCC C17 -Wall -Wextra -Werror standalone
+compile succeeded; full host link with local pinned admission/IPv6
+source and other gateway modules succeeded. The committed netlink blob
+matches the tested local file. Real GET/DUMP returned -1 in the host
+without CAP_NET_ADMIN. No Android NDK build, device mark audit, real
+conntrack deletion or gateway listener activation was performed.
