@@ -3,6 +3,7 @@
 #include "supervisor/supervisor.h"
 #include <assert.h>
 #include <stdlib.h>
+#include "rules/marks.h"
 
 /* Existing, unused DNS IDs; table + family distinguish INPUT from NAT.
  * Keep these names separate from the upstream FakeIP ICMP resources. */
@@ -82,8 +83,16 @@ int nf_gateway_plan(const struct asteriskd_config *c, unsigned port, bool guard,
 /* Queue only, or replay through the native verifier. Never commits a table.
  * active=false: closed INPUT guard. NAT is only populated in active state.
  * The guard always covers both families, even if IPv6 proxying is disabled. */
-int nf_gateway_populate(struct asteriskd_system_supervisor *s,
-    const struct asteriskd_private_chain_group *g, unsigned port, bool active) {
+/* Candidate range excludes documented AOSP fwmark/strict bits and the
+ * upstream routing mask. It is NOT a reservation on a vendor kernel. */
+#define NF_HEV_CTMARK_CANDIDATES UINT32_C(0x00f00000)
+static bool nf_gateway_mark_valid(uint32_t mark, uint32_t mask) {
+    return mask && !(mask & ~NF_HEV_CTMARK_CANDIDATES) && mark &&
+        !(mark & ~mask) && !(mask & ASTERISKD_DNS_MARK_MASK);
+}
+static int nf_gateway_populate_impl(struct asteriskd_system_supervisor *s,
+    const struct asteriskd_private_chain_group *g, unsigned port, bool active,
+    uint32_t mark, uint32_t mask) {
     if (!s || !g || (!s->rule_commands.active && !s->verify_private_rules)) return -1;
     const struct asteriskd_config *c = &s->loaded_config.config;
     bool guard = g->table == ASTERISKD_IP_TABLE_FILTER;
@@ -94,7 +103,10 @@ int nf_gateway_populate(struct asteriskd_system_supervisor *s,
     const bool v6 = g->family == ASTERISKD_IP_FAMILY_IPV6;
     const char *chain = nf_chains[(guard ? 0U : 2U) + (v6 ? 1U : 0U)].name;
     if (strcmp(g->names[0], chain) || (!guard && v6 && !c->enable_ipv6)) return -1;
-    char number[8U];
+    char number[8U], tagged[32], empty[32];
+    if ((mark || mask) && !nf_gateway_mark_valid(mark, mask)) return -1;
+    if (snprintf(tagged, sizeof(tagged), "0x%x/0x%x", mark, mask) <= 0 ||
+        snprintf(empty, sizeof(empty), "0x0/0x%x", mask) <= 0) return -1;
     if (snprintf(number, sizeof(number), "%u", port) <= 0) return -1;
     for (size_t i = 0; active && (!v6 || c->enable_ipv6) && i < c->hotspot_interface_count; ++i) {
         const char *n = c->hotspot_interfaces[i];
@@ -104,8 +116,21 @@ int nf_gateway_populate(struct asteriskd_system_supervisor *s,
                 "-m", "addrtype", "--dst-type", "LOCAL", "--limit-iface-in", "-j", "REDIRECT", "--to-ports", number};
             const char *accept[] = {"-i", n, "-p", proto, "-m", proto, "--dport", number,
                 "-m", "conntrack", "--ctstate", "DNAT", "--ctorigdstport", "53", "--ctdir", "ORIGINAL", "-j", "ACCEPT"};
-            if (asteriskd_supervisor_xtables_zero(s, g->family, g->table, "-A", chain,
-                guard ? accept : redirect, guard ? sizeof(accept)/sizeof(*accept) : sizeof(redirect)/sizeof(*redirect)) != 0) return -1;
+            const char *tag[] = {"-i", n, "-p", proto, "-m", proto, "--dport", "53",
+                "-m", "addrtype", "--dst-type", "LOCAL", "--limit-iface-in",
+                "-m", "connmark", "--mark", empty, "-j", "CONNMARK", "--set-xmark", tagged};
+            const char *redirect_tagged[] = {"-i", n, "-p", proto, "-m", proto, "--dport", "53",
+                "-m", "addrtype", "--dst-type", "LOCAL", "--limit-iface-in",
+                "-m", "connmark", "--mark", tagged, "-j", "REDIRECT", "--to-ports", number};
+            const char *accept_tagged[] = {"-i", n, "-p", proto, "-m", proto, "--dport", number,
+                "-m", "conntrack", "--ctstate", "DNAT", "--ctorigdstport", "53", "--ctdir", "ORIGINAL",
+                "-m", "connmark", "--mark", tagged, "-j", "ACCEPT"};
+            if (mask && !guard && asteriskd_supervisor_xtables_zero(s, g->family, g->table, "-A", chain,
+                tag, sizeof(tag)/sizeof(*tag)) != 0) return -1;
+            const char **args = mask ? (guard ? accept_tagged : redirect_tagged) : (guard ? accept : redirect);
+            size_t count = mask ? (guard ? sizeof(accept_tagged)/sizeof(*accept_tagged) : sizeof(redirect_tagged)/sizeof(*redirect_tagged)) :
+                (guard ? sizeof(accept)/sizeof(*accept) : sizeof(redirect)/sizeof(*redirect));
+            if (asteriskd_supervisor_xtables_zero(s, g->family, g->table, "-A", chain, args, count) != 0) return -1;
         }
     }
     if (guard) for (unsigned p = 0; p < 2U; ++p) {
@@ -114,6 +139,20 @@ int nf_gateway_populate(struct asteriskd_system_supervisor *s,
         if (asteriskd_supervisor_xtables_zero(s, g->family, g->table, "-A", chain, drop, sizeof(drop)/sizeof(*drop)) != 0) return -1;
     }
     return 0;
+}
+
+/* Keep existing unmarked WAL format and runtime caller unchanged. */
+int nf_gateway_populate(struct asteriskd_system_supervisor *s,
+    const struct asteriskd_private_chain_group *g, unsigned port, bool active) {
+    return nf_gateway_populate_impl(s, g, port, active, 0, 0);
+}
+/* Queue-only prototype. Caller must establish exclusive lifetime ownership,
+ * verify kernel support and persist the mask before publishing any rule. */
+int nf_gateway_populate_marked(struct asteriskd_system_supervisor *s,
+    const struct asteriskd_private_chain_group *g, unsigned port, bool active,
+    uint32_t mark, uint32_t mask, bool exclusive) {
+    if (!exclusive || !nf_gateway_mark_valid(mark, mask)) return -1;
+    return nf_gateway_populate_impl(s, g, port, active, mark, mask);
 }
 
 /* Check a normalized native -S listing against the queued population lines.
@@ -202,6 +241,31 @@ int main(void) {
     CHECK(asteriskd_byte_buffer_append(&listing, expected->bytes, first) == 0);
     CHECK(!nf_gateway_verify_order(&guard.private_groups[0], expected, (const char *)listing.bytes, listing.length));
     asteriskd_byte_buffer_destroy(&listing);
+    asteriskd_supervisor_rule_batch_destroy(&s->rule_commands);
+    CHECK(!nf_gateway_mark_valid(1, 1));
+    CHECK(!nf_gateway_mark_valid(0x01000000, 0x01000000));
+    CHECK(!nf_gateway_mark_valid(0x02000000, 0x02000000));
+    CHECK(!nf_gateway_mark_valid(0x20000000, 0x20000000));
+    CHECK(!nf_gateway_mark_valid(0, 0x00300000));
+    CHECK(!nf_gateway_mark_valid(0x00400000, 0x00300000));
+    CHECK(nf_gateway_mark_valid(0x00100000, 0x00300000));
+    CHECK(asteriskd_supervisor_rule_batch_begin(&s->rule_commands) == 0);
+    CHECK(nf_gateway_populate_marked(s, &nat.private_groups[0], 15353, true, 0x00100000, 0x00300000, false) != 0);
+    CHECK(!s->rule_commands.xtables[0][0][ASTERISKD_IP_TABLE_NAT].length);
+    for (size_t i = 0; i < 2; ++i) {
+        CHECK(nf_gateway_populate_marked(s, &nat.private_groups[i], 15353, true, 0x00100000, 0x00300000, true) == 0);
+        CHECK(nf_gateway_populate_marked(s, &guard.private_groups[i], 15353, true, 0x00100000, 0x00300000, true) == 0);
+        CHECK(queued(s, i, ASTERISKD_IP_TABLE_NAT, "--mark 0x0/0x300000 -j CONNMARK --set-xmark 0x100000/0x300000"));
+        CHECK(queued(s, i, ASTERISKD_IP_TABLE_NAT, "--mark 0x100000/0x300000 -j REDIRECT --to-ports 15353"));
+        CHECK(queued(s, i, ASTERISKD_IP_TABLE_FILTER, "--mark 0x100000/0x300000 -j ACCEPT"));
+        CHECK(!queued(s, i, ASTERISKD_IP_TABLE_NAT, "-j MARK"));
+    }
+    asteriskd_supervisor_rule_batch_destroy(&s->rule_commands);
+    CHECK(asteriskd_supervisor_rule_batch_begin(&s->rule_commands) == 0);
+    CHECK(nf_gateway_populate_marked(s, &guard.private_groups[0], 15353, false, 0x00100000, 0x00300000, true) == 0);
+    CHECK(!queued(s, 0, ASTERISKD_IP_TABLE_FILTER, "CONNMARK"));
+    CHECK(!queued(s, 0, ASTERISKD_IP_TABLE_FILTER, "ACCEPT"));
+    CHECK(queued(s, 0, ASTERISKD_IP_TABLE_FILTER, "--dport 15353 -j DROP"));
     asteriskd_supervisor_rule_batch_destroy(&s->rule_commands);
     c->enable_ipv6 = false;
     CHECK(nf_gateway_plan(c, 15353, true, &guard) == 0 && guard.private_group_count == 2);
