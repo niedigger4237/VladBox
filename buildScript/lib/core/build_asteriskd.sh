@@ -562,6 +562,21 @@ for name, old, new in replacements:
     path.write_text(source.replace(old, new, 1))
 NF_GATEWAY_CORE_HOOKS
 
+# Publish only after the existing rules are verified; withdraw before quiescing them.
+python3 - "$SRC" <<'NF_GATEWAY_RULE_HOOKS'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+replacements = [["supervisor/supervisor.c","extern void nf_gateway_runtime_dispose(struct asteriskd_system_supervisor *system);\n","extern void nf_gateway_runtime_dispose(struct asteriskd_system_supervisor *system);\nextern int nf_gateway_runtime_publish(struct asteriskd_system_supervisor *system);\nextern int nf_gateway_runtime_withdraw(struct asteriskd_system_supervisor *system);\n"],["supervisor/supervisor.c","    if (asteriskd_supervisor_dns_withdraw(system) != 0) return -1;","    if (nf_gateway_runtime_withdraw(system) != 0) return -1;\n    if (asteriskd_supervisor_dns_withdraw(system) != 0) return -1;"],["supervisor/supervisor_rules.c","int asteriskd_supervisor_effect_rules(\n","extern int nf_gateway_runtime_publish(struct asteriskd_system_supervisor *system);\n\nint asteriskd_supervisor_effect_rules(\n"],["supervisor/supervisor_rules.c","    system->rules_verified = true;\n    if (asteriskd_mode_core_managed(system->loaded_config.config.mode)) {","    system->rules_verified = true;\n    if (nf_gateway_runtime_publish(system) != 0) {\n        system->rules_verified = false;\n        return -1;\n    }\n    if (asteriskd_mode_core_managed(system->loaded_config.config.mode)) {"]]
+for name, old, new in replacements:
+    path = root / name
+    source = path.read_text()
+    if source.count(new) == 1:
+        continue
+    if source.count(old) != 1:
+        raise SystemExit("asteriskd gateway rule hook mismatch: " + name)
+    path.write_text(source.replace(old, new, 1))
+NF_GATEWAY_RULE_HOOKS
+
 SOURCES=$(cd "$SRC" && find . -name '*.c' -not -path './.git/*' | LC_ALL=C sort)
 # Compile the HEV gateway backend with the pinned supervisor. Runtime activation
 # remains gated until owned listener, conntrack and crash recovery are wired.
