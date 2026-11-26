@@ -31,6 +31,7 @@ struct nf_native_backend {
     int wal_fd;
     bool wal_ready;
     bool precore_certified;
+    enum nf_step recovered_op; // validated last WAL operation; recovery only
     bool ipv6_nat_disabled; // session capability, does not change core routing
     uint32_t session_mark, session_mask;
     bool mark_authorized; // live assertion; never restored from disk
