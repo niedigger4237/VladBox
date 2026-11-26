@@ -22,6 +22,21 @@ static bool nf_core_evidence_valid(const struct nf_core_evidence *e) {
 static bool nf_core_evidence_equal(const struct nf_core_evidence *a,const struct nf_core_evidence *b) {
     return a->pid==b->pid && a->group==b->group && a->start==b->start && a->device==b->device && a->inode==b->inode;
 }
+/* Live-only downstream identities. Do not serialize these as ownership
+ * evidence; crash recovery uses only the closed-guard drain protocol. */
+#define NF_LINK_ADDRESS_LIMIT 32U
+struct nf_link_address {
+    uint8_t family, address[16], mask[16];
+};
+struct nf_link_identity {
+    char name[ASTERISKD_MAX_INTERFACE_NAME];
+    unsigned index, count;
+    struct nf_link_address addresses[NF_LINK_ADDRESS_LIMIT];
+};
+struct nf_link_snapshot {
+    size_t count;
+    struct nf_link_identity links[16];
+};
 struct nf_native_backend {
     struct asteriskd_system_supervisor *system;
     struct nf_native_slot guard, nat;
@@ -33,6 +48,8 @@ struct nf_native_backend {
     bool precore_certified;
     enum nf_step recovered_op; // validated last WAL operation; recovery only
     bool ipv6_nat_disabled; // session capability, does not change core routing
+    bool links_published;
+    struct nf_link_snapshot published_links;
     uint32_t session_mark, session_mask;
     bool mark_authorized; // live assertion; never restored from disk
     int (*mark_recheck)(void *,uint32_t,uint32_t);
