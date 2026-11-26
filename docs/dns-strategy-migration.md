@@ -704,3 +704,30 @@ rather than calling the recovery API with unproven listener and conntrack
 callbacks. Before activating the gateway path, implement durable process
 and flow evidence, real cleanup, re-admission and the Service Control
 lifecycle hooks. Do not interpret this check as completed DNS hijacking.
+
+## Reconcile previous-boot gateway journal during actual startup
+
+Startup now attempts automatic reconciliation of a dirty gateway journal
+before telemetry reset, using a temporary native action reactor only when
+the ordinary admission check fails. The control listener remains held.
+The kernel boot UUID is read from procfs and parsed strictly. A valid
+journal from a different kernel boot is decoded under its exclusive lock;
+old processes and in-memory conntrack cannot survive a kernel reboot.
+All IPv4/IPv6 filter, NAT and mangle listings must be readable and none
+may refer to any of the four gateway chain names. Only then atomically
+commit a new clean journal generation and re-run admission. No firewall
+rule or conntrack entry is deleted by this path. Missing/malformed
+listings, same-boot debt, foreign references, corrupt journals, temp
+records, lock failures and interrupted startup remain fail-closed.
+The old boot/session identifiers are retained for the clean CAS record.
+A fresh session can replace that clean record later.
+
+Host validation: PASS 31 new reboot recovery checks (actual boot ID,
+filesystem journal, synthetic firewall listings and injected absence
+callback), PASS 27 admission checks and PASS 32 same-boot reader checks.
+The changed recovery unit compiled with C17 -Wall -Wextra -Werror; the
+modified supervisor linked against the pinned host source and previous
+gateway modules. The complete downstream Android NDK build, real
+iptables inspection and on-device reboot tests have not been performed.
+Same-boot automatic cleanup still requires real old process/flow
+identity and deletion callbacks. Gateway inbound remains disabled.
