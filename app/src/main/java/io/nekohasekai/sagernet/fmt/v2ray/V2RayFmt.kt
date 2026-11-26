@@ -171,7 +171,7 @@ fun StandardV2RayBean.parseDuckSoft(url: HttpUrl) {
         path = url.pathSegments.joinToString("/")
     }
 
-    type = url.queryParameter("type") ?: "tcp"
+    type = (url.queryParameter("type") ?: "tcp").let { if (it == "splithttp") "xhttp" else it }
     if (type == "h2" || url.queryParameter("headerType") == "http") type = "http"
 
     security = url.queryParameter("security")
@@ -368,7 +368,7 @@ fun parseV2RayN(link: String): VMessBean {
     bean.encryption = vmessQRCode.scy
     bean.uuid = vmessQRCode.id
     bean.alterId = vmessQRCode.aid.toIntOrNull()
-    bean.type = vmessQRCode.net
+    bean.type = vmessQRCode.net.let { if (it == "splithttp") "xhttp" else it }
     bean.host = vmessQRCode.host
     bean.path = vmessQRCode.path
     val headerType = vmessQRCode.type
@@ -692,8 +692,11 @@ fun buildSingBoxOutboundStreamSettings(bean: StandardV2RayBean): V2RayTransportO
                 type = "xhttp"
                 if (bean.host.isNotBlank()) host = bean.host
                 path = bean.path.takeIf { it.isNotBlank() } ?: "/"
-                mode = bean.xhttpMode.takeIf { it.isNotBlank() } ?: "auto"
-                XhttpExtra.toSingBox(bean.xhttpExtra, mode).forEach { (k, v) ->
+                val requestedMode = bean.xhttpMode.takeIf { it.isNotBlank() } ?: "auto"
+                val reality = bean.isTLS() && bean.realityPubKey.isNotBlank()
+                val extra = XhttpExtra.toSingBox(bean.xhttpExtra, requestedMode, reality)
+                mode = XhttpExtra.resolveMode(requestedMode, reality, extra.containsKey("download"))
+                extra.forEach { (k, v) ->
                     _hack_config_map[k] = v
                 }
             }

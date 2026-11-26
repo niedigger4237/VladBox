@@ -33,7 +33,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
         "ws" -> read("wsMaxEarlyData").toIntOrNull()?.let { it >= 0 } == true
         "grpc" -> listOf("grpcIdleTimeout","grpcPingTimeout").all { read(it).toIntOrNull()?.let { n -> n >= 0 } == true }
         "kcp" -> listOf("kcpMtu","kcpTti","kcpUp","kcpDown","kcpRead","kcpWrite").all { read(it).isBlank() || read(it).toLongOrNull()?.let { n -> n in 1L..4294967295L } == true }
-        "xhttp" -> runCatching { org.json.JSONObject(read("xhttpExtra").ifBlank { "{}" }) }.isSuccess
+        "xhttp" -> runCatching { io.nekohasekai.sagernet.fmt.v2ray.XhttpExtra.toSingBox(read("xhttpExtra"), read("xhttpMode").ifBlank { "auto" }, reality) }.isSuccess
         else -> true
     }
     val tlsValid = security != "tls" || run {
@@ -109,7 +109,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 }
                 if (transport == "xhttp") {
                     ProfileChoices(listOf("auto","packet-up","stream-up","stream-one").map { it to it }, read("xhttpMode").ifBlank { "auto" }) { write("xhttpMode", it) }
-                    XhttpComposeFields(read("xhttpExtra"), read("xhttpMode")) { write("xhttpExtra", it) }
+                    XhttpComposeFields(read("xhttpExtra"), read("xhttpMode"), reality) { write("xhttpExtra", it) }
                 }
                 if (transport == "grpc") {
                     ProfileText("Service name", "path", read("path"), ::write)
@@ -290,11 +290,15 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     }
 }
 
-@Composable private fun XhttpComposeFields(raw: String, mode: String, change: (String) -> Unit) {
+@Composable private fun XhttpComposeFields(raw: String, mode: String, reality: Boolean, change: (String) -> Unit) {
         val fields = linkedMapOf(
             "headers" to "Headers (JSON)",
             "x_padding_bytes" to "Padding bytes",
             "no_grpc_header" to "Disable gRPC header",
+            "no_sse_header" to "Disable SSE header",
+            "sc_max_buffered_posts" to "Max buffered POSTs",
+            "sc_stream_up_server_secs" to "Stream-up server seconds",
+            "server_max_header_bytes" to "Server max header bytes",
             "sc_max_each_post_bytes" to "Max POST bytes",
             "sc_min_posts_interval_ms" to "Min POST interval (ms)",
             "x_padding_obfs_mode" to "Padding obfuscation",
@@ -343,10 +347,20 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
             "download.tls.utls.fingerprint" to "Download fingerprint",
             "download.tls.reality.enabled" to "Download Reality",
             "download.tls.reality.public_key" to "Download Reality public key",
-            "download.tls.reality.short_id" to "Download Reality short ID"
+            "download.tls.reality.short_id" to "Download Reality short ID",
+            "download.tls.reality.mldsa65_verify" to "Download ML-DSA-65 key",
+            "download.tls.reality.support_x25519mlkem768" to "Download hybrid key share",
+            "download.tls.reality.require_x25519mlkem768" to "Require download hybrid key share"
         )
 
-    val json = remember(raw) { runCatching { org.json.JSONObject(raw.ifBlank { "{}" }) }.getOrNull() }
+    val validation = remember(raw, mode, reality) { runCatching { io.nekohasekai.sagernet.fmt.v2ray.XhttpExtra.toSingBox(raw, mode.ifBlank { "auto" }, reality) } }
+    val json = remember(raw, validation) {
+        // A valid imported Xray object is displayed using normalized field names.
+        // Keep the raw text untouched until a structured edit is made.
+        validation.getOrNull()?.let { org.json.JSONObject(it) }
+            ?: runCatching { org.json.JSONObject(raw.ifBlank { "{}" }) }.getOrNull()
+    }
+    validation.exceptionOrNull()?.let { Text(it.message ?: "Invalid XHTTP settings", color = MaterialTheme.colorScheme.error) }
     var showRaw by remember { mutableStateOf(false) }
     fun read(key: String): Any? {
         val parts = key.split('.')
@@ -363,7 +377,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
     }
     if (json == null) Text("Invalid XHTTP JSON", color = MaterialTheme.colorScheme.error)
     else {
-        val bools = setOf("no_grpc_header","no_sse_header","x_padding_obfs_mode","download.tls.enabled","download.tls.insecure","download.tls.utls.enabled","download.tls.reality.enabled")
+        val bools = setOf("no_grpc_header","no_sse_header","x_padding_obfs_mode","download.tls.enabled","download.tls.insecure","download.tls.utls.enabled","download.tls.reality.enabled","download.tls.reality.support_x25519mlkem768","download.tls.reality.require_x25519mlkem768")
         val numbers = setOf("sc_max_buffered_posts","server_max_header_bytes","cwnd","xmux.h_keep_alive_period","download.server_port")
         val objects = setOf("headers","download.headers")
         val arrays = setOf("download.tls.alpn","trusted_x_forwarded_for")
@@ -386,7 +400,7 @@ fun VlessProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                         runCatching {
                             val v = value.trim()
                             val parsed = if (v.isEmpty()) null else when (key) {
-                                in numbers -> v.toLong().also { require(it >= 0); if (key == "download.server_port") require(it in 1L..65535L) }
+                                in numbers -> v.toLong().also { require(it >= if (key == "xmux.h_keep_alive_period") -1 else 0); if (key == "download.server_port") require(it in 1L..65535L) }
                                 in objects -> org.json.JSONObject(v)
                                 in arrays -> org.json.JSONArray(v)
                                 else -> v
