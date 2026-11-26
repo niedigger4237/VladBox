@@ -24,9 +24,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import io.nekohasekai.sagernet.R
+import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.ui.compose.*
 import kotlinx.coroutines.delay
 
@@ -125,7 +127,16 @@ class DashboardFragment : ToolbarFragment() {
                                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         Icon(painterResource(if (connected) R.drawable.ic_dash_symbol_check_circle else R.drawable.ic_dashboard_idle), null, tint = if (connected) green else MaterialTheme.colorScheme.onSurfaceVariant)
                                         Column {
-                                            Text(if (connected) "Service active" else "Service inactive", style = MaterialTheme.typography.titleMedium)
+                                            Text(
+                                                when (ui.serviceState) {
+                                                    BaseService.State.Connected -> "Service active"
+                                                    BaseService.State.Waiting -> stringResource(R.string.sc_waiting)
+                                                    BaseService.State.Connecting -> stringResource(R.string.connecting)
+                                                    BaseService.State.Stopping -> stringResource(R.string.stopping)
+                                                    else -> "Service inactive"
+                                                },
+                                                style = MaterialTheme.typography.titleMedium
+                                            )
                                             Text(ui.mode + " · sing-box", style = MaterialTheme.typography.bodySmall)
                                         }
                                     }
