@@ -1141,3 +1141,43 @@ Additional assertions were added to NF_ACTIVE_HOST_TEST, not executed
 here. The container cannot resolve github.com to obtain the branch
 checkout. Full branch host/NDK/APK builds and device execution remain
 unverified. No changes to the production activation or other root modes.
+
+## Initial integration with the real supervisor core lifecycle
+
+The build patch now connects an opt-in gateway session to the existing
+asteriskd core spawn, identity checkpoint, readiness, stop and release
+callbacks. No second core process or separate service controller is
+introduced. The internal native network field nfHevGatewayDnsPort is
+optional, accepted only with nfTetherDnsHijack in TUN2SOCKS; the app
+does not publish it yet. Existing 11/12-field configs remain accepted
+and take the no-op path. This is deliberately a guard-only stage,
+not a working DNS capture configuration.
+
+When explicitly configured, the adapter checks the candidate port,
+takes the existing private state directory lock, accepts only a clean
+or absent WAL, generates a boot/session identity, installs closed
+dual-family INPUT, and persists spawn intent before the upstream
+core launch. The original process identity is recorded immediately
+after upstream verification. Readiness checks the closed guard and
+TCP/UDP socket ownership; IPv6 wildcard observation is not proof of
+IPv4 reachability. Stop and release retain the lock and journal until
+the old process and port are absent, conntrack is drained, exact owned
+guard resources are removed and the clean WAL commit succeeds.
+Runtime disposal alone never declares clean state.
+No NAT publication or CONNMARK authorization is added by this step.
+
+Validation in this turn: applied equivalent new core/config hooks to
+a local copy of the supplied pinned asteriskd archive; supervisor.c
+and core/config.c compiled with GCC C17 -Wall -Wextra -Werror.
+This is a compilation of the two upstream translation units, not a
+complete checkout/build of the patched branch or a link of the new
+adapter. NF_RUNTIME_SESSION_HOST_TEST has been added for the disabled
+path, WAL lock, generation, dirty record and temporary record; it has
+not been run here. The entire build patch, adapter integration, NDK
+and APK remain unverified. No real device commands were executed.
+
+Next integration must publish NAT only after real socket and link
+eligibility checks, quiesce it before upstream rule withdrawal,
+and reconcile downstream changes in the existing supervisor. The
+mark verifier remains mandatory for the marked deletion path; do not
+enable it from a collision-free snapshot.
