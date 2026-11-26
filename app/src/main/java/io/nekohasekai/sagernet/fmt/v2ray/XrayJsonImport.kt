@@ -52,22 +52,72 @@ object XrayJsonImport {
         else -> throw IllegalArgumentException("Invalid Xray $key")
     }
 
-    fun parse(value: Any, fileName: String = ""): List<AbstractBean> {
+    /** Hop order is physical ingress to exit, matching ChainBean.proxies. */
+    data class ImportedChain(val name: String, val hops: List<AbstractBean>)
+
+    private fun dependency(outbound: JSONObject): String {
+        val legacy = obj(outbound, "proxySettings")
+        val sock = obj(obj(outbound, "streamSettings"), "sockopt")
+        val tag = legacy.optString("tag")
+        val dialer = sock.optString("dialerProxy")
+        checkKeys(legacy, setOf("tag", "transportLayer"), "proxySettings")
+        require(!active(legacy) || (tag.isNotBlank() && legacy.optBoolean("transportLayer"))) {
+            "Legacy Xray proxySettings requires transportLayer=true for equivalent conversion"
+        }
+        require(tag.isBlank() || dialer.isBlank()) { "Conflicting Xray proxySettings and dialerProxy" }
+        return dialer.ifBlank { tag }
+    }
+
+    fun parse(value: Any, fileName: String = "", onChains: ((List<ImportedChain>) -> Unit)? = null): List<AbstractBean> {
         val outbounds = when (value) {
             is JSONObject -> if (value.has("outbounds")) objects(value.getJSONArray("outbounds")) else listOf(value)
-            is JSONArray -> return objects(value).flatMap { parse(it, fileName) }
+            is JSONArray -> {
+                val entries = objects(value)
+                if (entries.all { it.has("protocol") }) entries
+                else {
+                    val chains = mutableListOf<ImportedChain>()
+                    val beans = entries.flatMap { parse(it, fileName, if (onChains == null) null else { c -> chains.addAll(c); Unit }) }
+                    if (chains.isNotEmpty()) onChains?.invoke(chains)
+                    return beans
+                }
+            }
             else -> throw IllegalArgumentException("Expected Xray JSON object")
         }
         val proxies = outbounds.filter { it.optString("protocol") !in helpers }
         require(proxies.isNotEmpty()) { "No supported Xray client outbounds" }
-        // Validate all outbounds before creating any profiles.
-        return proxies.map { outbound ->
+        val tagged = linkedMapOf<String, JSONObject>()
+        for (outbound in outbounds) {
+            val tag = outbound.optString("tag")
+            if (tag.isNotBlank()) require(tagged.put(tag, outbound) == null) { "Duplicate Xray outbound tag: $tag" }
+            if (outbound.optString("protocol") in helpers) {
+                require(dependency(outbound).isBlank()) { "Chained Xray helper outbound is unsupported" }
+            }
+        }
+        val dependencies = proxies.map { dependency(it) }
+        require(dependencies.none { it.isNotBlank() } || onChains != null) {
+            "Xray chains must be imported from a file or clipboard; subscription chains are not supported yet"
+        }
+        // Validate every dependency before creating any profiles.
+        val byTag = proxies.mapIndexedNotNull { i, outbound ->
+            outbound.optString("tag").takeIf { it.isNotBlank() }?.let { it to i }
+        }.toMap()
+        fun hopOrder(index: Int, seen: Set<Int> = emptySet()): List<Int> {
+            require(index !in seen) { "Circular Xray proxy chain" }
+            require(seen.size < 32) { "Xray proxy chain exceeds 32 hops" }
+            val dep = dependencies[index]
+            if (dep.isBlank()) return listOf(index)
+            val previous = byTag[dep] ?: throw IllegalArgumentException("Missing or unsupported Xray chain hop: $dep")
+            return hopOrder(previous, seen + index) + index
+        }
+        val orders = proxies.indices.map { hopOrder(it) }
+        val beans = proxies.mapIndexed { index, outbound ->
             val protocol = outbound.optString("protocol")
             require(protocol in supported) { "Unsupported Xray outbound protocol: $protocol" }
             val stream = obj(outbound, "streamSettings")
+            // The validated dependency is represented by ChainBean, not a raw tag.
             val sock = obj(stream, "sockopt")
-            require(!active(outbound.opt("proxySettings")) && !active(sock.opt("dialerProxy"))) {
-                "Xray proxy chains require explicit chain conversion"
+            if (dependencies[index].isNotBlank() && active(sock.opt("tcpFastOpen"))) {
+                throw IllegalArgumentException("Xray chained tcpFastOpen has no equivalent on an inner dialer")
             }
             require(!obj(outbound, "mux").optBoolean("enabled")) { "Xray Mux.Cool is not equivalent to sing-box multiplex" }
             checkKeys(outbound, setOf("protocol", "tag", "settings", "streamSettings", "mux", "proxySettings"), "outbound")
@@ -114,10 +164,33 @@ object XrayJsonImport {
             bean.serverPort = port
             bean.name = outbound.optString("tag").ifBlank { fileName.substringAfterLast('/').removeSuffix(".json").ifBlank { "$protocol $address" } }
             bean.initializeDefaultValues()
-            readStream(bean, stream)
+            val localStream = JSONObject(stream.toString())
+            localStream.optJSONObject("sockopt")?.remove("dialerProxy")
+            readStream(bean, localStream)
             bean.initializeDefaultValues()
+            if (bean.type == "xhttp" && dependencies[index].isNotBlank()) {
+                val extra = XhttpExtra.toSingBox(bean.xhttpExtra, bean.xhttpMode, bean.realityPubKey.isNotBlank())
+                val download = extra["download"] as? Map<*, *>
+                require(download?.get("detour") == null) { "Independent XHTTP download detour requires explicit conversion" }
+            }
             bean
         }
+        val chainNames = mutableSetOf<String>()
+        val chains = orders.mapIndexedNotNull { index, order ->
+            if (order.size < 2) null else {
+                val name = beans[index].name + " (Chain)"
+                var unique = name
+                var suffix = 2
+                while (!chainNames.add(unique)) unique = "$name (${suffix++})"
+                ImportedChain(unique, order.map { beans[it] })
+            }
+        }
+        if (chains.isNotEmpty()) {
+            // Label inner components explicitly: selecting them individually omits their chain.
+            for (i in orders.indices) if (orders[i].size > 1) beans[i].name += " (Chain hop)"
+            onChains?.invoke(chains)
+        }
+        return beans
     }
 
     private fun readStream(bean: StandardV2RayBean, stream: JSONObject) {

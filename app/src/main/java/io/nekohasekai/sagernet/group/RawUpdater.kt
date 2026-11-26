@@ -225,14 +225,14 @@ object RawUpdater : GroupUpdater() {
     }
 
     @Suppress("UNCHECKED_CAST")
-    suspend fun parseRaw(text: String, fileName: String = "", onXrayProfiles: (() -> Unit)? = null): List<AbstractBean>? {
+    suspend fun parseRaw(text: String, fileName: String = "", onXrayChains: ((List<XrayJsonImport.ImportedChain>) -> Unit)? = null, onXrayProfiles: (() -> Unit)? = null): List<AbstractBean>? {
 
         val proxies = mutableListOf<AbstractBean>()
 
         // Detect Xray before generic JSON/YAML and preserve its validation errors.
         val jsonCandidate = runCatching { JSONTokener(text.trim().removePrefix("\uFEFF")).nextValue() }.getOrNull()
         if (XrayJsonImport.recognizes(jsonCandidate)) {
-            return XrayJsonImport.parse(requireNotNull(jsonCandidate), fileName).also { onXrayProfiles?.invoke() }
+            return XrayJsonImport.parse(requireNotNull(jsonCandidate), fileName, onXrayChains).also { onXrayProfiles?.invoke() }
         }
 
         if (text.contains("proxies:")) {
