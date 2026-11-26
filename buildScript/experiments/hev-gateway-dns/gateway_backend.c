@@ -53,6 +53,7 @@ struct nf_native_backend {
     struct nf_link_snapshot published_links;
     uint32_t session_mark, session_mask;
     bool mark_authorized; // live assertion; never restored from disk
+    uint64_t mark_lease_device, mark_lease_inode; // explicit cooperative device-owner reservation
     int (*mark_recheck)(void *,uint32_t,uint32_t);
     void *mark_ctx;
     bool core_evidence_valid;
