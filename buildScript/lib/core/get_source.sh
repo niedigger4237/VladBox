@@ -41,6 +41,8 @@ git -C utls-lx checkout --detach "$UTLS_COMMIT"
 # Verify the production fingerprint resolver during ROOT validation.
 cp "$ROOT/libcore/testdata/firefox_mapping_test.go" sing-box/common/tls/niefigger_firefox_mapping_test.go
 cp "$ROOT/libcore/testdata/reality_hybrid_test.go" sing-box/common/tls/niefigger_reality_hybrid_test.go
+cp "$ROOT/libcore/testdata/reality_mldsa_test.go" sing-box/common/tls/niefigger_reality_mldsa_test.go
+cp "$ROOT/libcore/testdata/vless_record_test.go" sing-box/protocol/vless/encryption/niefigger_record_test.go
 
 ####  libneko
 

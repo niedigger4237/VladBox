@@ -91,7 +91,7 @@ diff --git a/common/tls/reality_client.go b/common/tls/reality_client.go
  		h := hmac.New(sha512.New, c.authKey)
  		h.Write(pub)
  		if bytes.Equal(h.Sum(nil), certs[0].Signature) {
-@@ -316,5 +333,15 @@
+@@ -316,5 +333,13 @@
 -		if bytes.Equal(h.Sum(nil), certs[0].Signature) {
 -			c.verified = true
 +		if bytes.Equal(h.Sum(nil), certs[0].Signature) {
@@ -99,9 +99,7 @@ diff --git a/common/tls/reality_client.go b/common/tls/reality_client.go
 +				if len(certs[0].Extensions) == 0 || c.HandshakeState.Hello == nil || c.HandshakeState.ServerHello == nil {
 +					return E.New("REALITY: missing ML-DSA-65 signature or transcript")
 +				}
-+				h.Write(c.HandshakeState.Hello.Raw)
-+				h.Write(c.HandshakeState.ServerHello.Raw)
-+				if !mldsa65.Verify(c.mldsa65Verify, h.Sum(nil), nil, certs[0].Extensions[0].Value) {
++				if !verifyRealityMldsa65(c.mldsa65Verify, c.authKey, pub, c.HandshakeState.Hello.Raw, c.HandshakeState.ServerHello.Raw, certs[0].Extensions[0].Value) {
 +					return E.New("REALITY: ML-DSA-65 verification failed")
 +				}
 +			}
@@ -135,3 +133,31 @@ diff --git a/go.sum b/go.sum
  c2sp.org/CCTV/age v0.0.0-20251208015420-e9274a7bdbfd/go.mod h1:SrHC2C7r5GkDk8R+NFVzYy/sdj0Ypg9htaPXQq5Cqeo=
  cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
  code.pfad.fr/check v1.1.0 h1:GWvjdzhSEgHvEHe2uJujDcpmZoySKuHQNrZMfzfO0bE=
+diff --git a/common/tls/reality_mldsa65.go b/common/tls/reality_mldsa65.go
+new file mode 100644
+--- /dev/null
++++ b/common/tls/reality_mldsa65.go
+@@ -0,0 +1,23 @@
++//go:build with_utls
++
++package tls
++
++import (
++	"crypto/hmac"
++	"crypto/sha512"
++
++	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
++)
++
++// Verify the Xray REALITY transcript with the configured ML-DSA-65 public key.
++// This is an additional check, never a replacement for the REALITY HMAC.
++func verifyRealityMldsa65(key *mldsa65.PublicKey, authKey, ed25519Key, clientHello, serverHello, signature []byte) bool {
++	if key == nil || len(authKey) == 0 || len(ed25519Key) != 32 || len(clientHello) == 0 || len(serverHello) == 0 || len(signature) != mldsa65.SignatureSize {
++		return false
++	}
++	h := hmac.New(sha512.New, authKey)
++	h.Write(ed25519Key)
++	h.Write(clientHello)
++	h.Write(serverHello)
++	return mldsa65.Verify(key, h.Sum(nil), nil, signature)
++}
