@@ -45,7 +45,9 @@ internal fun settingVisible(key: String?, mode: String, access: Access = Access.
     return when (key) {
     "dnsGlobalStrategy", "dnsOptimisticWindow", "dnsQueryTimeout", "dnsCacheCapacity" -> DataStore.dnsEngineMode == "modern"
     "dnsBootstrapAddress", "dnsBootstrapTlsName" -> DataStore.dnsBootstrapPreset == "custom"
-    "domain_strategy_for_direct", "domain_strategy_for_remote" -> DataStore.dnsEngineMode != "modern"
+    "remoteDnsPreset", "remoteDns" -> DataStore.dnsMain != "direct_only"
+    "domain_strategy_for_remote" -> DataStore.dnsEngineMode != "modern" && DataStore.dnsMain != "direct_only"
+    "domain_strategy_for_direct" -> DataStore.dnsEngineMode != "modern"
     "tunAddressMode" -> mode == "vpn" && DataStore.ipv6Mode != IPv6Mode.ONLY
     "tunIpv4Subnet" -> mode == "vpn" && DataStore.tunAddressMode == "manual" && DataStore.ipv6Mode != IPv6Mode.ONLY
     "tunIpv6Subnet" -> mode == "vpn" && DataStore.tunAddressMode == "manual" && DataStore.ipv6Mode != IPv6Mode.DISABLE && DataStore.ipv6Mode != IPv6Mode.ONLY

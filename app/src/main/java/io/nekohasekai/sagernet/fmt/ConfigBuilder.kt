@@ -148,7 +148,8 @@ fun buildConfig(
     val isRootSocksHelper = !forTest && (DataStore.serviceMode == Key.MODE_ROOT_TUN2SOCKS ||
             DataStore.serviceMode == Key.MODE_ROOT_BPF2SOCKS)
     val bind = if (!forTest && DataStore.allowAccess) "0.0.0.0" else LOCALHOST
-    val remoteDns = DnsPresets.remote().split("\n")
+    val dnsRouting = DnsRoutingPolicy.resolve(DataStore.dnsMain, forTest)
+    val remoteDns = (if (dnsRouting.useRemote) DnsPresets.remote() else "").split("\n")
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
     val directDNS = DnsPresets.direct().split("\n")
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
@@ -223,7 +224,7 @@ fun buildConfig(
 
         val directDnsStrategy = autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("dns-direct"))
         val remoteDnsStrategy = autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("dns-remote"))
-        val dnsMainDirect = forTest || DataStore.dnsMain == "direct"
+        val dnsMainDirect = dnsRouting.finalServer == "dns-direct"
         val modernDns = DnsRuleStrategy.isModern(DataStore.dnsEngineMode)
         val defaultDnsStrategy = DnsRuleStrategy.globalStrategy(
             modernDns,
@@ -654,10 +655,10 @@ fun buildConfig(
                             inbound = listOf("tun-in")
                         }
                         userDNSRuleList += makeDnsRuleObj().apply {
-                            server = "dns-remote"
-                            // Remote rules must honor the remote preference even
-                            // when Direct is selected as the default DNS.
-                            strategy = DnsRuleStrategy.ruleOverride(modernDns, remoteDnsStrategy, defaultDnsStrategy)
+                            server = dnsRouting.proxyRuleServer
+                            // Direct Only resolves even proxied domains via Direct DNS.
+                            val preferred = if (dnsRouting.useRemote) remoteDnsStrategy else directDnsStrategy
+                            strategy = DnsRuleStrategy.ruleOverride(modernDns, preferred, defaultDnsStrategy)
                         }
                     }
 
@@ -781,8 +782,8 @@ fun buildConfig(
         }
 
         remoteDns.firstOrNull().let {
-            // Always use direct DNS for urlTest
-            if (!forTest) dns.servers.add(
+            // Direct Only and URL tests need no remote DNS transport.
+            if (dnsRouting.useRemote) dns.servers.add(
                 buildDnsServer(
                     it ?: throw Exception("No remote DNS, check your settings!"),
                     "dns-remote",
@@ -795,7 +796,7 @@ fun buildConfig(
             )
         }
 
-        dns.final_ = if (dnsMainDirect) "dns-direct" else "dns-remote"
+        dns.final_ = dnsRouting.finalServer
         // Keep the global DNS strategy; matching rules need no duplicate override.
         dns.strategy = defaultDnsStrategy
         dns.optimistic = DnsOptimisticPolicy.options(

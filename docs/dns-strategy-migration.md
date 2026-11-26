@@ -142,3 +142,24 @@ verification uses the IP. A configured IPv6 bootstrap requires IPv6
 connectivity. User JSON overrides keep existing precedence. Raw full
 config imports bypass managed settings. Actual reachability and TLS
 verification depend on the network and chosen provider.
+
+## DNS routing mode
+
+The existing dnsMain preference is now labeled DNS Routing Mode.
+Existing direct (Split DNS) and remote (Remote Preferred) values keep their
+previous behavior. Split defaults to dns-direct, Remote Preferred defaults
+to dns-remote. Both retain DNS Routing rule mappings (Bypass -> Direct,
+Proxy -> Remote, Block -> predefined NOERROR) when DNS Routing is enabled.
+Direct Only (direct_only) does not generate dns-remote, remote server
+bootstrap exceptions, or generated DNS rules referring to dns-remote.
+Proxy domain rules resolve using dns-direct and its legacy strategy.
+The DNS Routing switch still governs user-derived DNS rules; FakeIP,
+forced bootstrap/server exceptions, and traffic routing remain independent.
+FakeIP may still synthesize A/AAAA when separately enabled; Direct Only
+means all ordinary managed DNS resolution is direct, not that FakeIP or
+blocking is disabled. URL-test generation always uses Direct DNS.
+Remote settings remain saved but hidden in Direct Only. Raw config imports
+and custom JSON overrides retain precedence; user overrides explicitly
+referencing dns-remote must be adapted before choosing Direct Only.
+A Remote preset using platform local/DHCP has platform-specific semantics;
+use a network DNS server (e.g. DoH) for DNS through the proxy.

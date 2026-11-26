@@ -23,4 +23,8 @@
     <string name="dns_bootstrap_tls_name">Имя TLS-сервера (необязательно)</string>
     <string name="dns_bootstrap_invalid">Укажите IPv4/IPv6, допустимую схему udp://, tcp://, tls:// или https:// и корректный порт.</string>
     <string name="dns_bootstrap_invalid_tls">Укажите корректное доменное имя TLS или оставьте поле пустым для проверки сертификата по IP.</string>
+    <string name="dns_routing_mode">Режим маршрутизации DNS</string>
+    <string name="dns_mode_split">Split DNS (по правилам; прямой по умолчанию)</string>
+    <string name="dns_mode_direct_only">Direct Only (без удалённого DNS)</string>
+    <string name="dns_mode_remote_preferred">Remote Preferred (через прокси по умолчанию)</string>
 </resources>

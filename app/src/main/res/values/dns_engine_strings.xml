@@ -107,4 +107,18 @@
         <item>google_dot</item>
         <item>custom</item>
     </string-array>
+    <string name="dns_routing_mode">DNS Routing Mode</string>
+    <string name="dns_mode_split">Split DNS (rules; direct default)</string>
+    <string name="dns_mode_direct_only">Direct Only (no remote DNS)</string>
+    <string name="dns_mode_remote_preferred">Remote Preferred (proxy default)</string>
+    <string-array name="dns_routing_mode_names">
+        <item>@string/dns_mode_split</item>
+        <item>@string/dns_mode_direct_only</item>
+        <item>@string/dns_mode_remote_preferred</item>
+    </string-array>
+    <string-array name="dns_routing_mode_values" translatable="false">
+        <item>direct</item>
+        <item>direct_only</item>
+        <item>remote</item>
+    </string-array>
 </resources>

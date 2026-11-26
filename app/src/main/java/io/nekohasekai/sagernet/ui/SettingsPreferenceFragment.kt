@@ -225,9 +225,9 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             findPreference<Preference>(Key.DNS_OPTIMISTIC_WINDOW)?.isVisible = mode == "modern"
             findPreference<Preference>(Key.DNS_QUERY_TIMEOUT)?.isVisible = mode == "modern"
             findPreference<Preference>(Key.DNS_CACHE_CAPACITY)?.isVisible = mode == "modern"
-            for (key in listOf("domain_strategy_for_direct", "domain_strategy_for_remote")) {
-                findPreference<Preference>(key)?.isVisible = mode != "modern"
-            }
+            findPreference<Preference>("domain_strategy_for_direct")?.isVisible = mode != "modern"
+            findPreference<Preference>("domain_strategy_for_remote")?.isVisible =
+                mode != "modern" && DataStore.dnsMain != "direct_only"
         }
         updateDnsModeVisibility(DataStore.dnsEngineMode)
         findPreference<Preference>(Key.DNS_ENGINE_MODE)?.setOnPreferenceChangeListener { _, value ->
@@ -272,9 +272,21 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         // готовые DNS: поле своего адреса видно только при выборе «Свой…»
         val remotePreset = findPreference<Preference>("remoteDnsPreset")!!
         val directPreset = findPreference<Preference>("directDnsPreset")!!
-        remoteDns.isVisible = DataStore.remoteDnsPreset == "custom"
+        fun updateRemoteVisibility(mode: String) {
+            val enabled = mode != "direct_only"
+            remotePreset.isVisible = enabled
+            remoteDns.isVisible = enabled && DataStore.remoteDnsPreset == "custom"
+            findPreference<Preference>("domain_strategy_for_remote")?.isVisible =
+                enabled && DataStore.dnsEngineMode != "modern"
+        }
+        updateRemoteVisibility(DataStore.dnsMain)
+        findPreference<Preference>(Key.DNS_MAIN)?.setOnPreferenceChangeListener { _, v ->
+            updateRemoteVisibility(v.toString())
+            needReload()
+            true
+        }
         directDns.isVisible = DataStore.directDnsPreset == "custom"
-        remotePreset.setOnPreferenceChangeListener { _, v -> remoteDns.isVisible = v == "custom"; needReload(); true }
+        remotePreset.setOnPreferenceChangeListener { _, v -> remoteDns.isVisible = DataStore.dnsMain != "direct_only" && v == "custom"; needReload(); true }
         directPreset.setOnPreferenceChangeListener { _, v -> directDns.isVisible = v == "custom"; needReload(); true }
         findPreference<Preference>("hijackDns")!!.onPreferenceChangeListener = reloadListener
         for (k in listOf("socksPort", "bpfBridgePort")) findPreference<EditTextPreference>(k)!!.apply {
