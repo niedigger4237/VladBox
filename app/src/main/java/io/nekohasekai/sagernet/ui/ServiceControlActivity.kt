@@ -2,6 +2,8 @@ package io.nekohasekai.sagernet.ui
 
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -63,13 +65,22 @@ private fun ServiceControlScreen(close: () -> Unit) {
         return store.getBoolean(key, false)
     }
     val master = enabled("scEnabled")
+    var page by rememberSaveable { mutableStateOf("home") }
+    BackHandler(enabled = page != "home") { page = "home" }
+    val pageTitle = when (page) {
+        "schedule" -> stringResource(R.string.sc_schedule)
+        "wifi" -> "Wi-Fi"
+        "keyguard" -> stringResource(R.string.sc_keyguard)
+        else -> stringResource(R.string.service_control)
+    }
     Scaffold(topBar = {
-        TopAppBar(title = { Text(stringResource(R.string.service_control)) },
-            navigationIcon = { TextButton(onClick = close) { Text("‹", style = MaterialTheme.typography.headlineMedium) } })
+        TopAppBar(title = { Text(pageTitle) },
+            navigationIcon = { TextButton(onClick = { if (page == "home") close() else page = "home" }) { Text("‹", style = MaterialTheme.typography.headlineMedium) } })
     }) { padding ->
+        key(page) {
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (rootMode && serviceState.started) ControlCard {
+            if (page == "home" && rootMode && serviceState.started) ControlCard {
                 Text("Supervisor status", style = MaterialTheme.typography.titleLarge)
                 Text(when (daemonPhase) {
                     "running" -> "Traffic active"
@@ -81,7 +92,7 @@ private fun ServiceControlScreen(close: () -> Unit) {
                     else -> "Supervisor status unavailable"
                 }, style = MaterialTheme.typography.bodyMedium)
             }
-            if (rootMode && serviceState.started) ControlCard {
+            if (page == "home" && rootMode && serviceState.started) ControlCard {
                 Text(stringResource(R.string.need_reload), style = MaterialTheme.typography.bodyMedium)
                 FilledTonalButton(
                     enabled = serviceState == BaseService.State.Connected,
@@ -96,22 +107,29 @@ private fun ServiceControlScreen(close: () -> Unit) {
                     modifier = Modifier.fillMaxWidth()
                 ) { Text(stringResource(R.string.apply)) }
             }
+            if (page == "home") {
             ControlCard {
                 ControlSwitch(stringResource(R.string.sc_enable), master, true, stringResource(R.string.sc_enable_sum)) {
                     store.putBoolean("scEnabled", it); revision++
                 }
             }
-            ControlCard {
+            Text("Automation", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            ControlDestination(stringResource(R.string.sc_schedule), "Start and stop at scheduled times", master && enabled("scSchedule")) { page = "schedule" }
+            ControlDestination("Wi-Fi", "Connection and disconnection rules", master && enabled("scWifi")) { page = "wifi" }
+            if (Build.VERSION.SDK_INT >= 33) ControlDestination(stringResource(R.string.sc_keyguard), "Lock and unlock rules", master && enabled("scKeyguard")) { page = "keyguard" }
+            }
+            if (page == "schedule") ControlCard {
                 Text(stringResource(R.string.sc_schedule), style = MaterialTheme.typography.titleLarge)
                 ControlSwitch(stringResource(R.string.sc_schedule_enable), enabled("scSchedule"), master) {
                     store.putBoolean("scSchedule", it); revision++
                 }
                 val active = master && enabled("scSchedule")
-                ControlField("scStartCron", stringResource(R.string.sc_start_cron), active, true)
-                ControlField("scStopCron", stringResource(R.string.sc_stop_cron), active, true)
+                DailyScheduleField("scStartCron", stringResource(R.string.sc_start_cron), active) { revision++ }
+                HorizontalDivider()
+                DailyScheduleField("scStopCron", stringResource(R.string.sc_stop_cron), active) { revision++ }
                 Text(stringResource(R.string.sc_cron_sum), style = MaterialTheme.typography.bodySmall)
             }
-            ControlCard {
+            if (page == "wifi") ControlCard {
                 Text("Wi-Fi", style = MaterialTheme.typography.titleLarge)
                 ControlSwitch(stringResource(R.string.sc_wifi_enable), enabled("scWifi"), master, stringResource(R.string.sc_wifi_sum)) {
                     store.putBoolean("scWifi", it); revision++
@@ -131,13 +149,13 @@ private fun ServiceControlScreen(close: () -> Unit) {
                         store.putBoolean(key, it); revision++
                     }
                     if (enabled(key)) {
-                        ControlField("${key}_ssids", "SSID", active, false)
-                        ControlField("${key}_bssids", "BSSID", active, false)
+                        ControlField("${key}_ssids", "SSID", active, false) { revision++ }
+                        ControlField("${key}_bssids", "BSSID", active, false) { revision++ }
                         Text(stringResource(R.string.sc_ids_hint), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
-            if (Build.VERSION.SDK_INT >= 33) ControlCard {
+            if (page == "keyguard" && Build.VERSION.SDK_INT >= 33) ControlCard {
                 Text(stringResource(R.string.sc_keyguard), style = MaterialTheme.typography.titleLarge)
                 ControlSwitch(stringResource(R.string.sc_keyguard_enable), enabled("scKeyguard"), master, stringResource(R.string.sc_keyguard_sum)) {
                     store.putBoolean("scKeyguard", it); revision++
@@ -155,6 +173,7 @@ private fun ServiceControlScreen(close: () -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 }
@@ -179,9 +198,9 @@ private fun ControlSwitch(title: String, checked: Boolean, enabled: Boolean, sum
 }
 
 @Composable
-private fun ControlField(key: String, title: String, enabled: Boolean, cron: Boolean) {
+private fun ControlField(key: String, title: String, enabled: Boolean, cron: Boolean, onSaved: () -> Unit = {}) {
     val store = DataStore.configurationStore
-    var value by remember(key) { mutableStateOf(store.getString(key) ?: "") }
+    val value = store.getString(key) ?: ""
     var draft by remember(key) { mutableStateOf(value) }
     var editing by remember { mutableStateOf(false) }
     OutlinedButton(onClick = { draft = value; editing = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
@@ -193,8 +212,57 @@ private fun ControlField(key: String, title: String, enabled: Boolean, cron: Boo
             text = { OutlinedTextField(value = draft, onValueChange = { draft = it }, isError = !valid,
                 singleLine = cron, modifier = Modifier.fillMaxWidth()) },
             confirmButton = { TextButton(enabled = valid, onClick = {
-                store.putString(key, draft.trim()); value = draft.trim(); editing = false
+                store.putString(key, draft.trim()); editing = false; onSaved()
             }) { Text(stringResource(android.R.string.ok)) } },
             dismissButton = { TextButton(onClick = { editing = false }) { Text(stringResource(android.R.string.cancel)) } })
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ControlDestination(title: String, description: String, active: Boolean, open: () -> Unit) {
+    Card(onClick = open, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
+        Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(title, style = MaterialTheme.typography.titleLarge)
+                Text(description, style = MaterialTheme.typography.bodyMedium)
+                Text(if (active) "Enabled" else "Disabled", style = MaterialTheme.typography.labelMedium,
+                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text("›", style = MaterialTheme.typography.headlineMedium)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DailyScheduleField(key: String, title: String, enabled: Boolean, onSaved: () -> Unit) {
+    val store = DataStore.configurationStore
+    val value = store.getString(key).orEmpty()
+    val fields = value.trim().split(Regex("\\s+"))
+    val minute = fields.getOrNull(0)?.toIntOrNull()
+    val hour = fields.getOrNull(1)?.toIntOrNull()
+    val daily = fields.size == 5 && fields.drop(2).all { it == "*" } &&
+        minute != null && minute in 0..59 && hour != null && hour in 0..23
+    var picking by rememberSaveable { mutableStateOf(false) }
+    val time = if (daily) java.lang.String.format(java.util.Locale.ROOT, "%02d:%02d", hour, minute) else null
+    Text(title, style = MaterialTheme.typography.titleMedium)
+    FilledTonalButton(onClick = { picking = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+        Text(time?.let { "Every day · $it" } ?: if (value.isBlank()) "Choose daily time" else "Replace custom schedule with daily time")
+    }
+    ControlField(key, "Advanced Cron", enabled, true, onSaved)
+    if (picking) {
+        val state = rememberTimePickerState(initialHour = if (daily) hour!! else 8,
+            initialMinute = if (daily) minute!! else 0, is24Hour = true)
+        AlertDialog(onDismissRequest = { picking = false },
+            title = { Text(title) },
+            text = { TimeInput(state = state) },
+            confirmButton = { TextButton(onClick = {
+                store.putString(key, "${state.minute} ${state.hour} * * *")
+                picking = false
+                onSaved()
+            }) { Text(stringResource(android.R.string.ok)) } },
+            dismissButton = { TextButton(onClick = { picking = false }) { Text(stringResource(android.R.string.cancel)) } })
     }
 }
