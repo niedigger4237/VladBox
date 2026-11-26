@@ -400,7 +400,8 @@ int nf_gateway_startup_reconcile(struct asteriskd_system_supervisor *s) {
 
 /* Adapter for the existing upstream core lifecycle, not a second process
  * manager. The opt-in supervisor field remains zero in app-generated configs
- * until NAT/link integration is ready. This stage installs only closed INPUT. */
+ * until the device-tested marked activation is ready. Native-only opt-in
+ * permits a conservative unmarked NAT experiment, not targeted DELETE. */
 extern int nf_gateway_socket_observe(struct asteriskd_system_supervisor *,unsigned,unsigned *);
 static int nf_runtime_session_id(uint8_t id[16]) {
     int fd=open("/dev/urandom",O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
@@ -435,6 +436,12 @@ int nf_gateway_runtime_before_core(struct asteriskd_system_supervisor *s) {
        nf_gateway_port_absent(port))return -1;
     struct nf_native_backend *b=calloc(1,sizeof(*b));if(!b)return -1;
     b->system=s;b->wal_fd=-1;
+    b->ipv6_nat_disabled=true;
+    if(s->loaded_config.config.enable_ipv6) {
+        int capability=nf_nat6_probe(s);
+        if(capability<0){nf_runtime_free(b);return -1;}
+        b->ipv6_nat_disabled=capability==1;
+    }
     if(nf_runtime_init_wal(b,s->store.directory_fd,port)) {nf_runtime_free(b);return -1;}
     // The real stop/release path must retain the handle even if a write fails.
     s->nf_gateway_session=b;
@@ -457,17 +464,79 @@ int nf_gateway_runtime_core_ready(struct asteriskd_system_supervisor *s) {
        nf_native_record_core(b) || nf_gateway_socket_observe(s,b->wal.port,&families))return -1;
     return (families&3U)==3U || (families&12U)==12U?0:-1;
 }
+/* Runtime-only test path: the application does not publish the opt-in
+ * port. Exact downstream names must come from the trusted Android
+ * configuration; this snapshot checks existence, UP and link identity,
+ * not upstream/downstream role or IPv6 wildcard reachability. */
+static int nf_runtime_links(struct asteriskd_system_supervisor *s,unsigned indices[16]) {
+    const struct asteriskd_config *c=&s->loaded_config.config;
+    if(!nf_valid(c,c->nf_hev_gateway_dns_port))return -1;
+    memset(indices,0,16*sizeof(*indices));
+    struct ifaddrs *list=NULL;if(getifaddrs(&list))return -1;
+    int rc=0;
+    for(size_t i=0;i<c->hotspot_interface_count;i++) {
+        const char *name=c->hotspot_interfaces[i];
+        indices[i]=if_nametoindex(name);bool up=false;
+        for(const struct ifaddrs *p=list;p;p=p->ifa_next) {
+            if(p->ifa_name && !strcmp(p->ifa_name,name) && p->ifa_addr &&
+               (p->ifa_flags&IFF_UP) && !(p->ifa_flags&IFF_LOOPBACK) &&
+               p->ifa_addr->sa_family==AF_INET) {up=true;break;}
+        }
+        if(!indices[i] || !up || if_nametoindex(name)!=indices[i]){rc=-1;break;}
+    }
+    freeifaddrs(list);return rc;
+}
+/* The core's regular apply_rules callback has already installed and verified
+ * its routing rules. No publish unless both socket transports are observed
+ * in every requested family. Never turn this observation into a mark lease. */
+int nf_gateway_runtime_publish(struct asteriskd_system_supervisor *s) {
+    struct nf_native_backend *b=s->nf_gateway_session;
+    if(!b)return s->loaded_config.config.nf_hev_gateway_dns_port?-1:0;
+    if(!b->wal_ready || b->session_mask || b->session_mark || !s->rules_verified ||
+       !nf_closed_guard_only(b) || nf_native_verify(s,&b->guard,false) ||
+       nf_native_record_core(b))return -1;
+    if(!s->loaded_config.config.hotspot_interface_count)return 0;
+    unsigned before[16],after[16],families=0;
+    unsigned required=b->ipv6_nat_disabled?3U:15U;
+    if(nf_runtime_links(s,before) || nf_gateway_socket_observe(s,b->wal.port,&families) ||
+       (families&required)!=required || nf_live_names_absence(s,true) ||
+       nf_gateway_ct_port_absent(b->wal.port) || b->wal.generation==UINT64_MAX ||
+       nf_runtime_links(s,after) || memcmp(before,after,sizeof(before)))return -1;
+    b->wal.epoch=b->wal.generation+1;
+    if(nf_native_write(b,&b->guard,b->wal.port,true,true) ||
+       nf_native_write(b,&b->nat,b->wal.port,false,true) ||
+       nf_native_verify(s,&b->guard,false) || nf_native_verify(s,&b->nat,false) ||
+       nf_runtime_links(s,after) || memcmp(before,after,sizeof(before)) ||
+       nf_gateway_socket_observe(s,b->wal.port,&families) || (families&required)!=required)return -1;
+    return 0;
+}
+/* Close INPUT before withdrawing REDIRECT. Old mappings may persist:
+ * retain the WAL and guard until a complete read-only drain is observed.
+ * No conntrack DELETE is authorized by this experimental path. */
+int nf_gateway_runtime_withdraw(struct asteriskd_system_supervisor *s) {
+    struct nf_native_backend *b=s->nf_gateway_session;
+    if(!b)return 0;
+    if(!b->wal_ready)return -1;
+    if(!b->guard.owned)return b->nat.owned?-1:0;
+    if(!nf_closed_guard_only(b) &&
+       nf_native_write(b,&b->guard,b->wal.port,true,false))return -1;
+    if(nf_recovery_preflight(b,&b->nat) || nf_native_remove(b,&b->nat) ||
+       nf_native_verify(s,&b->guard,false) || nf_live_names_absence(s,true))return -1;
+    return 0;
+}
+
 int nf_gateway_runtime_after_core_stop(struct asteriskd_system_supervisor *s) {
     struct nf_native_backend *b=s->nf_gateway_session;if(!b)return 0;
     if(!b->wal_ready || b->nat.owned || b->nat.plan.private_group_count ||
-       (b->wal.debts&24U) || (s->core_spawned && !s->core_reaped) ||
+       (s->core_spawned && !s->core_reaped) ||
        (s->core_spawned && !b->core_evidence_valid) ||
        (b->core_evidence_valid && !nf_core_gone(&b->core_evidence)))return -1;
     if(!b->wal.debts && !b->guard.owned) {
         // No owned mutation was committed. Never clear another owner's rules.
         nf_runtime_free(b);s->nf_gateway_session=NULL;return 0;
     }
-    if(nf_gateway_port_absent(b->wal.port) || nf_live_names_absence(s,true) ||
+    if((b->guard.owned && !nf_closed_guard_only(b)) ||
+       nf_gateway_port_absent(b->wal.port) || nf_live_names_absence(s,true) ||
        nf_gateway_ct_port_absent(b->wal.port) || nf_recovery_preflight(b,&b->guard) ||
        nf_native_remove(b,&b->guard) || nf_reboot_live_absence(s) ||
        nf_gateway_port_absent(b->wal.port) || b->wal.generation==UINT64_MAX)return -1;
@@ -789,9 +858,11 @@ int main(void) {
     struct asteriskd_system_supervisor *s=calloc(1,sizeof(*s));CHECK(s);
     CHECK(!nf_gateway_runtime_before_core(s));CHECK(!nf_gateway_runtime_core_identity(s));
     CHECK(!nf_gateway_runtime_core_ready(s));CHECK(!nf_gateway_runtime_after_core_stop(s));
+    CHECK(!nf_gateway_runtime_publish(s));CHECK(!nf_gateway_runtime_withdraw(s));
     nf_gateway_runtime_dispose(s);CHECK(!s->nf_gateway_session);
     s->loaded_config.config.nf_hev_gateway_dns_port=15353;
     CHECK(nf_gateway_runtime_before_core(s)<0);CHECK(nf_gateway_runtime_core_ready(s)<0);
+    CHECK(nf_gateway_runtime_publish(s)<0);
     CHECK(nf_gateway_runtime_core_identity(s)<0);CHECK(!s->nf_gateway_session);
     char path[]="/tmp/nf-runtime-session-XXXXXX";CHECK(mkdtemp(path));
     int d=open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC);CHECK(d>=0);
