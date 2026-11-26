@@ -134,6 +134,9 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
                             owner.data.changeState(BaseService.State.Connected)
                             owner.data.notification?.postServiceControlWaiting(false)
                             rootLooper?.start()
+                            // Native policy starts the core independently of Android's
+                            // connectivity callbacks. Reconcile tethering immediately.
+                            tunNetworkMonitor?.onServiceResumed()
                             Logs.i("Service Control: service resumed")
                         }
                     }

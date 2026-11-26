@@ -45,6 +45,14 @@ internal class RootTunNetworkMonitor(
         request("initial")
     }
 
+    /** Native Service Control can resume without any Android network event. */
+    fun onServiceResumed() {
+        request("service control resumed", 0)
+    }
+
+    private fun ownsSession(): Boolean =
+        !closed && RootDaemon.appliedDownstreams === applied
+
     @Synchronized
     private fun request(reason: String, delay: Long = 750) {
         if (closed || restartPending || pending != null) return
@@ -61,12 +69,16 @@ internal class RootTunNetworkMonitor(
 
     private fun reconcile(reason: String) {
         // No rule installation while native traffic is paused or being cleaned up.
-        if (RootDaemon.health() != RootHealth.RUNNING) {
+        if (!ownsSession() || RootDaemon.health() != RootHealth.RUNNING) {
             candidate = null
             return
         }
         val observed = RootDaemon.resolveDownstreams(mode, requireReliable = true, ipv6 = applied.serviceIpv6)
-        if (!closed) RootDaemon.reconcileTetherRules(mode, applied, observed)
+        if (!ownsSession()) {
+            candidate = null
+            return
+        }
+        RootDaemon.reconcileTetherRules(mode, applied, observed)
         if (observed == null || observed == applied) {
             candidate = null
             return
@@ -85,11 +97,11 @@ internal class RootTunNetworkMonitor(
         }
         candidate = null
         // Do not undo a stop initiated by asteriskd's own service-control policy.
-        if (!RootDaemon.isRunning() || closed) return
+        if (!ownsSession() || !RootDaemon.isRunning() || !ownsSession()) return
         restartPending = true
         Logs.i("ROOT ${mode.wire} downstream changed: $applied -> $observed ($reason)")
         main.post {
-            if (!closed) {
+            if (ownsSession()) {
                 val cooldown = MIN_RESTART_INTERVAL_MS - (SystemClock.elapsedRealtime() - lastRestart)
                 if (cooldown > 0) {
                     restartPending = false
