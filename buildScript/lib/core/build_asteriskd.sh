@@ -533,13 +533,16 @@ for name, old, new in replacements:
 NF_TETHER_DNS_PATCH
 
 SOURCES=$(cd "$SRC" && find . -name '*.c' -not -path './.git/*' | LC_ALL=C sort)
+# Compile the HEV gateway backend with the pinned supervisor. Runtime activation
+# remains gated until owned listener, conntrack and crash recovery are wired.
+HEV_GATEWAY_BACKEND="$ROOT/buildScript/experiments/hev-gateway-dns/gateway_backend.c"
 
 build() { # abi cc-prefix
   local abi=$1 cc=$2
   if [ -n "$ROOTCORE_ABIS" ] && [[ " $ROOTCORE_ABIS " != *" $abi "* ]]; then return; fi
   mkdir -p "$ROOT/app/src/main/jniLibs/$abi"
   ( cd "$SRC" && "$TOOLCHAIN/${cc}${API}-clang" -O2 -flto=full -std=c17 -fPIE -pie -I"$SRC" \
-      $SOURCES -ldl -lz -o "$ROOT/app/src/main/jniLibs/$abi/libasteriskd.so" )
+      $SOURCES "$HEV_GATEWAY_BACKEND" -ldl -lz -o "$ROOT/app/src/main/jniLibs/$abi/libasteriskd.so" )
 }
 
 build arm64-v8a  aarch64-linux-android
