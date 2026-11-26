@@ -322,10 +322,12 @@ reconcile() (
     done
     [ "$stopped" = 1 ] && current || exit 1
     # Reclassify after teardown; do not publish a stale rendered snapshot.
+    deferred=0
     if [ "$GATEWAY" = 1 ]; then
         cp "$work/current" "$work/rendered" || exit 1
         if ! snapshot || ! cmp -s "$work/current" "$work/rendered"; then
             : > "$work/current" # launch known-empty base; reclassify on next iteration
+            deferred=1
         fi
     fi
     launch=$CONFIG
@@ -351,6 +353,11 @@ reconcile() (
         exit 1
     fi
     current || exit 1
+    # On uncertain discovery keep all attempted IPv6 guards until a reliable snapshot.
+    if [ "$deferred" = 1 ]; then
+        : > "$work/applied"
+        exit 1
+    fi
     if [ "$BLOCK6" = 1 ] && [ -f "$work/attempted" ]; then
         # Do not lose ownership on a partially successful rule installation.
         cp "$work/attempted" "$work/applied"
