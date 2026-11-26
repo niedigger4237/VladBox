@@ -308,50 +308,69 @@ class ConfigurationFragment @JvmOverloads constructor(
         return super.onKeyDown(ketCode, event)
     }
 
+    // Imports may finish after navigation or Activity recreation. Never call
+    // requireActivity/requireContext from their asynchronous result handlers.
+    private fun showImportMessage(message: CharSequence) {
+        val host = activity as? MainActivity
+        if (isAdded && view != null && host != null && !host.isFinishing && !host.isDestroyed) {
+            host.snackbar(message).show()
+        } else {
+            android.widget.Toast.makeText(app, message, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
     private val importFile =
         registerForActivityResult(ActivityResultContracts.GetContent()) { file ->
-            if (file != null) runOnDefaultDispatcher {
-                try {
-                    val fileName =
-                        requireContext().contentResolver.query(file, null, null, null, null)
-                            ?.use { cursor ->
-                                cursor.moveToFirst()
-                                cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME)
-                                    .let(cursor::getString)
-                            }
-                    val proxies = mutableListOf<AbstractBean>()
-                    var xrayProfiles = false
-                    val xrayChains = mutableListOf<XrayJsonImport.ImportedChain>()
-                    if (fileName != null && fileName.endsWith(".zip")) {
-                        // try parse wireguard zip
-                        val zip =
-                            ZipInputStream(requireContext().contentResolver.openInputStream(file)!!)
-                        while (true) {
-                            val entry = zip.nextEntry ?: break
-                            if (entry.isDirectory) continue
-                            val fileText = zip.bufferedReader().readText()
-                            RawUpdater.parseRaw(fileText, entry.name, { xrayChains.addAll(it) }) { xrayProfiles = true }
-                                ?.let { pl -> proxies.addAll(pl) }
-                            zip.closeEntry()
+            if (file != null) {
+                // Capture a resolver while the picker result is delivered.
+                val resolver = app.contentResolver
+                runOnDefaultDispatcher {
+                    try {
+                        val fileName = resolver.query(file, null, null, null, null)?.use { cursor ->
+                            if (cursor.moveToFirst()) {
+                                val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                                if (column >= 0) cursor.getString(column) else null
+                            } else null
                         }
-                        zip.closeQuietly()
-                    } else {
-                        val fileText =
-                            requireContext().contentResolver.openInputStream(file)!!.use {
+                        val proxies = mutableListOf<AbstractBean>()
+                        var xrayProfiles = false
+                        val xrayChains = mutableListOf<XrayJsonImport.ImportedChain>()
+                        if (fileName?.endsWith(".zip", ignoreCase = true) == true) {
+                            ZipInputStream(requireNotNull(resolver.openInputStream(file))).use { zip ->
+                                while (true) {
+                                    val entry = zip.nextEntry ?: break
+                                    try {
+                                        if (!entry.isDirectory) {
+                                            val fileText = zip.bufferedReader().readText()
+                                            RawUpdater.parseRaw(fileText, entry.name, { xrayChains.addAll(it) }) { xrayProfiles = true }
+                                                ?.let { proxies.addAll(it) }
+                                        }
+                                    } finally {
+                                        zip.closeEntry()
+                                    }
+                                }
+                            }
+                        } else {
+                            val fileText = requireNotNull(resolver.openInputStream(file)).use {
                                 it.bufferedReader().readText()
                             }
-                        RawUpdater.parseRaw(fileText, fileName ?: "", { xrayChains.addAll(it) }) { xrayProfiles = true }
-                            ?.let { pl -> proxies.addAll(pl) }
-                    }
-                    if (proxies.isEmpty()) onMainDispatcher {
-                        snackbar(getString(R.string.no_proxies_found_in_file)).show()
-                    } else import(proxies, xrayProfiles, xrayChains)
-                } catch (e: SubscriptionFoundException) {
-                    (requireActivity() as MainActivity).importSubscription(e.link.toUri())
-                } catch (e: Exception) {
-                    Logs.w(e)
-                    onMainDispatcher {
-                        snackbar(e.readableMessage).show()
+                            RawUpdater.parseRaw(fileText, fileName ?: "", { xrayChains.addAll(it) }) { xrayProfiles = true }
+                                ?.let { proxies.addAll(it) }
+                        }
+                        if (proxies.isEmpty()) onMainDispatcher {
+                            showImportMessage(app.getString(R.string.no_proxies_found_in_file))
+                        } else import(proxies, xrayProfiles, xrayChains)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: SubscriptionFoundException) {
+                        onMainDispatcher {
+                            (activity as? MainActivity)?.takeUnless { it.isFinishing || it.isDestroyed }?.importSubscription(e.link.toUri())
+                        }
+                    } catch (e: Exception) {
+                        Logs.w(e)
+                        onMainDispatcher {
+                            showImportMessage(e.readableMessage)
+                        }
                     }
                 }
             }
@@ -366,10 +385,10 @@ class ConfigurationFragment @JvmOverloads constructor(
         }
         onMainDispatcher {
             DataStore.editingGroup = targetId
-            val added = requireContext().resources.getQuantityString(R.plurals.added, proxies.size + xrayChains.size, proxies.size + xrayChains.size)
-            snackbar(if (xrayProfiles) "$added. ${getString(R.string.xray_import_profiles_only)}" else added).show()
+            val count = proxies.size + xrayChains.size
+            val added = app.resources.getQuantityString(R.plurals.added, count, count)
+            showImportMessage(if (xrayProfiles) "$added. ${app.getString(R.string.xray_import_profiles_only)}" else added)
         }
-
     }
 
     override fun onMenuItemClick(item: MenuItem): Boolean = onProfileAction(item.itemId)
@@ -405,15 +424,18 @@ class ConfigurationFragment @JvmOverloads constructor(
                         val xrayChains = mutableListOf<XrayJsonImport.ImportedChain>()
                         val proxies = RawUpdater.parseRaw(text, onXrayChains = { xrayChains.addAll(it) }) { xrayProfiles = true }
                         if (proxies.isNullOrEmpty()) onMainDispatcher {
-                            snackbar(getString(R.string.no_proxies_found_in_clipboard)).show()
+                            showImportMessage(app.getString(R.string.no_proxies_found_in_clipboard))
                         } else import(proxies, xrayProfiles, xrayChains)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: SubscriptionFoundException) {
-                        (requireActivity() as MainActivity).importSubscription(e.link.toUri())
+                        onMainDispatcher {
+                            (activity as? MainActivity)?.takeUnless { it.isFinishing || it.isDestroyed }?.importSubscription(e.link.toUri())
+                        }
                     } catch (e: Exception) {
                         Logs.w(e)
-
                         onMainDispatcher {
-                            snackbar(e.readableMessage).show()
+                            showImportMessage(e.readableMessage)
                         }
                     }
                 }
