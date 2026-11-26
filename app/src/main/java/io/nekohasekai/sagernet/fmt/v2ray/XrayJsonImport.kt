@@ -12,11 +12,11 @@ import org.json.JSONObject
  */
 object XrayJsonImport {
     private val supported = setOf("vless", "vmess", "trojan")
-    private val helpers = setOf("freedom", "blackhole", "dns", "loopback")
-    private val known = supported + helpers + setOf("shadowsocks", "socks", "http", "wireguard", "hysteria", "hysteria2", "reverse")
+    private val helpers = setOf("freedom", "blackhole", "dns")
+    
 
     fun recognizes(value: Any?): Boolean = when (value) {
-        is JSONObject -> value.optString("protocol") in known ||
+        is JSONObject -> (value.optString("protocol").isNotBlank() && !value.has("type")) ||
             (value.optJSONArray("outbounds")?.let { a -> (0 until a.length()).any { recognizes(a.opt(it)) } } == true)
         is JSONArray -> (0 until value.length()).any { recognizes(value.opt(it)) }
         else -> false
@@ -102,6 +102,7 @@ object XrayJsonImport {
                     alterId = if (protocol == "vless") -1 else user.optInt("alterId", 0)
                     require(protocol == "vless" || alterId >= 0) { "Invalid VMess alterId" }
                     if (protocol == "vless") {
+                        require(user.optInt("alterId", 0) == 0) { "Unexpected VLESS alterId" }
                         val flow = user.optString("flow")
                         require(flow in setOf("", "xtls-rprx-vision", "xtls-rprx-vision-udp443")) { "Unsupported VLESS flow" }
                         encryption = flow.removeSuffix("-udp443")
@@ -144,6 +145,7 @@ object XrayJsonImport {
             checkKeys(tls, setOf("serverName", "fingerprint", "publicKey", "password", "shortId", "mldsa65Verify", "pqv", "show", "spiderX", "supportX25519MLKEM768", "support_x25519mlkem768", "support-x25519mlkem768"), "REALITY")
             bean.sni = tls.optString("serverName")
             bean.utlsFingerprint = tls.optString("fingerprint", "chrome").ifBlank { "chrome" }
+            require(bean.utlsFingerprint != "none") { "REALITY requires a uTLS fingerprint" }
             bean.realityPubKey = tls.optString("password").ifBlank { required(tls, "publicKey") }
             bean.realityShortId = tls.optString("shortId")
             bean.realityMldsa65Verify = validateRealityMldsa65(tls.optString("mldsa65Verify", tls.optString("pqv")))

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xray_import_profiles_only">Исходящие подключения Xray импортированы как профили. DNS, входящие подключения и маршрутизация управляются приложением.</string>
+</resources>

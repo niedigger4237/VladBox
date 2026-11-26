@@ -319,6 +319,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                                     .let(cursor::getString)
                             }
                     val proxies = mutableListOf<AbstractBean>()
+                    var xrayProfiles = false
                     if (fileName != null && fileName.endsWith(".zip")) {
                         // try parse wireguard zip
                         val zip =
@@ -327,7 +328,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                             val entry = zip.nextEntry ?: break
                             if (entry.isDirectory) continue
                             val fileText = zip.bufferedReader().readText()
-                            RawUpdater.parseRaw(fileText, entry.name)
+                            RawUpdater.parseRaw(fileText, entry.name) { xrayProfiles = true }
                                 ?.let { pl -> proxies.addAll(pl) }
                             zip.closeEntry()
                         }
@@ -337,12 +338,12 @@ class ConfigurationFragment @JvmOverloads constructor(
                             requireContext().contentResolver.openInputStream(file)!!.use {
                                 it.bufferedReader().readText()
                             }
-                        RawUpdater.parseRaw(fileText, fileName ?: "")
+                        RawUpdater.parseRaw(fileText, fileName ?: "") { xrayProfiles = true }
                             ?.let { pl -> proxies.addAll(pl) }
                     }
                     if (proxies.isEmpty()) onMainDispatcher {
                         snackbar(getString(R.string.no_proxies_found_in_file)).show()
-                    } else import(proxies)
+                    } else import(proxies, xrayProfiles)
                 } catch (e: SubscriptionFoundException) {
                     (requireActivity() as MainActivity).importSubscription(e.link.toUri())
                 } catch (e: Exception) {
@@ -354,18 +355,15 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
         }
 
-    suspend fun import(proxies: List<AbstractBean>) {
+    suspend fun import(proxies: List<AbstractBean>, xrayProfiles: Boolean = false) {
         val targetId = DataStore.selectedGroupForImport()
         for (proxy in proxies) {
             ProfileManager.createProfile(targetId, proxy)
         }
         onMainDispatcher {
             DataStore.editingGroup = targetId
-            snackbar(
-                requireContext().resources.getQuantityString(
-                    R.plurals.added, proxies.size, proxies.size
-                )
-            ).show()
+            val added = requireContext().resources.getQuantityString(R.plurals.added, proxies.size, proxies.size)
+            snackbar(if (xrayProfiles) "$added. ${getString(R.string.xray_import_profiles_only)}" else added).show()
         }
 
     }
@@ -399,10 +397,11 @@ class ConfigurationFragment @JvmOverloads constructor(
                     snackbar(getString(R.string.clipboard_empty)).show()
                 } else runOnDefaultDispatcher {
                     try {
-                        val proxies = RawUpdater.parseRaw(text)
+                        var xrayProfiles = false
+                        val proxies = RawUpdater.parseRaw(text) { xrayProfiles = true }
                         if (proxies.isNullOrEmpty()) onMainDispatcher {
                             snackbar(getString(R.string.no_proxies_found_in_clipboard)).show()
-                        } else import(proxies)
+                        } else import(proxies, xrayProfiles)
                     } catch (e: SubscriptionFoundException) {
                         (requireActivity() as MainActivity).importSubscription(e.link.toUri())
                     } catch (e: Exception) {
