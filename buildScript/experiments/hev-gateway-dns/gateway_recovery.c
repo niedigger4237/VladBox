@@ -15,8 +15,9 @@ static int nf_recovery_plan(struct nf_native_slot *slot,bool guard,unsigned coun
 }
 /* Validate exact generated grammar, not arbitrary saved iptables commands.
  * A saved image is evidence for comparisons only; it is never executed. */
-static bool nf_recovery_image(const uint8_t *p,size_t len,const char *chain,bool guard,unsigned port) {
-    unsigned pairs=0, drops=0;char prev[16]={0},names[16][16]={{0}};bool tcp=false;
+static bool nf_recovery_image(const uint8_t *p,size_t len,const char *chain,bool guard,unsigned port,uint32_t mark,uint32_t mask) {
+    if((mark || mask) && !nf_gateway_mark_valid(mark,mask))return false;
+    unsigned pairs=0, drops=0;char prev[16]={0},names[16][16]={{0}};bool tcp=false,tag_pending=false;
     while(len) {
         const uint8_t *end=memchr(p,'\n',len);if(!end)return false;
         size_t n=(size_t)(end-p)+1;if(n>512 || memchr(p,0,n))return false;
@@ -31,19 +32,26 @@ static bool nf_recovery_image(const uint8_t *p,size_t len,const char *chain,bool
             const char *start=line+size,*space=strchr(start,' ');if(!space || space==start || space-start>15)return false;
             memcpy(name,start,(size_t)(space-start));
             if(!asteriskd_interface_selector_valid(name) || strchr(name,'+') || !strcmp(name,"lo") || !strcmp(name,"hevtun0") || !strcmp(name,"asterisk0") || !strcmp(name,".") || !strcmp(name,"..") || !strcmp(name,"all") || !strcmp(name,"default"))return false;
-            if(!tcp) {for(unsigned i=0;i<pairs;i++)if(!strcmp(names[i],name))return false;strcpy(prev,name);}
+            if(!tcp && !tag_pending) {for(unsigned i=0;i<pairs;i++)if(!strcmp(names[i],name))return false;strcpy(prev,name);}
             else if(strcmp(prev,name))return false;
-            if(guard)size=snprintf(want,sizeof(want),"-A %s -i %s -p %s -m %s --dport %u -m conntrack --ctstate DNAT --ctorigdstport 53 --ctdir ORIGINAL -j ACCEPT\n",chain,name,proto,proto,port);
+            if(mask && !guard && !tag_pending) {
+                size=snprintf(want,sizeof(want),"-A %s -i %s -p %s -m %s --dport 53 -m addrtype --dst-type LOCAL --limit-iface-in -m connmark --mark 0x0/0x%x -j CONNMARK --set-xmark 0x%x/0x%x\n",chain,name,proto,proto,mask,mark,mask);
+                if(size<=0 || (size_t)size>=sizeof(want) || strcmp(line,want))return false;
+                tag_pending=true;p+=n;len-=n;continue;
+            }
+            if(mask && guard)size=snprintf(want,sizeof(want),"-A %s -i %s -p %s -m %s --dport %u -m conntrack --ctstate DNAT --ctorigdstport 53 --ctdir ORIGINAL -m connmark --mark 0x%x/0x%x -j ACCEPT\n",chain,name,proto,proto,port,mark,mask);
+            else if(mask)size=snprintf(want,sizeof(want),"-A %s -i %s -p %s -m %s --dport 53 -m addrtype --dst-type LOCAL --limit-iface-in -m connmark --mark 0x%x/0x%x -j REDIRECT --to-ports %u\n",chain,name,proto,proto,mark,mask,port);
+            else if(guard)size=snprintf(want,sizeof(want),"-A %s -i %s -p %s -m %s --dport %u -m conntrack --ctstate DNAT --ctorigdstport 53 --ctdir ORIGINAL -j ACCEPT\n",chain,name,proto,proto,port);
             else size=snprintf(want,sizeof(want),"-A %s -i %s -p %s -m %s --dport 53 -m addrtype --dst-type LOCAL --limit-iface-in -j REDIRECT --to-ports %u\n",chain,name,proto,proto,port);
             if(size<=0 || (size_t)size>=sizeof(want) || strcmp(line,want))return false;
             if(tcp)strcpy(names[pairs++],name);
-            tcp=!tcp;
+            tag_pending=false;tcp=!tcp;
         }
         p+=n;len-=n;
     }
-    return !tcp && (guard?drops==2:drops==0);
+    return !tcp && !tag_pending && (guard?drops==2:drops==0);
 }
-static int nf_recovery_slot(const struct nf_wal_record *r,size_t *pos,struct nf_native_slot *s,bool guard) {
+static int nf_recovery_slot(const struct nf_wal_record *r,size_t *pos,struct nf_native_slot *s,bool guard,uint32_t mark,uint32_t mask) {
     if(*pos>r->length || r->length-*pos<2)return -1;
     unsigned count=r->payload[(*pos)++],flags=r->payload[(*pos)++];
     if(flags&~7U || ((flags&6U) && !(flags&1U)) || ((flags&1U) && (!(flags&6U)||!count)) || nf_recovery_plan(s,guard,count,r->port))return -1;
@@ -53,7 +61,7 @@ static int nf_recovery_slot(const struct nf_wal_record *r,size_t *pos,struct nf_
         size_t n=(size_t)nf_get(r->payload+*pos,4);*pos+=4;
         bool present=i<count && (v?s->pending_valid:s->expected_valid);
         if(n>r->length-*pos || (!present && n))return -1;
-        if(present && !nf_recovery_image(r->payload+*pos,n,s->plan.private_groups[i].names[0],guard,r->port))return -1;
+        if(present && !nf_recovery_image(r->payload+*pos,n,s->plan.private_groups[i].names[0],guard,r->port,mark,mask))return -1;
         struct asteriskd_byte_buffer *dst=v?&s->pending[i]:&s->expected[i];
         if(n && asteriskd_byte_buffer_append(dst,r->payload+*pos,n))return -1;
         *pos+=n;
@@ -63,19 +71,24 @@ static int nf_recovery_slot(const struct nf_wal_record *r,size_t *pos,struct nf_
 /* Only accepts the same boot. Across reboot, separate proof of absence of
  * old processes and resources is needed, not replay of old ownership. */
 int nf_gateway_recovery_load(struct nf_native_backend *b,const uint8_t boot[16]) {
-    if(!b || !boot || b->wal_ready || b->guard.owned || b->nat.owned || b->guard.plan.private_group_count || b->nat.plan.private_group_count)return -1;
+    if(!b || !boot || b->wal_ready || b->session_mark || b->session_mask || b->mark_authorized || b->guard.owned || b->nat.owned || b->guard.plan.private_group_count || b->nat.plan.private_group_count)return -1;
     uint8_t *payload=malloc(NF_WAL_MAX);if(!payload)return -1;
     struct nf_wal_record r;int rc=nf_gateway_wal_load(b->wal_fd,&r,payload,NF_WAL_MAX);
     if(rc) {free(payload);return rc;}
     rc=-1;
-    if(memcmp(boot,r.boot,16) || r.length<8 || memcmp(payload,"NFFW01",6) || payload[7]>2 ||
+    if(memcmp(boot,r.boot,16) || r.length<8 || memcmp(payload,"NFFW01",6) || (payload[7]&~7U) || (payload[7]&3U)==3U ||
        (payload[6]!=NF_GUARD_CLOSED && payload[6]!=NF_GUARD_OPEN && payload[6]!=NF_NAT_INSTALL && payload[6]!=NF_NAT_REMOVE && payload[6]!=NF_GUARD_REMOVE))goto done;
     size_t pos=8;
-    if(nf_recovery_slot(&r,&pos,&b->guard,true) || nf_recovery_slot(&r,&pos,&b->nat,false) ||
+    if(payload[7]&4U) {
+        if(r.length-pos<8)goto done;
+        b->session_mark=(uint32_t)nf_get(payload+pos,4);b->session_mask=(uint32_t)nf_get(payload+pos+4,4);pos+=8;
+        if(!nf_gateway_mark_valid(b->session_mark,b->session_mask))goto done;
+    }
+    if(nf_recovery_slot(&r,&pos,&b->guard,true,b->session_mark,b->session_mask) || nf_recovery_slot(&r,&pos,&b->nat,false,b->session_mark,b->session_mask) ||
        (b->guard.owned && !(r.debts&2U)) || (b->nat.owned && (r.debts&24U)!=24U))goto done;
-    if(payload[7]==1U && (r.debts!=3U || r.epoch || !b->guard.owned || b->nat.owned || b->nat.plan.private_group_count ||
+    if((payload[7]&3U)==1U && (r.debts!=3U || r.epoch || !b->guard.owned || b->nat.owned || b->nat.plan.private_group_count ||
        (payload[6]!=NF_GUARD_CLOSED && payload[6]!=NF_GUARD_REMOVE)))goto done;
-    if(payload[7]==2U) {
+    if((payload[7]&3U)==2U) {
         if(!(r.debts&4U) || r.length-pos!=32)goto done;
         b->core_evidence=(struct nf_core_evidence){.pid=(uint32_t)nf_get(payload+pos,4),.group=(uint32_t)nf_get(payload+pos+4,4),
             .start=nf_get(payload+pos+8,8),.device=nf_get(payload+pos+16,8),.inode=nf_get(payload+pos+24,8)};
@@ -83,10 +96,11 @@ int nf_gateway_recovery_load(struct nf_native_backend *b,const uint8_t boot[16])
         b->core_evidence_valid=true;pos+=32;
     }
     if(pos!=r.length)goto done;
-    b->precore_certified=payload[7]==1U;
+    b->precore_certified=(payload[7]&3U)==1U;
+    b->mark_authorized=false; // persisted identity is not a live mark lease
     b->wal=r;b->wal.payload=NULL;b->wal.length=0;b->wal_ready=true;rc=0;
 done:
-    if(rc){nf_native_clear(&b->guard);nf_native_clear(&b->nat);b->core_evidence_valid=false;memset(&b->core_evidence,0,sizeof(b->core_evidence));}
+    if(rc){nf_native_clear(&b->guard);nf_native_clear(&b->nat);b->core_evidence_valid=false;memset(&b->core_evidence,0,sizeof(b->core_evidence));b->session_mark=b->session_mask=0;b->mark_authorized=false;}
     free(payload);return rc;
 }
 /* Reject extra references even if the private chain itself is exact.
@@ -339,18 +353,18 @@ static unsigned checks;
 #define CHECK(x) do{if(!(x)){fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x);exit(1);}++checks;}while(0)
 int main(void) {
     const char *closed="-A NF_HEV_DNS4_IN -p udp -m udp --dport 15353 -j DROP\n-A NF_HEV_DNS4_IN -p tcp -m tcp --dport 15353 -j DROP\n";
-    CHECK(nf_recovery_image((const uint8_t*)closed,strlen(closed),"NF_HEV_DNS4_IN",true,15353));
-    CHECK(!nf_recovery_image((const uint8_t*)closed,strlen(closed),"NF_HEV_DNS6_IN",true,15353));
-    CHECK(!nf_recovery_image((const uint8_t*)closed,strlen(closed),"NF_HEV_DNS4_IN",true,15354));
-    CHECK(!nf_recovery_image((const uint8_t*)closed,strlen(closed)-1,"NF_HEV_DNS4_IN",true,15353));
-    CHECK(!nf_recovery_image((const uint8_t*)closed,0,"NF_HEV_DNS4_IN",true,15353));
+    CHECK(nf_recovery_image((const uint8_t*)closed,strlen(closed),"NF_HEV_DNS4_IN",true,15353,0,0));
+    CHECK(!nf_recovery_image((const uint8_t*)closed,strlen(closed),"NF_HEV_DNS6_IN",true,15353,0,0));
+    CHECK(!nf_recovery_image((const uint8_t*)closed,strlen(closed),"NF_HEV_DNS4_IN",true,15354,0,0));
+    CHECK(!nf_recovery_image((const uint8_t*)closed,strlen(closed)-1,"NF_HEV_DNS4_IN",true,15353,0,0));
+    CHECK(!nf_recovery_image((const uint8_t*)closed,0,"NF_HEV_DNS4_IN",true,15353,0,0));
     char path[]="/tmp/nf-recovery-XXXXXX";CHECK(mkdtemp(path)!=NULL);int d=open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC);CHECK(d>=0);
     struct asteriskd_system_supervisor *s=calloc(1,sizeof(*s));struct nf_native_backend *a=calloc(1,sizeof(*a)),*b=calloc(1,sizeof(*b));CHECK(s&&a&&b);
     struct asteriskd_config *c=&s->loaded_config.config;c->owner=ASTERISKD_OWNER_BOX;c->core_type=ASTERISKD_CORE_SING_BOX;c->mode=ASTERISKD_MODE_TUN2SOCKS;c->enable_ipv6=true;
     strcpy(c->hotspot_interfaces[0],"ap0");c->hotspot_interface_count=1;
     a->system=s;a->wal_fd=nf_gateway_wal_lock(d);CHECK(a->wal_fd>=0);a->wal_ready=true;a->wal=(struct nf_wal_record){.boot={1},.session={2},.port=15353,.epoch=5};
-    CHECK(!nf_gateway_plan(c,15353,true,&a->guard.plan));CHECK(!nf_native_render(s,&a->guard,15353,false));a->guard.pending_valid=a->guard.owned=true;
-    CHECK(!nf_gateway_plan(c,15353,false,&a->nat.plan));CHECK(!nf_native_render(s,&a->nat,15353,true));a->nat.pending_valid=a->nat.owned=true;
+    CHECK(!nf_gateway_plan(c,15353,true,&a->guard.plan));CHECK(!nf_native_render(s,&a->guard,15353,false,0,0,false));a->guard.pending_valid=a->guard.owned=true;
+    CHECK(!nf_gateway_plan(c,15353,false,&a->nat.plan));CHECK(!nf_native_render(s,&a->nat,15353,true,0,0,false));a->nat.pending_valid=a->nat.owned=true;
     CHECK(!nf_native_checkpoint(a,NF_NAT_INSTALL));close(a->wal_fd);nf_native_clear(&a->guard);nf_native_clear(&a->nat);
     b->system=s;b->wal_fd=nf_gateway_wal_lock(d);CHECK(b->wal_fd>=0);uint8_t wrong[16]={3},boot[16]={1};
     CHECK(nf_gateway_recovery_load(b,wrong)<0 && !b->wal_ready);memset(c,0,sizeof(*c)); // unrelated current settings
@@ -420,7 +434,7 @@ int main(void) {
     struct asteriskd_system_supervisor *s=calloc(1,sizeof(*s));struct nf_native_backend *b=calloc(1,sizeof(*b));CHECK(s&&b);
     struct asteriskd_config *c=&s->loaded_config.config;c->owner=ASTERISKD_OWNER_BOX;c->core_type=ASTERISKD_CORE_SING_BOX;c->mode=ASTERISKD_MODE_TUN2SOCKS;
     b->system=s;b->wal_fd=nf_gateway_wal_lock(d);CHECK(b->wal_fd>=0);b->wal_ready=true;b->wal=(struct nf_wal_record){.boot={1},.session={2},.port=15353};
-    CHECK(!nf_gateway_plan(c,15353,true,&b->guard.plan));CHECK(!nf_native_render(s,&b->guard,15353,false));b->guard.pending_valid=b->guard.owned=true;
+    CHECK(!nf_gateway_plan(c,15353,true,&b->guard.plan));CHECK(!nf_native_render(s,&b->guard,15353,false,0,0,false));b->guard.pending_valid=b->guard.owned=true;
     CHECK(!nf_native_checkpoint(b,NF_GUARD_CLOSED));close(b->wal_fd);
     struct absence_fake f={.rc=-1};uint8_t same[16]={1};
     CHECK(nf_reboot_reconcile(d,same,fake_absence,&f)<0 && f.calls==0);
@@ -460,7 +474,7 @@ int main(void) {
     b->system=s;b->wal_fd=nf_gateway_wal_lock(d);CHECK(b->wal_fd>=0);b->wal_ready=true;b->wal=(struct nf_wal_record){.boot={1},.session={2},.port=15353};
     struct pre_fake f={.b=b};b->lifecycle_operations=(struct nf_backend){&f,pre_step};
     CHECK(!nf_gateway_native_step(b,NF_RESERVE,15353,0) && b->precore_certified);
-    CHECK(!nf_gateway_plan(c,15353,true,&b->guard.plan));CHECK(!nf_native_render(s,&b->guard,15353,false));b->guard.pending_valid=b->guard.owned=true;
+    CHECK(!nf_gateway_plan(c,15353,true,&b->guard.plan));CHECK(!nf_native_render(s,&b->guard,15353,false,0,0,false));b->guard.pending_valid=b->guard.owned=true;
     CHECK(!nf_native_checkpoint(b,NF_GUARD_CLOSED));CHECK(nf_precore_safe(b));
     CHECK(nf_gateway_native_step(b,NF_GUARD_OPEN,15353,0)<0);CHECK(nf_gateway_native_step(b,NF_NAT_INSTALL,15353,0)<0);
     uint8_t boot[16]={1},wrong[16]={3};close(b->wal_fd);
@@ -495,7 +509,7 @@ int main(void) {
     int fd=socket(AF_INET,SOCK_STREAM,0);CHECK(fd>=0);struct sockaddr_in addr={.sin_family=AF_INET};socklen_t len=sizeof(addr);
     CHECK(!bind(fd,(void*)&addr,sizeof(addr)) && !listen(fd,1) && !getsockname(fd,(void*)&addr,&len));unsigned port=ntohs(addr.sin_port);CHECK(port>=1024);
     b->system=s;b->wal_fd=nf_gateway_wal_lock(d);CHECK(b->wal_fd>=0);b->wal_ready=true;b->wal=(struct nf_wal_record){.boot={1},.session={2},.port=(uint16_t)port,.debts=4|1};
-    CHECK(!nf_gateway_plan(c,port,true,&b->guard.plan));CHECK(!nf_native_render(s,&b->guard,port,false));b->guard.pending_valid=b->guard.owned=true;
+    CHECK(!nf_gateway_plan(c,port,true,&b->guard.plan));CHECK(!nf_native_render(s,&b->guard,port,false,0,0,false));b->guard.pending_valid=b->guard.owned=true;
     CHECK(nf_native_record_core(b)<0);CHECK(!nf_native_checkpoint(b,NF_GUARD_CLOSED));
     pid_t pid=fork();CHECK(pid>=0);
     if(!pid){close(fd);if(setsid()<0)_exit(2);execl("/bin/sleep","/bin/sleep","60",(char*)NULL);_exit(3);}
@@ -535,8 +549,8 @@ int main(void) {
     b->system=s;b->wal_fd=nf_gateway_wal_lock(d);CHECK(b->wal_fd>=0);b->wal_ready=true;
     b->wal=(struct nf_wal_record){.boot={1},.session={2},.port=15353,.epoch=5,.debts=5};
     b->core_evidence_valid=true;b->core_evidence=(struct nf_core_evidence){.pid=100,.group=100,.start=10,.device=1,.inode=2};
-    CHECK(!nf_gateway_plan(c,15353,true,&b->guard.plan));CHECK(!nf_native_render(s,&b->guard,15353,true));b->guard.pending_valid=b->guard.owned=true;
-    CHECK(!nf_gateway_plan(c,15353,false,&b->nat.plan));CHECK(!nf_native_render(s,&b->nat,15353,true));b->nat.pending_valid=b->nat.owned=true;
+    CHECK(!nf_gateway_plan(c,15353,true,&b->guard.plan));CHECK(!nf_native_render(s,&b->guard,15353,true,0,0,false));b->guard.pending_valid=b->guard.owned=true;
+    CHECK(!nf_gateway_plan(c,15353,false,&b->nat.plan));CHECK(!nf_native_render(s,&b->nat,15353,true,0,0,false));b->nat.pending_valid=b->nat.owned=true;
     CHECK(!nf_native_checkpoint(b,NF_NAT_INSTALL));close(b->wal_fd);
     struct active_fake f={.busy=true};uint8_t boot[16]={1},wrong[16]={2};
     CHECK(nf_active_reconcile(d,wrong,active_fake_cleanup,&f)<0 && !f.calls);
@@ -544,10 +558,49 @@ int main(void) {
     uint8_t raw[4096];struct nf_wal_record rec;CHECK(!nf_gateway_wal_load(d,&rec,raw,sizeof(raw)) && rec.debts==31 && rec.generation==1);
     // Closing the recovered guard is independent of the next selected mode.
     struct nf_native_slot closed={0};closed.plan=b->guard.plan;memset(c,0,sizeof(*c));
-    CHECK(!nf_native_render(s,&closed,15353,false));CHECK(closed.pending[0].length && !memmem(closed.pending[0].bytes,closed.pending[0].length,"ACCEPT",6));nf_native_clear(&closed);
+    CHECK(!nf_native_render(s,&closed,15353,false,0,0,false));CHECK(closed.pending[0].length && !memmem(closed.pending[0].bytes,closed.pending[0].length,"ACCEPT",6));nf_native_clear(&closed);
     f.busy=false;CHECK(!nf_active_reconcile(d,boot,active_fake_cleanup,&f) && f.calls==2);CHECK(!nf_gateway_admission_check(d));
     CHECK(!nf_gateway_wal_load(d,&rec,raw,sizeof(raw)) && rec.generation==2 && !rec.debts);
     CHECK(!unlinkat(d,NF_WAL_NAME,0));close(d);CHECK(!rmdir(path));nf_native_clear(&b->guard);nf_native_clear(&b->nat);free(b);free(s);
     printf("PASS %u active recovery checks\n",checks);return 0;
+}
+#endif
+#ifdef NF_MARK_WAL_HOST_TEST
+static unsigned checks;
+#define CHECK(x) do{if(!(x)){fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x);exit(1);}++checks;}while(0)
+int main(void) {
+    char path[]="/tmp/nf-mark-wal-XXXXXX";CHECK(mkdtemp(path));int d=open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC);CHECK(d>=0);
+    struct asteriskd_system_supervisor *s=calloc(1,sizeof(*s));struct nf_native_backend *a=calloc(1,sizeof(*a)),*b=calloc(1,sizeof(*b));CHECK(s&&a&&b);
+    struct asteriskd_config *c=&s->loaded_config.config;c->owner=ASTERISKD_OWNER_BOX;c->core_type=ASTERISKD_CORE_SING_BOX;c->mode=ASTERISKD_MODE_TUN2SOCKS;c->enable_ipv6=true;
+    strcpy(c->hotspot_interfaces[0],"ap0");c->hotspot_interface_count=1;
+    a->system=s;a->wal_fd=nf_gateway_wal_lock(d);CHECK(a->wal_fd>=0);a->wal_ready=true;a->wal=(struct nf_wal_record){.boot={1},.session={2},.port=15353};
+    uint32_t mark=0x100000,mask=0x300000;
+    CHECK(nf_gateway_native_bind_mark(a,mark,mask,false)<0);CHECK(nf_gateway_native_bind_mark(a,1,1,true)<0);
+    CHECK(!nf_gateway_native_bind_mark(a,mark,mask,true));CHECK(nf_gateway_native_bind_mark(a,0x200000,mask,true)<0);
+    CHECK(!nf_gateway_plan(c,15353,true,&a->guard.plan));CHECK(!nf_gateway_plan(c,15353,false,&a->nat.plan));
+    CHECK(nf_native_render(s,&a->guard,15353,true,mark,mask,false)<0 && !a->guard.pending[0].length);
+    CHECK(!nf_native_render(s,&a->guard,15353,true,mark,mask,true));a->guard.pending_valid=a->guard.owned=true;
+    CHECK(!nf_native_render(s,&a->nat,15353,true,mark,mask,true));a->nat.pending_valid=a->nat.owned=true;
+    const struct asteriskd_byte_buffer *nat=&a->nat.pending[0];const char *name=a->nat.plan.private_groups[0].names[0];
+    CHECK(nf_recovery_image(nat->bytes,nat->length,name,false,15353,mark,mask));
+    CHECK(!nf_recovery_image(nat->bytes,nat->length,name,false,15353,0,0));
+    CHECK(!nf_recovery_image(nat->bytes,nat->length,name,false,15353,0x200000,mask));
+    const uint8_t *newline=memchr(nat->bytes,'\n',nat->length);CHECK(newline!=NULL);size_t first=(size_t)(newline-nat->bytes)+1;
+    CHECK(!nf_recovery_image(nat->bytes,first,name,false,15353,mark,mask));
+    CHECK(!nf_recovery_image(nat->bytes+first,nat->length-first,name,false,15353,mark,mask));
+    a->wal.epoch=5;a->wal.debts=5;a->core_evidence_valid=true;a->core_evidence=(struct nf_core_evidence){.pid=100,.group=100,.start=10,.device=1,.inode=2};
+    CHECK(!nf_native_checkpoint(a,NF_NAT_INSTALL));close(a->wal_fd);
+    b->system=s;b->wal_fd=nf_gateway_wal_lock(d);CHECK(b->wal_fd>=0);uint8_t boot[16]={1};
+    CHECK(!nf_gateway_recovery_load(b,boot) && b->session_mark==mark && b->session_mask==mask && !b->mark_authorized && b->core_evidence_valid);
+    CHECK(b->guard.owned && b->nat.owned && b->wal.debts==31);
+    struct nf_native_slot closed={.plan=b->guard.plan};memset(c,0,sizeof(*c));
+    CHECK(!nf_native_render(s,&closed,15353,false,mark,mask,false));CHECK(!memmem(closed.pending[0].bytes,closed.pending[0].length,"ACCEPT",6));nf_native_clear(&closed);
+    uint8_t *raw=malloc(NF_WAL_MAX);struct nf_wal_record rec;CHECK(raw!=NULL);CHECK(!nf_gateway_wal_load(b->wal_fd,&rec,raw,NF_WAL_MAX));
+    CHECK(raw[7]==6 && nf_get(raw+8,4)==mark && nf_get(raw+12,4)==mask);
+    nf_put(raw+8,4,0x200000);rec.generation++;CHECK(!nf_gateway_wal_save(b->wal_fd,&rec,rec.generation-1));
+    nf_native_clear(&b->guard);nf_native_clear(&b->nat);b->session_mark=b->session_mask=0;b->wal_ready=false;b->core_evidence_valid=false;
+    CHECK(nf_gateway_recovery_load(b,boot)<0 && !b->wal_ready && !b->session_mask);
+    CHECK(!unlinkat(b->wal_fd,NF_WAL_NAME,0));close(b->wal_fd);close(d);CHECK(!rmdir(path));nf_native_clear(&a->guard);nf_native_clear(&a->nat);free(raw);free(a);free(b);free(s);
+    printf("PASS %u marked WAL checks\n",checks);return 0;
 }
 #endif
