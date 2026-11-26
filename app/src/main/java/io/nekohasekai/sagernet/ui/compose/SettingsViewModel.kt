@@ -37,7 +37,7 @@ private val rootOnlySettings = setOf(
     "rootHevMultiQueue", "rootHevTcpFastOpen", "rootFlowMetadata", "rootEbpfMatcher",
     "rootIgnoredInterfaces", "tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet",
     "tetherCustom", "serviceControl", "startOnBoot", "rootCoreUpdate", "rootCoreImport",
-    "rootCoreRollback", "rootDisableSystemIpv6"
+    "rootCoreRollback", "rootCoreBundled", "rootDisableSystemIpv6"
 )
 
 internal fun settingVisible(key: String?, mode: String, access: Access = Access.UNKNOWN): Boolean {
@@ -55,7 +55,7 @@ internal fun settingVisible(key: String?, mode: String, access: Access = Access.
     "rootIgnoredInterfaces" -> mode.startsWith("root_")
     "tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet", "tetherCustom" ->
         mode == "vpn" || mode.startsWith("root_")
-    "serviceControl", "startOnBoot", "rootCoreUpdate", "rootCoreImport", "rootCoreRollback", "rootDisableSystemIpv6" -> mode.startsWith("root_")
+    "serviceControl", "startOnBoot", "rootCoreUpdate", "rootCoreImport", "rootCoreRollback", "rootCoreBundled", "rootDisableSystemIpv6" -> mode.startsWith("root_")
     "meteredNetwork", "appendHttpProxy" -> mode == "vpn"
     "tunImplementation", "mtu" -> mode == "vpn" || mode == "root_tun" || mode == "root_tun2socks"
     else -> true

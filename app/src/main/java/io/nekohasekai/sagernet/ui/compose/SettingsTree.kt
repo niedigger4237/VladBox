@@ -91,6 +91,7 @@ fun buildSettingsTree(manager: PreferenceManager): PreferenceScreen {
         addPreference(Preference(ctx).apply { key = "rootCoreUpdate"; setTitle(R.string.root_core_update) })
         addPreference(Preference(ctx).apply { key = "rootCoreImport"; setTitle(R.string.root_core_import) })
         addPreference(Preference(ctx).apply { key = "rootCoreRollback"; setTitle(R.string.root_core_rollback) })
+        addPreference(Preference(ctx).apply { key = "rootCoreBundled"; setTitle(R.string.root_core_bundled) })
     }
     category(R.string.cat_security) {
         addPreference(UrlTestPreference(ctx).apply { key = "connectionTestURL"; setTitle(R.string.connection_test_url); setDefaultValue("http://cp.cloudflare.com/"); summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance() })

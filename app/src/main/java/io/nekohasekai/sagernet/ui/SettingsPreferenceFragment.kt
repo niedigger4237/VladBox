@@ -49,7 +49,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
 
     private fun refreshRootCoreSummary() = runOnDefaultDispatcher {
         val label = if (io.nekohasekai.sagernet.bg.root.RootShell.isAvailable())
-            io.nekohasekai.sagernet.bg.root.RootCore.activeLabel() ?: "bundled" else "-"
+            io.nekohasekai.sagernet.bg.root.RootCore.selectedLabel() else "-"
         runOnMainDispatcher {
             findPreference<Preference>("rootCoreUpdate")?.summary =
                 getString(R.string.root_core_summary, label)
@@ -68,6 +68,13 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         }
         findPreference<Preference>("rootCoreImport")!!.setOnPreferenceClickListener {
             importCore.launch("*/*")
+            true
+        }
+        findPreference<Preference>("rootCoreBundled")?.setOnPreferenceClickListener {
+            runOnDefaultDispatcher {
+                val ok = io.nekohasekai.sagernet.bg.root.RootCore.useBundled()
+                rootCoreResult(if (ok) Result.success("Bundled (patched) — reconnect to apply") else Result.failure(IllegalStateException("Cannot reset core selection")))
+            }
             true
         }
         findPreference<Preference>("rootCoreRollback")!!.setOnPreferenceClickListener {

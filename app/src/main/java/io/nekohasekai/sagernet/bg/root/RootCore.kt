@@ -27,8 +27,35 @@ object RootCore {
     private const val CORES = "$BASE/cores"
     private const val CURRENT = "$BASE/current"
     private const val PREVIOUS = "$BASE/previous"
-    private const val EXTERNAL_OPT_IN = "$BASE/external-opt-in-v1"
+    private const val LEGACY_EXTERNAL_OPT_IN = "$BASE/external-opt-in-v1"
     private const val KEEP = 3
+    private val labelPattern = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+    private fun validLabel(label: String) = labelPattern.matches(label)
+
+    // This file belongs to the current installation, is shared by app
+    // processes and is excluded from Android Auto Backup. Never migrate
+    // consent from /data/adb: that directory survives uninstall/clear data.
+    private val externalSelection: File
+        get() = File(SagerNet.application.noBackupFilesDir, "root-external-selection-v2")
+
+    private fun selectedExternalLabel(): String? = runCatching {
+        val file = externalSelection
+        if (!file.isFile || file.length() !in 1L..128L) return null
+        file.readText(Charsets.UTF_8).takeIf(::validLabel)
+    }.getOrNull()
+
+    private fun authorizeExternal(label: String): Boolean = runCatching {
+        require(validLabel(label))
+        val target = externalSelection
+        val temp = File.createTempFile("root-selection-", ".tmp", target.parentFile)
+        try {
+            temp.writeText(label, Charsets.UTF_8)
+            check(temp.renameTo(target))
+        } finally {
+            temp.delete()
+        }
+        true
+    }.getOrDefault(false)
 
     private const val REPO = "shtorm-7/sing-box-extended"
 
@@ -50,7 +77,7 @@ object RootCore {
 
     fun activeLabel(): String? {
         val r = RootShell.run("cat $CURRENT 2>/dev/null")
-        return r.out.trim().takeIf { r.ok && it.isNotEmpty() }
+        return r.out.trim().takeIf { r.ok && validLabel(it) }
     }
 
     fun selectedLabel(): String = resolve()?.let { if (it.bundled) "Bundled (patched)" else "External: ${it.label}" } ?: "Unavailable"
@@ -169,12 +196,14 @@ object RootCore {
 
     /** Resolves the binary to run, falling back to the bundled one when the active core is unusable. */
     fun resolve(): Active? {
-        // Resolve the opt-in and label in one SU invocation; no need to read a disabled external core.
-        val external = RootShell.run("if [ -f $EXTERNAL_OPT_IN ]; then cat $CURRENT 2>/dev/null; fi")
-        external.out.trim().takeIf { external.ok && it.isNotEmpty() }?.let { label ->
-            val path = "$CORES/$label/sing-box"
-            if (versionOf(path) != null) return Active(path, label, false)
-            Logs.w("active core $label is broken, falling back to the bundled core")
+        // No consent in this installation => bundled, even if a legacy
+        // root marker and downloaded core still exist after reinstall.
+        selectedExternalLabel()?.let { label ->
+            if (activeLabel() == label) {
+                val path = "$CORES/$label/sing-box"
+                if (versionOf(path) != null) return Active(path, label, false)
+                Logs.w("active core $label is broken, falling back to the bundled core")
+            }
         }
         val b = bundled
         if (b.exists()) return Active(b.absolutePath, "bundled", true)
@@ -192,12 +221,15 @@ object RootCore {
      * @param binary local file (any readable path), already a plain executable
      * @return the installed version string
      */
+    @Synchronized
     fun install(binary: File, label: String): Result<String> {
         val safe = label.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        if (!validLabel(safe)) return Result.failure(IllegalArgumentException("Invalid core label"))
         val stage = "$CORES/.$safe.tmp"
         val final = "$CORES/$safe"
         val prev = activeLabel()
         val r = RootShell.run(
+            "set -e",
             "mkdir -p $CORES",
             "rm -rf $stage && mkdir -p $stage",
             "cp ${RootShell.q(binary)} $stage/sing-box && chmod 755 $stage/sing-box",
@@ -206,7 +238,7 @@ object RootCore {
             "rm -rf $final && mv $stage $final",
             // atomic switch: rename(2) over a regular file
             "echo ${RootShell.q(safe)} > $CURRENT.tmp && mv -f $CURRENT.tmp $CURRENT",
-            "touch $EXTERNAL_OPT_IN",
+            "rm -f $LEGACY_EXTERNAL_OPT_IN",
             if (prev != null && prev != safe) "echo ${RootShell.q(prev)} > $PREVIOUS.tmp && mv -f $PREVIOUS.tmp $PREVIOUS" else "true",
             timeoutMs = 60_000
         )
@@ -217,23 +249,33 @@ object RootCore {
                 )
             )
         }
+        if (!authorizeExternal(safe)) return Result.failure(IllegalStateException("Cannot authorize external core for this installation"))
         prune(keep = setOf(safe, prev ?: ""))
         return Result.success(versionOf("$final/sing-box") ?: safe)
     }
 
+    @Synchronized
     fun rollback(): Boolean {
         val prev = RootShell.run("cat $PREVIOUS 2>/dev/null").out.trim()
-        if (prev.isEmpty() || versionOf("$CORES/$prev/sing-box") == null) return false
+        if (!validLabel(prev) || versionOf("$CORES/$prev/sing-box") == null) return false
         val cur = activeLabel()
         return RootShell.run(
+            "set -e",
             "echo ${RootShell.q(prev)} > $CURRENT.tmp && mv -f $CURRENT.tmp $CURRENT",
-            "touch $EXTERNAL_OPT_IN",
+            "rm -f $LEGACY_EXTERNAL_OPT_IN",
             if (cur != null) "echo ${RootShell.q(cur)} > $PREVIOUS.tmp && mv -f $PREVIOUS.tmp $PREVIOUS" else "true"
-        ).ok
+        ).ok && authorizeExternal(prev)
     }
 
-    /** Back to the core shipped with the app. */
-    fun useBundled() = RootShell.run("rm -f $EXTERNAL_OPT_IN").ok
+    /** Back to the core shipped with the app; downloaded files stay intact. */
+    @Synchronized
+    fun useBundled(): Boolean {
+        val file = externalSelection
+        if (file.exists() && !file.delete()) return false
+        // Older versions used this marker. It is no longer authoritative.
+        RootShell.run("rm -f $LEGACY_EXTERNAL_OPT_IN")
+        return true
+    }
 
     private fun prune(keep: Set<String>) {
         val all = installedLabels()
