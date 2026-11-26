@@ -82,7 +82,7 @@ diff --git a/common/tls/reality_client.go b/common/tls/reality_client.go
  }
  
  func (c *realityVerifier) VerifyPeerCertificate(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-@@ -310,6 +326,7 @@
+@@ -310,5 +326,6 @@
  	p, _ := reflect.TypeFor[utls.Conn]().FieldByName("peerCertificates")
  	certs := *(*([]*x509.Certificate))(unsafe.Add(unsafe.Pointer(c.Conn), p.Offset))
 -	if pub, ok := certs[0].PublicKey.(ed25519.PublicKey); ok {
@@ -90,8 +90,7 @@ diff --git a/common/tls/reality_client.go b/common/tls/reality_client.go
 +	if pub, ok := certs[0].PublicKey.(ed25519.PublicKey); ok {
  		h := hmac.New(sha512.New, c.authKey)
  		h.Write(pub)
- 		if bytes.Equal(h.Sum(nil), certs[0].Signature) {
-@@ -316,5 +333,13 @@
+@@ -315,5 +332,13 @@
 -		if bytes.Equal(h.Sum(nil), certs[0].Signature) {
 -			c.verified = true
 +		if bytes.Equal(h.Sum(nil), certs[0].Signature) {
