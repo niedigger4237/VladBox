@@ -428,3 +428,41 @@ Full patched Android NDK build and on-device packet tests remain outstanding.
 Service Control pause leaves the core alive, so a future gateway listener
 requires a guard spanning core lifetime (not just traffic-rule lifetime).
 The existing gateway config/planner remains unconnected.
+
+## HEV gateway native transaction prototype
+
+The supplied pinned asteriskd source was inspected. The service pause removes
+traffic rules without stopping the core. Native operation lookup currently
+uses only system->rules_runtime.plan, and the stock private-chain verifier
+checks exact rule presence and count but not order. Do not attach a wildcard
+DNS listener to that single traffic lifecycle.
+
+buildScript/experiments/hev-gateway-dns/native_gateway_dns.c now builds
+separate native transaction descriptors for INPUT guard and PREROUTING NAT,
+using the unused native DNS IDs differentiated by table/family. The separate
+staged ownership arrays are not yet registered in the production catalog.
+The guard generates unconditional TCP/UDP high-port drops in both families
+when inactive; only active eligible downstreams and original-direction DNAT
+from port 53 receive exceptions. NAT is generated only when active and for
+enabled address families; LOCAL and limit-iface-in constrain redirects to the
+incoming interface. The native queue API is used, never shell strings or live
+commits. An additional exact-order verifier rejects reordered, duplicate or
+missing rules in a normalized native listing. Actual kernel save formatting,
+IPv6 REDIRECT/link-local handling, reverse NAT, and hook priority still need
+Android verification.
+
+Host test, from extracted pinned source root (EXPERIMENT points at the C file):
+
+    gcc -D_GNU_SOURCE -DNF_GATEWAY_HOST_TEST -std=c17 -O0 -I. "$EXPERIMENT" $(find . -name '*.c' ! -name asteriskd.c) -ldl -lz -o /tmp/nf-gateway-test
+    /tmp/nf-gateway-test
+
+49 assertions passed with the supplied native sources and the non-local IPv6
+helper patch; standalone experiment also compiled with -Wall -Wextra -Werror.
+No CAP_NET_ADMIN or iptables executable was available to test live rules.
+
+Before runtime activation, register the independent runtimes and catalog;
+verify INPUT hook precedence, guard readiness before spawn, listener ownership,
+redirect publication only after readiness, closed guard during service pause,
+precise conntrack cleanup and retained obligations after failure. The boot
+monitor must resolve exact downstreams before enabling NAT. Do not treat the
+prototype as a working gateway DNS redirect. No APK build inputs changed.
