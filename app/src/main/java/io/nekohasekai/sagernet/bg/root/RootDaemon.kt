@@ -713,11 +713,12 @@ object RootDaemon {
             mode in listOf(Mode.TUN2SOCKS, Mode.BPF2SOCKS)
         val flowToken = if (useFlow) newFlowToken() else null
         val bootEnabled = DataStore.configurationStore.getBoolean("startOnBoot", false)
-        // First guarded runtime trial is IPv4-only. Keep dual-stack and
-        // combined boot/service-control on the existing interception path.
+        // Preview trial: ordinary managed IPv4 HEV sessions only.
+        // Boot, Service Control and dual-stack remain on the previous path.
         val gatewayTrial = HevGatewayDnsConfig.ENABLE_RUNTIME && managed && core.bundled &&
             mode == Mode.TUN2SOCKS && DataStore.tetherHevDnsHijack && !ipv6 &&
-            !(bootEnabled && serviceControl.get("enabled")?.asBoolean == true)
+            !bootEnabled && serviceControl.get("enabled")?.asBoolean == false &&
+            !monitorOnly
         val verifiedGatewayDownstreams = if (gatewayTrial)
             resolveDownstreams(mode, requireReliable = true, ipv6 = ipv6) else null
         val dynamicDownstreams = verifiedGatewayDownstreams ?: if (managed && (mode != Mode.TUN ||
@@ -728,7 +729,9 @@ object RootDaemon {
             flowToken != null -> withFlowMetadata(cacheConfig, flowToken)
             else -> cacheConfig
         }
+        // Avoid opening the listener in an idle or uncertain initial session.
         val gatewayConfig = if (gatewayTrial && verifiedGatewayDownstreams != null &&
+            verifiedGatewayDownstreams.names.isNotEmpty() &&
             RootTetherDnsPolicy.enabled(true, true, true, true, false, baseConfig)) {
             runCatching {
                 HevGatewayDnsConfig.prepare(
@@ -740,6 +743,11 @@ object RootDaemon {
             }.getOrNull()
         } else null
         val gatewayDnsPort = gatewayConfig?.let { HevGatewayDnsConfig.PORT }
+        if (gatewayTrial) {
+            if (gatewayDnsPort != null)
+                Logs.i("ROOT HEV gateway DNS trial: port=$gatewayDnsPort downstreams=${verifiedGatewayDownstreams!!.names}")
+            else Logs.w("ROOT HEV gateway DNS trial: no reliable active downstream or incompatible core config; using non-local DNS path")
+        }
         val effectiveConfig = gatewayConfig?.let { gson.toJson(it) } ?: baseConfig
         if (useFlow) Logs.i("ROOT flow metadata: enabled")
         val useMatcher = matcherAvailable(mode, ipv6)
