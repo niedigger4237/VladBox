@@ -244,3 +244,26 @@ permit it; otherwise increments the clear generation and requests reload.
 An unavailable file is retried at next eligible VPN startup. Active RAM
 cache is not cleared by this action. Android build/device validation and
 ROOT implementation (boot/handoff, native cache locks) remain outstanding.
+
+## Experimental ROOT persistence
+
+Separate ROOT storage preference (Memory by default). Applies to the
+bundled core in Modern DNS for TUN, TPROXY, TUN2SOCKS and BPF2SOCKS with
+static managed configurations; selector groups, external plugins,
+external cores, ConfigBean and explicit cache_file are excluded.
+Scope includes proxy/profile, effective DNS and static egress, ROOT mode,
+bundled binary fingerprint and clear generation. A single root-private
+/data/adb/nekobox/nf-dns-cache-v1/cache.db is independent of VPN storage.
+After boot-monitor handoff and verified STOPPED/NO_STATE, the app invokes
+the preparation asset with root-only directory/file checks, nonblocking
+lease and bbolt-compatible DB flock, no-follow checks, 32 MiB startup
+threshold and filesystem sync. Unavailable preparation keeps memory
+cache. No live DB unlink. A missing socket with incomplete cleanup
+evidence does not permit preparation. Explicit user cache_file options
+are left untouched. ROOT clear/storage changes are applied at the next
+verified interactive start, not by direct root deletion from the UI.
+The existing verified boot publication and TUN templates carry the
+same cache path, and Service Control uses that same static config; no
+native supervisor/firewall/TC/tether script changes. Autonomous restarts
+do not run the size preflight or consume new app preferences until a
+verified interactive start. Native/device validation remains outstanding.

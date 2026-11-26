@@ -141,4 +141,11 @@
         <item>memory</item>
         <item>persistent</item>
     </string-array>
+    <string name="dns_root_cache_persistent">Persistent (experimental; bundled ROOT core)</string>
+    <string name="dns_root_cache_clear_summary">Reset the managed ROOT disk cache at the next verified interactive ROOT start. Boot and Service Control keep the last published configuration until then.</string>
+    <string name="dns_root_cache_clear_pending">ROOT cache reset requested for the next interactive ROOT connection.</string>
+    <string-array name="dns_root_cache_storage_names">
+        <item>@string/dns_cache_memory</item>
+        <item>@string/dns_root_cache_persistent</item>
+    </string-array>
 </resources>

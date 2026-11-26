@@ -148,6 +148,8 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var dnsCacheCapacity by configurationStore.string(Key.DNS_CACHE_CAPACITY) { "default" }
     var dnsCacheStorage by configurationStore.string(Key.DNS_CACHE_STORAGE) { "memory" }
     var dnsCacheGeneration by configurationStore.string(Key.DNS_CACHE_GENERATION) { "" }
+    var dnsRootCacheStorage by configurationStore.string(Key.ROOT_DNS_CACHE_STORAGE) { "memory" }
+    var dnsRootCacheGeneration by configurationStore.string(Key.ROOT_DNS_CACHE_GENERATION) { "" }
     var dnsBootstrapPreset by configurationStore.string(Key.DNS_BOOTSTRAP_PRESET) { "system" }
     var dnsBootstrapAddress by configurationStore.string(Key.DNS_BOOTSTRAP_ADDRESS) { "https://1.1.1.1/dns-query" }
     var dnsBootstrapTlsName by configurationStore.string(Key.DNS_BOOTSTRAP_TLS_NAME) { "" }

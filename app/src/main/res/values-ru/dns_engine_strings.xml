@@ -34,4 +34,7 @@
     <string name="dns_cache_clear_summary">Удаление дискового кеша при остановленном ядре или при следующем управляемом VPN-подключении. Не затрагивает FakeIP и пользовательские базы.</string>
     <string name="dns_cache_cleared">Сохранённый кеш DNS очищен</string>
     <string name="dns_cache_clear_pending">Кеш занят или недоступен. Очистка запрошена при следующем управляемом VPN-подключении.</string>
+    <string name="dns_root_cache_persistent">На диске (экспериментально; встроенное ROOT-ядро)</string>
+    <string name="dns_root_cache_clear_summary">Сброс ROOT-кеша при следующем подтверждённом запуске из приложения. Автозапуск и Service Control до этого используют последний сохранённый конфиг.</string>
+    <string name="dns_root_cache_clear_pending">Сброс ROOT-кеша запрошен при следующем подключении из приложения.</string>
 </resources>

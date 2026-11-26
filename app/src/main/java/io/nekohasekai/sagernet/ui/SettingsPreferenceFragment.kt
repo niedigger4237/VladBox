@@ -201,6 +201,9 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             val visible = engine == "modern" && service == Key.MODE_VPN
             findPreference<Preference>(Key.DNS_CACHE_STORAGE)?.isVisible = visible
             findPreference<Preference>(Key.DNS_CACHE_CLEAR)?.isVisible = visible
+            val rootVisible = engine == "modern" && service.startsWith("root_")
+            findPreference<Preference>(Key.ROOT_DNS_CACHE_STORAGE)?.isVisible = rootVisible
+            findPreference<Preference>(Key.ROOT_DNS_CACHE_CLEAR)?.isVisible = rootVisible
         }
         updatePersistentDnsVisibility(DataStore.dnsEngineMode, DataStore.serviceMode)
         serviceMode.setOnPreferenceChangeListener { _, value ->
@@ -255,6 +258,20 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
                 if (cleared) R.string.dns_cache_cleared else R.string.dns_cache_clear_pending,
                 android.widget.Toast.LENGTH_LONG).show()
             if (!cleared) needReload()
+            true
+        }
+        findPreference<Preference>(Key.ROOT_DNS_CACHE_STORAGE)?.setOnPreferenceChangeListener { _, _ ->
+            // Record the transition even when selecting Memory, so the next
+            // interactive startup clears any previously managed ROOT database.
+            DataStore.dnsRootCacheGeneration = java.util.UUID.randomUUID().toString()
+            needReload()
+            true
+        }
+        findPreference<Preference>(Key.ROOT_DNS_CACHE_CLEAR)?.setOnPreferenceClickListener {
+            DataStore.dnsRootCacheGeneration = java.util.UUID.randomUUID().toString()
+            android.widget.Toast.makeText(requireContext(), R.string.dns_root_cache_clear_pending,
+                android.widget.Toast.LENGTH_LONG).show()
+            needReload()
             true
         }
         val bootstrapAddress = findPreference<EditTextPreference>(Key.DNS_BOOTSTRAP_ADDRESS)!!

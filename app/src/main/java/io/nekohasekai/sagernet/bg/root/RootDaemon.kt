@@ -672,7 +672,8 @@ object RootDaemon {
      * @return null on success, otherwise a readable error
      */
     fun start(mode: Mode, core: RootCore.Active, singBoxConfig: String, tproxyPort: Int, ipv6: Boolean, managed: Boolean = false,
-              serviceControl: JsonObject = ServiceControl.toJson(), monitorOnly: Boolean = false): String? {
+              serviceControl: JsonObject = ServiceControl.toJson(), monitorOnly: Boolean = false,
+              manageDnsCache: Boolean = false, dnsCacheScope: String? = null): String? {
         if (monitorOnly && !ServiceControl.hasStartRule(serviceControl))
             return "Service Control requires at least one valid start condition"
         startedWaiting = false
@@ -696,6 +697,12 @@ object RootDaemon {
         // Never replace a live supervisor's configuration or truncate its logs.
         if (!shutdownVerified(forStartup = true)) return "Previous ROOT supervisor did not shut down cleanly"
         mark("cleanup previous daemon")
+        // A missing supervisor socket can still require native reconciliation.
+        // Never change a cache file on that weaker evidence.
+        val cacheConfig = if (managed && manageDnsCache &&
+            cleanupEvidence() in listOf(RootCleanupEvidence.STOPPED, RootCleanupEvidence.NO_STATE)) {
+            RootPersistentDnsCache.prepare(singBoxConfig, if (core.bundled) dnsCacheScope else null)
+        } else singBoxConfig
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
         val useFlow = managed && core.patched && DataStore.rootFlowMetadata &&
             mode in listOf(Mode.TUN2SOCKS, Mode.BPF2SOCKS)
@@ -704,9 +711,9 @@ object RootDaemon {
             managedTunInbound(com.google.gson.JsonParser.parseString(singBoxConfig).asJsonObject) != null))
             resolveDownstreams(mode, ipv6 = ipv6) else null
         val effectiveConfig = when {
-            managed && mode == Mode.TUN -> withTunDownstreams(singBoxConfig, dynamicDownstreams)
-            flowToken != null -> withFlowMetadata(singBoxConfig, flowToken)
-            else -> singBoxConfig
+            managed && mode == Mode.TUN -> withTunDownstreams(cacheConfig, dynamicDownstreams)
+            flowToken != null -> withFlowMetadata(cacheConfig, flowToken)
+            else -> cacheConfig
         }
         if (useFlow) Logs.i("ROOT flow metadata: enabled")
         val useMatcher = matcherAvailable(mode, ipv6)
@@ -798,7 +805,7 @@ object RootDaemon {
                     // Keep boot files independent of the live JSON. A managed ROOT TUN
                     // boots with lo only until native downstream reconciliation is available.
                     val bootCore = if (managed && mode == Mode.TUN)
-                        withTunDownstreams(singBoxConfig, null) else effectiveConfig
+                        withTunDownstreams(cacheConfig, null) else effectiveConfig
                     val bootDaemon = com.google.gson.JsonParser.parseString(
                         buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort,
                             ipv6, bootCore, flowToken, useMatcher, serviceControl = serviceControl)

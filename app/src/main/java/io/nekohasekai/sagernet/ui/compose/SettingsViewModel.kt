@@ -37,7 +37,7 @@ private val rootOnlySettings = setOf(
     "rootHevMultiQueue", "rootHevTcpFastOpen", "rootFlowMetadata", "rootEbpfMatcher",
     "rootIgnoredInterfaces", "tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet",
     "tetherCustom", "serviceControl", "startOnBoot", "rootCoreUpdate", "rootCoreImport",
-    "rootCoreRollback", "rootCoreBundled", "rootDisableSystemIpv6"
+    "rootCoreRollback", "rootCoreBundled", "rootDisableSystemIpv6", "dnsRootCacheStorage", "dnsRootCacheClear"
 )
 
 internal fun settingVisible(key: String?, mode: String, access: Access = Access.UNKNOWN): Boolean {
@@ -45,6 +45,7 @@ internal fun settingVisible(key: String?, mode: String, access: Access = Access.
     return when (key) {
     "dnsGlobalStrategy", "dnsOptimisticWindow", "dnsQueryTimeout", "dnsCacheCapacity" -> DataStore.dnsEngineMode == "modern"
     "dnsCacheStorage", "dnsCacheClear" -> mode == "vpn" && DataStore.dnsEngineMode == "modern"
+    "dnsRootCacheStorage", "dnsRootCacheClear" -> mode.startsWith("root_") && DataStore.dnsEngineMode == "modern"
     "dnsBootstrapAddress", "dnsBootstrapTlsName" -> DataStore.dnsBootstrapPreset == "custom"
     "remoteDnsPreset", "remoteDns" -> DataStore.dnsMain != "direct_only"
     "domain_strategy_for_remote" -> DataStore.dnsEngineMode != "modern" && DataStore.dnsMain != "direct_only"

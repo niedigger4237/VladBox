@@ -53,7 +53,8 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         mark("su access")
         val core = RootCore.resolve() ?: throw IllegalStateException("No sing-box core for root mode")
         mark("resolve core")
-        Logs.i("root core: ${core.label} (${core.path}); source=${if (core.bundled) "bundled" else if (core.patched) "patched" else "external"}; sha256=${RootCore.fingerprint(core.path)}")
+        val fingerprint = RootCore.fingerprint(core.path)
+        Logs.i("root core: ${core.label} (${core.path}); source=${if (core.bundled) "bundled" else if (core.patched) "patched" else "external"}; sha256=$fingerprint")
 
         mark("core fingerprint")
 
@@ -70,13 +71,29 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         if (monitorOnly && !ServiceControl.hasStartRule(policy))
             throw IllegalStateException("Service Control requires at least one valid start condition")
         serviceControlArmed = policy.get("enabled").asBoolean
-        var err = RootDaemon.start(mode, core, config.config, DataStore.rootTproxyPort, ipv6, managed, policy, monitorOnly)
+        val manageDnsCache = managed && profile.type != ProxyEntity.TYPE_CONFIG &&
+            (DataStore.dnsRootCacheStorage == "persistent" || DataStore.dnsRootCacheGeneration.isNotEmpty())
+        fun cacheScope(active: RootCore.Active, hash: String): String? {
+            if (!manageDnsCache || !active.bundled || DataStore.dnsEngineMode != "modern" ||
+                DataStore.dnsRootCacheStorage != "persistent" ||
+                config.selectorGroupId >= 0 || config.externalIndex.any { it.chain.isNotEmpty() } ||
+                !hash.matches(Regex("[0-9a-fA-F]{64}"))) return null
+            return runCatching {
+                io.nekohasekai.sagernet.fmt.PersistentDnsPolicy.scope(
+                    config.config, profile.id, io.nekohasekai.sagernet.database.RouteProfiles.selectedId(),
+                    "root:${mode.wire}:$hash:${DataStore.dnsRootCacheGeneration}"
+                )
+            }.getOrNull()
+        }
+        var err = RootDaemon.start(mode, core, config.config, DataStore.rootTproxyPort, ipv6, managed, policy, monitorOnly,
+            manageDnsCache = manageDnsCache, dnsCacheScope = cacheScope(core, fingerprint))
         if (err != null && !core.bundled && RootCore.bundled.exists()) {
             // an installed (unpatched / incompatible) core must not leave the user without root mode
             Logs.w("core ${core.label} failed: $err\nretrying with the bundled core")
+            val fallback = RootCore.Active(RootCore.bundled.absolutePath, "bundled", true)
             err = RootDaemon.start(
-                mode, RootCore.Active(RootCore.bundled.absolutePath, "bundled", true),
-                config.config, DataStore.rootTproxyPort, ipv6, managed, policy, monitorOnly
+                mode, fallback, config.config, DataStore.rootTproxyPort, ipv6, managed, policy, monitorOnly,
+                manageDnsCache = manageDnsCache, dnsCacheScope = cacheScope(fallback, RootCore.fingerprint(fallback.path))
             )
         }
         if (err != null) throw IllegalStateException(err)

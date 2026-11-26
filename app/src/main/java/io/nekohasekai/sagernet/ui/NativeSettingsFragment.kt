@@ -268,6 +268,20 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
             if (!cleared) needReload()
             true
         }
+        findPreference<Preference>(Key.ROOT_DNS_CACHE_STORAGE)?.setOnPreferenceChangeListener { _, _ ->
+            // Record the transition even when selecting Memory, so the next
+            // interactive startup clears any previously managed ROOT database.
+            DataStore.dnsRootCacheGeneration = java.util.UUID.randomUUID().toString()
+            needReload()
+            true
+        }
+        findPreference<Preference>(Key.ROOT_DNS_CACHE_CLEAR)?.setOnPreferenceClickListener {
+            DataStore.dnsRootCacheGeneration = java.util.UUID.randomUUID().toString()
+            android.widget.Toast.makeText(requireContext(), R.string.dns_root_cache_clear_pending,
+                android.widget.Toast.LENGTH_LONG).show()
+            needReload()
+            true
+        }
         val bootstrapAddress = findPreference<EditTextPreference>(Key.DNS_BOOTSTRAP_ADDRESS)!!
         val bootstrapTlsName = findPreference<EditTextPreference>(Key.DNS_BOOTSTRAP_TLS_NAME)!!
         fun updateBootstrapVisibility(preset: String) {
