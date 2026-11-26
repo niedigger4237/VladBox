@@ -21,6 +21,18 @@ class LogRedactorTest {
         assertEquals(text, LogRedactor.text(text))
     }
 
+    @Test fun hidesShortCredentialContinuationsAndEscapedAssignments() {
+        val stream = LogRedactor.Stream()
+        assertFalse(stream.redact("password:").contains("password:"))
+        stream.redact("")
+        assertFalse(stream.redact("tiny-value").contains("tiny-value"))
+        assertEquals("connected", stream.redact("connected"))
+        for (key in listOf("authentication", "authKey", "access_key", "registrationKey", "license")) {
+            assertFalse(LogRedactor.text("$key: tiny-value").contains("tiny-value"))
+        }
+        assertFalse(LogRedactor.text("""{\"password\":\"tiny-value\"}""").contains("tiny-value"))
+    }
+
     @Test fun hidesMultilinePrivateKey() {
         val s = LogRedactor.Stream()
         assertFalse(s.redact("-----BEGIN PRIVATE KEY-----").contains("BEGIN PRIVATE"))

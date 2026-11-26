@@ -4,7 +4,7 @@ package io.nekohasekai.sagernet.ktx
 object LogRedactor {
     private const val REDACTED = "[redacted]"
     private val sensitive = Regex(
-        """(?i)(?:private[\s_-]*key|pre[\s_-]*shared[\s_-]*key|password|passwd|passphrase|secret|(?:access|refresh|auth|flow[\s_-]*metadata|api|registration)[\s_-]*token|authorization|cookie|api[\s_-]*key|license[\s_-]*key|credential|subscription[\s_-]*(?:url|link)|token|psk|uuid|auth|user[\s_-]*id|auth[\s_-]*str|auth[\s_-]*string|username|user[\s_-]*info|short[\s_-]*id)\s*["']?\s*(?:[:=]|->|\s+["'])"""
+        """(?i)(?:private[\s_-]*key|pre[\s_-]*shared[\s_-]*key|password|passwd|passphrase|secret|(?:access|refresh|auth|flow[\s_-]*metadata|api|registration)[\s_-]*token|authorization|cookie|api[\s_-]*key|license[\s_-]*key|credential|subscription[\s_-]*(?:url|link)|token|psk|uuid|auth|user[\s_-]*id|auth[\s_-]*str|auth[\s_-]*string|username|user[\s_-]*info|short[\s_-]*id|authentication|auth[\s_-]*key|access[\s_-]*key|registration[\s_-]*key|license|obfs[\s_-]*password)\s*(?:\\?["'])?\s*(?:[:=]|->|\s+["'])"""
     )
     private val bearer = Regex("""(?i)\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+""")
     private val uri = Regex("""(?i)\b(?:https?|vless|vmess|ss|ssr|trojan|hysteria2?|hy2|tuic|socks5?h?|wireguard|wg|awg|ssh|naive(?:\+https)?)://[^\s<>"']+""")
@@ -22,12 +22,24 @@ object LogRedactor {
 
     class Stream {
         private var privateKey = false
+        private var pendingCredential = false
         fun redact(value: String): String {
             if (pemBegin.containsMatchIn(value)) privateKey = true
             if (privateKey) {
                 if (pemEnd.containsMatchIn(value)) privateKey = false
                 return "[private key material omitted]"
             }
+            // Credential key and value can be split across diagnostic lines.
+            // Keep state through blank lines and suppress the next nonblank line.
+            val pending = pendingCredential
+            val match = sensitive.find(value)
+            if (match != null) {
+                val suffix = value.substring(match.range.last + 1).trim()
+                pendingCredential = suffix.isEmpty()
+            } else if (value.isNotBlank()) {
+                pendingCredential = false
+            }
+            if (pending) return "[credential continuation omitted]"
             return line(value)
         }
     }

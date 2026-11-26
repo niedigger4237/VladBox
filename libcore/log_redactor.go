@@ -10,7 +10,7 @@ import (
 // Keep this policy consistent with the Android LogRedactor. Never modify
 // protocol traffic or config files: this filter is only for diagnostic sinks.
 var (
-	logCredential = regexp.MustCompile(`(?i)(private[\s_-]*key|pre[\s_-]*shared[\s_-]*key|password|passwd|passphrase|secret|token|authorization|cookie|api[\s_-]*key|license[\s_-]*key|credential|subscription[\s_-]*(url|link)|psk|uuid|auth|user[\s_-]*id|auth[\s_-]*str|auth[\s_-]*string|username|user[\s_-]*info|short[\s_-]*id)\s*["']?\s*([:=]|->|\s+["'])`)
+	logCredential = regexp.MustCompile(`(?i)(private[\s_-]*key|pre[\s_-]*shared[\s_-]*key|password|passwd|passphrase|secret|token|authorization|cookie|api[\s_-]*key|license[\s_-]*key|credential|subscription[\s_-]*(url|link)|psk|uuid|auth|user[\s_-]*id|auth[\s_-]*str|auth[\s_-]*string|username|user[\s_-]*info|short[\s_-]*id|authentication|auth[\s_-]*key|access[\s_-]*key|registration[\s_-]*key|license|obfs[\s_-]*password)\s*(\\?["'])?\s*([:=]|->|\s+["'])`)
 	logBearer = regexp.MustCompile(`(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+`)
 	logURI = regexp.MustCompile(`(?i)\b(https?|vless|vmess|ss|ssr|trojan|hysteria2?|hy2|tuic|socks5?h?|wireguard|wg|awg|ssh|naive(\+https)?)://[^\s<>"']+`)
 	logUUID = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
@@ -22,6 +22,7 @@ var (
 type logRedactionState struct {
 	mu sync.Mutex
 	inPrivateKey bool
+	pendingCredential bool
 }
 
 func (s *logRedactionState) redact(message string) string {
@@ -39,7 +40,18 @@ func (s *logRedactionState) redact(message string) string {
 			lines[i] = "[private key material omitted]"
 			continue
 		}
-		if len(line) > 65536 || logCredential.MatchString(line) || logPEMEnd.MatchString(line) {
+		pending := s.pendingCredential
+		match := logCredential.FindStringIndex(line)
+		if match != nil {
+			s.pendingCredential = strings.TrimSpace(line[match[1]:]) == ""
+		} else if strings.TrimSpace(line) != "" {
+			s.pendingCredential = false
+		}
+		if pending {
+			lines[i] = "[credential continuation omitted]"
+			continue
+		}
+		if len(line) > 65536 || match != nil || logPEMEnd.MatchString(line) {
 			lines[i] = "[credential-bearing or oversized diagnostic omitted]"
 			continue
 		}

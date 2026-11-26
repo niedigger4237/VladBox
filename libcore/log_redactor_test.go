@@ -31,3 +31,27 @@ func TestLogRedaction(t *testing.T) {
 		t.Fatal("redaction state not reset")
 	}
 }
+
+func TestLogCredentialContinuation(t *testing.T) {
+	state := &logRedactionState{}
+	for _, input := range []string{
+		"password:\n\ntiny-value",
+		"authentication: tiny-value",
+		"authKey: tiny-value",
+		"access_key: tiny-value",
+		"registrationKey: tiny-value",
+		"license: tiny-value",
+		"{\\\"password\\\":\\\"tiny-value\\\"}",
+	} {
+		if strings.Contains(state.redact(input), "tiny-value") {
+			t.Fatal("credential not removed")
+		}
+	}
+	state.redact("password:")
+	if strings.Contains(state.redact("tiny-value"), "tiny-value") {
+		t.Fatal("credential continuation leaked")
+	}
+	if got := state.redact("connected"); got != "connected" {
+		t.Fatalf("redaction did not reset: %q", got)
+	}
+}

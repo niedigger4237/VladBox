@@ -503,8 +503,10 @@ object RootDaemon {
                 val result = RootShell.run(command, timeoutMs = 4000L)
                 if (!active()) return
                 Logs.i("ROOT TUN diagnostic [$label] rc=${result.code}")
+                val redactor = io.nekohasekai.sagernet.ktx.LogRedactor.Stream()
                 result.out.lineSequence().take(180).forEach { line ->
-                    if (active() && line.isNotBlank()) Logs.i("ROOT TUN diagnostic [$label] ${line.take(1000)}")
+                    val safe = redactor.redact(line)
+                    if (active() && line.isNotBlank()) Logs.i("ROOT TUN diagnostic [$label] ${safe.take(1000)}")
                 }
                 if (result.out.lineSequence().count() > 180) Logs.i("ROOT TUN diagnostic [$label] output truncated")
                 if (result.err.isNotBlank()) Logs.w("ROOT TUN diagnostic [$label] ${result.err.take(500)}")
@@ -856,9 +858,12 @@ object RootDaemon {
         }
         mark("readiness failed")
         val out = RootShell.run("tail -n 15 ${RootShell.q("$logDir/asteriskd.out")}; echo ---; tail -n 25 ${RootShell.q(logPath)}; echo ---; tail -n 15 ${RootShell.q("$logDir/error.log")}").out
-        Logs.w("asteriskd start failed: $last\n$out")
+        val safe = io.nekohasekai.sagernet.ktx.LogRedactor.text(
+            "asteriskd: ${last.ifBlank { "did not become ready" }}\n$out"
+        )
+        Logs.w(safe)
         shutdown()
-        return "asteriskd: ${last.ifBlank { "did not become ready" }}\n$out"
+        return safe
     }
 
     /** the daemon, the core and the helpers must not fight over a port */

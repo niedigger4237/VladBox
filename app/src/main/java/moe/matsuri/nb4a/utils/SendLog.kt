@@ -74,12 +74,25 @@ object SendLog {
                 SagerNet.application.cacheDir,
                 "neko.log"
             )
-            val len = file.length()
-            val stream = FileInputStream(file)
-            if (max in 1 until len) {
-                stream.skip(len - max) // TODO string?
+            // Process the available log from its beginning. Starting at an
+            // arbitrary byte can bypass a credential/PEM marker and cut UTF-8.
+            val redactor = LogRedactor.Stream()
+            val tail = java.util.ArrayDeque<ByteArray>()
+            var size = 0L
+            val full = if (max <= 0) java.io.ByteArrayOutputStream() else null
+            FileInputStream(file).bufferedReader(Charsets.UTF_8).useLines { lines ->
+                lines.forEach { line ->
+                    val safe = (redactor.redact(line) + "\n").toByteArray(Charsets.UTF_8)
+                    if (full != null) full.write(safe)
+                    else {
+                        tail.addLast(safe)
+                        size += safe.size
+                        while (size > max && tail.isNotEmpty()) size -= tail.removeFirst().size
+                    }
+                }
             }
-            stream.use { LogRedactor.text(it.bufferedReader(Charsets.UTF_8).readText()).toByteArray(Charsets.UTF_8) }
+            if (full != null) full.toByteArray()
+            else java.io.ByteArrayOutputStream().apply { tail.forEach { write(it) } }.toByteArray()
         } catch (e: Exception) {
             LogRedactor.text(e.stackTraceToString()).toByteArray(Charsets.UTF_8)
         }
