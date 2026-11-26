@@ -39,6 +39,31 @@ class XrayJsonImportTest {
         assertTrue(runCatching { XrayJsonImport.parse(b) }.isFailure)
     }
 
+    private fun withSocket(socket: String): VMessBean {
+        return XrayJsonImport.parse(JSONObject("""{"protocol":"vless","settings":{"address":"example.org","port":443,"id":"$id"},"streamSettings":{"sockopt":$socket}}""")).single() as VMessBean
+    }
+
+    @Test fun defaultSocketOptionsAreAccepted() {
+        val b = withSocket("""{"domainStrategy":"AsIs","happyEyeballs":{"prioritizeIPv6":false,"tryDelayMs":250,"interleave":1,"maxConcurrentTry":4}}""")
+        assertEquals(0, JSONObject(b.outboundDialer.ifBlank { "{}" }).length())
+    }
+
+    @Test fun socketResolverAndFallbackAreConverted() {
+        val b = withSocket("""{"domainStrategy":"UseIPv6v4","happyEyeballs":{"prioritizeIPv6":true,"tryDelayMs":250,"interleave":1,"maxConcurrentTry":4}}""")
+        val options = mutableMapOf<String, Any>()
+        applyClientDialer(b.outboundDialer, "", options)
+        assertEquals(mapOf("server" to "dns-direct", "strategy" to "prefer_ipv6"), options["domain_resolver"])
+        assertEquals("250ms", options["fallback_delay"])
+    }
+
+    @Test fun forceIPv4AndDisabledRace() {
+        val b = withSocket("""{"domainStrategy":"ForceIPv4","happyEyeballs":{"tryDelayMs":0}}""")
+        val dialer = JSONObject(b.outboundDialer)
+        assertEquals("ipv4_only", dialer.getJSONObject("domain_resolver").getString("strategy"))
+        assertFalse(dialer.has("fallback_delay"))
+        assertTrue(runCatching { withSocket("""{"domainStrategy":"invalid"}""") }.isFailure)
+    }
+
     @Test fun nativeSingBoxNotMisidentified() {
         assertFalse(XrayJsonImport.recognizes(JSONObject("""{"outbounds":[{"type":"vless","server":"example.org","server_port":443}]}""")))
     }

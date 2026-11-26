@@ -806,7 +806,7 @@ fun buildSingBoxOutboundTLS(bean: StandardV2RayBean): OutboundTLSOptions? {
 
 fun applyClientDialer(rawDialer: String, network: String, options: MutableMap<String, Any>) {
     val dialer = org.json.JSONObject(rawDialer.ifBlank { "{}" })
-    val allowed = setOf("bind_interface","inet4_bind_address","inet6_bind_address","bind_address_no_port","protect_path","routing_mark","reuse_addr","netns","connect_timeout","tcp_fast_open","tcp_multi_path","disable_tcp_keep_alive","tcp_keep_alive","tcp_keep_alive_interval","udp_fragment","network_strategy","network_type","fallback_network_type","fallback_delay")
+    val allowed = setOf("bind_interface","inet4_bind_address","inet6_bind_address","bind_address_no_port","protect_path","routing_mark","reuse_addr","netns","connect_timeout","tcp_fast_open","tcp_multi_path","disable_tcp_keep_alive","tcp_keep_alive","tcp_keep_alive_interval","udp_fragment","network_strategy","network_type","fallback_network_type","fallback_delay","domain_resolver")
     require(!dialer.has("network_strategy") || listOf("bind_interface","inet4_bind_address","inet6_bind_address").none { dialer.optString(it).isNotBlank() }) { "Network strategy conflicts with interface or address binding" }
     fun native(value: Any?): Any? = when (value) {
         null, org.json.JSONObject.NULL -> null
@@ -816,7 +816,13 @@ fun applyClientDialer(rawDialer: String, network: String, options: MutableMap<St
     for (key in dialer.keys()) {
         require(key in allowed) { "Unsupported outbound dialer option: $key" }
         val value = dialer.get(key)
-        if (key == "routing_mark") {
+        if (key == "domain_resolver") {
+            require(value is org.json.JSONObject && value.optString("server") == "dns-direct" &&
+                value.keys().asSequence().all { it in setOf("server", "strategy") }) { "Invalid profile domain resolver" }
+            val strategy = value.optString("strategy")
+            require(strategy in setOf("", "as_is", "ipv4_only", "ipv6_only", "prefer_ipv4", "prefer_ipv6")) { "Invalid profile DNS strategy" }
+            options[key] = mapOf("server" to "dns-direct", "strategy" to strategy)
+        } else if (key == "routing_mark") {
             val raw = value.toString()
             val mark = if (raw.startsWith("0x",true)) raw.substring(2).toLong(16) else raw.toLong()
             require(mark in 0L..4294967295L) { "Invalid routing mark" }

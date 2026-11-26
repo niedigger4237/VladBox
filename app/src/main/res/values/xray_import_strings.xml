@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="xray_import_profiles_only">Xray outbounds imported as profiles. DNS, inbounds and routing are managed by the app.</string>
+    <string name="xray_import_profiles_only">Xray outbounds imported as profiles. DNS, inbounds and routing are managed by the app. Socket DNS and Happy Eyeballs use sing-box semantics; Xray fallback and race limits are not reproduced exactly.</string>
 </resources>
