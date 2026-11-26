@@ -99,6 +99,204 @@ diff --git a/supervisor/supervisor.h b/supervisor/supervisor.h
  int asteriskd_supervisor_create_private_group(struct asteriskd_system_supervisor *system,
      const struct asteriskd_private_chain_group *group);
  int asteriskd_supervisor_verify_private_group_contents(
+diff --git a/supervisor/supervisor.c b/supervisor/supervisor.c
+--- a/supervisor/supervisor.c
++++ b/supervisor/supervisor.c
+@@ -541,6 +541,174 @@
+     }
+ }
+ 
++/* App-owned exact downstream refresh. Requests are consumed only by the
++ * reactor, never from inside the control callback or a nested action pump.
++ * Keep boot selectors, DNS enhancement, service-control and IPv6 guard
++ * sessions on their existing lifecycle until those paths support hot changes. */
++#define NF_TETHER_REQUEST "nf-tether-request"
++#define NF_TETHER_ACK "nf-tether-ack"
++#define NF_TETHER_ACK_TMP ".nf-tether-ack.new"
++
++static bool system_nf_tether_allowed(struct asteriskd_system_supervisor *system) {
++    const struct asteriskd_config *c = &system->loaded_config.config;
++    if (c->owner != ASTERISKD_OWNER_BOX ||
++        (c->mode != ASTERISKD_MODE_TPROXY && c->mode != ASTERISKD_MODE_TUN2SOCKS) ||
++        c->service_control.enabled || c->dns_enhancement || c->disable_system_ipv6 ||
++        !system->runtime->supervising || system->state.phase != ASTERISKD_PHASE_RUNNING ||
++        !system->rules_verified || system->rules_reconciling || system->cleanup_in_progress ||
++        system->shutdown_requested || system->stop_requested)
++        return false;
++    for (size_t i = 0; i < c->hotspot_interface_count; ++i)
++        if (strchr(c->hotspot_interfaces[i], '+') != NULL) return false;
++    return true;
++}
++
++static bool system_nf_tether_pending(struct asteriskd_system_supervisor *system) {
++    if (!system_nf_tether_allowed(system)) return false;
++    struct stat st;
++    return fstatat(system->loaded_config.directory.fd, NF_TETHER_REQUEST, &st,
++        AT_SYMLINK_NOFOLLOW) == 0 && S_ISREG(st.st_mode) && st.st_uid == 0 &&
++        (st.st_mode & 077U) == 0U;
++}
++
++struct nf_tether_request {
++    char token[33];
++    char names[ASTERISKD_MAX_INTERFACES][ASTERISKD_MAX_INTERFACE_NAME];
++    unsigned indices[ASTERISKD_MAX_INTERFACES];
++    size_t count;
++};
++
++static bool system_nf_tether_links_current(const struct nf_tether_request *r) {
++    for (size_t i = 0; i < r->count; ++i)
++        if (if_nametoindex(r->names[i]) != r->indices[i]) return false;
++    return true;
++}
++
++static bool system_nf_tether_read(struct asteriskd_system_supervisor *system,
++    struct nf_tether_request *r) {
++    int dir = system->loaded_config.directory.fd;
++    int fd = openat(dir, NF_TETHER_REQUEST, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
++    if (fd < 0) return false;
++    struct stat st;
++    char buf[4096];
++    bool ok = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == 0 &&
++        (st.st_mode & 077U) == 0U && st.st_size > 0 && st.st_size < (off_t)sizeof(buf);
++    size_t used = 0;
++    if (ok) {
++        while (used < (size_t)st.st_size) {
++            ssize_t n = read(fd, buf + used, (size_t)st.st_size - used);
++            if (n < 0 && errno == EINTR) continue;
++            if (n <= 0) { ok = false; break; }
++            used += (size_t)n;
++        }
++    }
++    (void)close(fd);
++    if (unlinkat(dir, NF_TETHER_REQUEST, 0) != 0) return false;
++    if (!ok || memchr(buf, '\0', used) != NULL) return false;
++    buf[used] = '\0';
++    memset(r, 0, sizeof(*r));
++    char *save = NULL;
++    char *pid = strtok_r(buf, " \n", &save);
++    char *token = strtok_r(NULL, " \n", &save);
++    char expected_pid[32];
++    (void)snprintf(expected_pid, sizeof(expected_pid), "%ld", (long)getpid());
++    if (pid == NULL || strcmp(pid, expected_pid) != 0 || token == NULL ||
++        strlen(token) != 32U || strspn(token, "0123456789abcdef") != 32U) return false;
++    memcpy(r->token, token, 33U);
++    const struct asteriskd_config *c = &system->loaded_config.config;
++    for (char *item = strtok_r(NULL, " \n", &save); item != NULL;
++         item = strtok_r(NULL, " \n", &save)) {
++        char *sep = strchr(item, ':');
++        if (sep == NULL || r->count >= ASTERISKD_MAX_INTERFACES) return false;
++        *sep++ = '\0';
++        if (!asteriskd_interface_selector_valid(item) || strchr(item, '+') != NULL ||
++            strcmp(item, ".") == 0 || strcmp(item, "..") == 0 ||
++            strcmp(item, "lo") == 0 || strcmp(item, "asterisk0") == 0 ||
++            strcmp(item, "hevtun0") == 0) return false;
++        for (size_t i = 0; i < c->ignored_interface_count; ++i)
++            if (asteriskd_interface_matches_selector(item, c->ignored_interfaces[i])) return false;
++        for (size_t i = 0; i < c->virtual_interface_count; ++i)
++            if (strcmp(item, c->virtual_interfaces[i]) == 0) return false;
++        for (size_t i = 0; i < r->count; ++i)
++            if (strcmp(item, r->names[i]) == 0) return false;
++        if (*sep == '\0' || strspn(sep, "0123456789") != strlen(sep)) return false;
++        errno = 0;
++        unsigned long index = strtoul(sep, NULL, 10);
++        if (errno != 0 || index == 0 || index > UINT_MAX ||
++            if_nametoindex(item) != (unsigned)index) return false;
++        (void)snprintf(r->names[r->count], sizeof(r->names[r->count]), "%s", item);
++        r->indices[r->count++] = (unsigned)index;
++    }
++    return true;
++}
++
++static void system_nf_tether_ack(struct asteriskd_system_supervisor *system,
++    const struct nf_tether_request *r, const char *result) {
++    int dir = system->loaded_config.directory.fd;
++    (void)unlinkat(dir, NF_TETHER_ACK_TMP, 0);
++    int fd = openat(dir, NF_TETHER_ACK_TMP,
++        O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
++    if (fd < 0) return;
++    char line[64];
++    int len = snprintf(line, sizeof(line), "%s %s\n", r->token, result);
++    bool ok = len > 0 && (size_t)len < sizeof(line) &&
++        write(fd, line, (size_t)len) == (ssize_t)len;
++    if (close(fd) != 0) ok = false;
++    if (ok && renameat(dir, NF_TETHER_ACK_TMP, dir, NF_TETHER_ACK) == 0) return;
++    (void)unlinkat(dir, NF_TETHER_ACK_TMP, 0);
++}
++
++static int system_nf_tether_replace(struct asteriskd_system_supervisor *system) {
++    int rc = -1;
++    if (asteriskd_supervisor_capture_local_address_snapshot(system) == 0 &&
++        asteriskd_supervisor_rule_snapshot_capture(system, &system->rules_runtime.plan,
++            SYSTEM_RULE_SNAPSHOT_BEFORE_APPLY) == 0 &&
++        asteriskd_supervisor_rule_batch_begin(&system->rule_commands) == 0 &&
++        niefiger_supervisor_queue_tether_chain_refresh(system) == 0 &&
++        asteriskd_supervisor_rule_batch_flush(system) == 0) rc = 0;
++    asteriskd_supervisor_rule_batch_destroy(&system->rule_commands);
++    asteriskd_supervisor_rule_snapshot_destroy(&system->rule_snapshot);
++    if (rc == 0 && (asteriskd_supervisor_rule_snapshot_capture(system,
++            &system->rules_runtime.plan, SYSTEM_RULE_SNAPSHOT_AFTER_APPLY) != 0 ||
++        asteriskd_rules_verify(&system->rules_runtime, &system->rules_backend) != 0)) rc = -1;
++    asteriskd_supervisor_rule_snapshot_destroy(&system->rule_snapshot);
++    asteriskd_supervisor_clear_local_address_snapshot(system);
++    return rc;
++}
++
++/* Called after the ordinary reconcile verified the previous rules. If a
++ * table commit or verification fails, restore the old exact selectors and
++ * verify both families again. Unconfirmed rollback is a lifecycle failure. */
++static int system_nf_tether_refresh(struct asteriskd_system_supervisor *system) {
++    if (!system_nf_tether_pending(system)) return 0;
++    struct nf_tether_request r;
++    if (!system_nf_tether_read(system, &r)) return 0;
++    struct asteriskd_config *c = &system->loaded_config.config;
++    char previous[ASTERISKD_MAX_INTERFACES][ASTERISKD_MAX_INTERFACE_NAME];
++    memcpy(previous, c->hotspot_interfaces, sizeof(previous));
++    size_t previous_count = c->hotspot_interface_count;
++    system->rules_reconciling = true;
++    memcpy(c->hotspot_interfaces, r.names, sizeof(r.names));
++    c->hotspot_interface_count = r.count;
++    int rc = system_nf_tether_replace(system);
++    if (rc == 0 && system_nf_tether_links_current(&r) &&
++        asteriskd_supervisor_reconcile_hotspot_tc(system) == 0) {
++        system->rules_reconciling = false;
++        system_nf_tether_ack(system, &r, "applied");
++        return 0;
++    }
++    memcpy(c->hotspot_interfaces, previous, sizeof(previous));
++    c->hotspot_interface_count = previous_count;
++    rc = system_nf_tether_replace(system);
++    system->rules_reconciling = false;
++    if (rc != 0) {
++        system->rules_verified = false;
++        return -1;
++    }
++    system_nf_tether_ack(system, &r, "rejected");
++    return 0;
++}
++
+ static int system_runtime_dispatch(void *opaque, const struct asteriskd_poll_source *source,
+     short ready, struct asteriskd_runtime_delta *delta) {
+     struct asteriskd_system_supervisor *system = opaque;
+@@ -622,6 +790,9 @@
+                 "WiFi event dispatch failed");
+         }
+     }
++    if ((source->kind == ASTERISKD_POLL_CONTROL_CLIENT ||
++         source->kind == ASTERISKD_POLL_CONTROL_LISTENER) && system_nf_tether_pending(system))
++        delta->flags |= ASTERISKD_DELTA_RECONCILE_DUE;
+     system_service_take_actions(system, delta);
+     if (system->stop_requested &&
+         (delta->flags & ASTERISKD_DELTA_STOP_REQUESTED) == 0U) {
+@@ -1187,7 +1358,8 @@
+         }
+         return -1;
+     }
+-    system->rules_verified = true;
++    system->rules_verified = true;
++    if (system_nf_tether_refresh(system) != 0) return -1;
+     if (asteriskd_mode_core_managed(system->loaded_config.config.mode)) {
+         *active = false;
+         *generation = 0U;
 NIEFIGER_ASTERISKD_PATCH
 if git -C "$SRC" apply --reverse --check "$ASTERISKD_PATCH" >/dev/null 2>&1; then
   echo "asteriskd tether staging patch already applied"

@@ -30,6 +30,20 @@ class RootTetherRestartTest {
         assertTrue(initial.requiresRestart(RootDaemon.Mode.TUN, renumbered))
     }
 
+    @Test fun hotRefreshOnlyForExactInterfaceChangesWithUnchangedPolicy() {
+        val added = initial.copy(names = listOf("ap0", "rndis0"))
+        val removed = initial.copy(names = emptyList(), identity = emptyList())
+        for (mode in listOf(RootDaemon.Mode.TPROXY, RootDaemon.Mode.TUN2SOCKS)) {
+            assertTrue(initial.canRefreshNames(mode, added))
+            assertTrue(initial.canRefreshNames(mode, removed))
+            assertFalse(initial.canRefreshNames(mode, initial))
+            assertFalse(initial.canRefreshNames(mode, added.copy(ipv6Prefixes = emptyList())))
+            assertFalse(initial.copy(blockIpv6 = true).canRefreshNames(mode, added.copy(blockIpv6 = true)))
+        }
+        assertFalse(initial.canRefreshNames(RootDaemon.Mode.TUN, added))
+        assertFalse(initial.canRefreshNames(RootDaemon.Mode.BPF2SOCKS, added))
+    }
+
     @Test fun actualPublishedConfigChangesRequireRestartInEveryMode() {
         val added = initial.copy(names = listOf("ap0", "rndis0"))
         val removed = initial.copy(names = emptyList(), identity = emptyList(), ipv6Prefixes = emptyList())

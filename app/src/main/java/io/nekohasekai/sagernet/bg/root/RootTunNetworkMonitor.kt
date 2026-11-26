@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
  */
 internal class RootTunNetworkMonitor(
     private val mode: RootDaemon.Mode,
-    private val applied: RootDaemon.DownstreamSnapshot,
+    @Volatile private var applied: RootDaemon.DownstreamSnapshot,
     private val restart: (RootDaemon.DownstreamSnapshot) -> Boolean,
 ) {
     private val main = Handler(Looper.getMainLooper())
@@ -98,6 +98,12 @@ internal class RootTunNetworkMonitor(
         }
         candidate = null
         // Do not undo a stop initiated by asteriskd's own service-control policy.
+        if (!ownsSession() || !RootDaemon.isRunning() || !ownsSession()) return
+        if (RootDaemon.tryRefreshTether(mode, applied, observed)) {
+            applied = observed
+            request("verify hot downstream refresh", 1500)
+            return
+        }
         if (!ownsSession() || !RootDaemon.isRunning() || !ownsSession()) return
         restartPending = true
         Logs.i("ROOT ${mode.wire} downstream changed: $applied -> $observed ($reason)")

@@ -159,6 +159,12 @@ object RootDaemon {
          * a service restart. Managed TUN also has core-owned route exclusions;
          * retain its interface identity (ifindex) and canonical IPv4 subnets.
          */
+        fun canRefreshNames(mode: Mode, observed: DownstreamSnapshot): Boolean =
+            mode in listOf(Mode.TPROXY, Mode.TUN2SOCKS) && !blockIpv6 &&
+                names != observed.names &&
+                copy(names = emptyList(), identity = emptyList()) ==
+                    observed.copy(names = emptyList(), identity = emptyList())
+
         fun requiresRestart(mode: Mode, observed: DownstreamSnapshot): Boolean {
             if (copy(identity = emptyList()) != observed.copy(identity = emptyList())) return true
             return mode == Mode.TUN &&
@@ -224,6 +230,58 @@ object RootDaemon {
         if (prefixes == null && requireReliable) return null
         if (prefixes == null) Logs.w("ROOT ${mode.wire}: cannot discover downstream IPv6 prefixes")
         return DownstreamSnapshot(names, identity, trackV6, prefixes.orEmpty(), blockV6, ipv6)
+    }
+
+    // The native mailbox is scoped to the live, root-owned runtime directory.
+    // Never send a request to a raw, boot-selector or Service Control session.
+    private var hotTetherEnabled = false
+
+    @Synchronized
+    internal fun tryRefreshTether(mode: Mode, applied: DownstreamSnapshot, observed: DownstreamSnapshot): Boolean {
+        if (!hotTetherEnabled || appliedDownstreams !== applied || !applied.canRefreshNames(mode, observed)) return false
+        val entries = observed.names.map { name ->
+            val index = observed.identity.mapNotNull { item ->
+                val fields = item.split(':', limit = 3)
+                if (fields.size == 3 && fields[1] == name) fields[0].toLongOrNull() else null
+            }.distinct().singleOrNull()?.takeIf { it in 1..4294967295L } ?: return false
+            if (!exactInterface.matches(name) || name in internalInterfaces) return false
+            "$name:$index"
+        }
+        val before = control("status", 5000) ?: return false
+        if (RootHealth.parse(before, OWNER) != RootHealth.RUNNING) return false
+        val pid = before.getAsJsonObject("snapshot")?.get("supervisorPid")?.asInt?.takeIf { it > 0 } ?: return false
+        val token = newFlowToken()
+        val request = "$runDir/nf-tether-request"
+        val ack = "$runDir/nf-tether-ack"
+        val temp = "$request.new"
+        val payload = (listOf(pid.toString(), token) + entries).joinToString(" ")
+        val publish = RootShell.run("set -e", "umask 077",
+            "rm -f ${RootShell.q(ack)} ${RootShell.q(temp)}",
+            "printf '%s\\n' ${RootShell.q(payload)} > ${RootShell.q(temp)}",
+            "chmod 600 ${RootShell.q(temp)}",
+            "mv -f ${RootShell.q(temp)} ${RootShell.q(request)}", timeoutMs = 5000)
+        if (!publish.ok) return false
+        try {
+            // Status wakes the supervisor's normal reactor; it handles the request
+            // outside the control callback and writes a nonce-bound acknowledgement.
+            val deadline = SystemClock.elapsedRealtime() + 12000L
+            while (SystemClock.elapsedRealtime() < deadline) {
+                val status = control("status", 5000) ?: return false
+                if (RootHealth.parse(status, OWNER) != RootHealth.RUNNING ||
+                    status.getAsJsonObject("snapshot")?.get("supervisorPid")?.asInt != pid) return false
+                val response = RootShell.run("cat ${RootShell.q(ack)} 2>/dev/null", timeoutMs = 3000)
+                if (response.ok && response.out == "$token applied") {
+                    appliedDownstreams = observed
+                    Logs.i("ROOT ${mode.wire}: downstream rules refreshed without restarting core")
+                    return true
+                }
+                if (response.ok && response.out == "$token rejected") return false
+                Thread.sleep(250)
+            }
+            return false
+        } finally {
+            RootShell.run("rm -f ${RootShell.q(request)} ${RootShell.q(temp)} ${RootShell.q(ack)}", timeoutMs = 3000)
+        }
     }
 
     @Volatile internal var appliedDownstreams: DownstreamSnapshot? = null
@@ -605,6 +663,7 @@ object RootDaemon {
         if (monitorOnly && !ServiceControl.hasStartRule(serviceControl))
             return "Service Control requires at least one valid start condition"
         startedWaiting = false
+        hotTetherEnabled = false
         val startedAt = SystemClock.elapsedRealtime()
         var lastMark = startedAt
         fun mark(stage: String) {
@@ -659,6 +718,7 @@ object RootDaemon {
                 "mkdir -p ${RootShell.q(logDir)} && chmod 700 ${RootShell.q(logDir)}",
                 "rm -f ${RootShell.q(coreLogPath)} ${RootShell.q(logPath)} ${RootShell.q("$logDir/error.log")} ${RootShell.q("$logDir/tun2socks.log")}",
                 "rm -f ${RootShell.q(runDir)}/geoip.db ${RootShell.q(runDir)}/geosite.db",
+                "rm -f ${RootShell.q(runDir)}/nf-tether-request ${RootShell.q(runDir)}/nf-tether-request.new ${RootShell.q(runDir)}/nf-tether-ack ${RootShell.q(runDir)}/.nf-tether-ack.new",
                 "cp -f ${RootShell.q(cfg)} ${RootShell.q("$configPath.new")} && chmod 600 ${RootShell.q("$configPath.new")} && mv -f ${RootShell.q("$configPath.new")} ${RootShell.q(configPath)} || exit 1",
                 "cp -f ${RootShell.q(dcfg)} ${RootShell.q("$daemonConfigPath.new")} && chmod 600 ${RootShell.q("$daemonConfigPath.new")} && mv -f ${RootShell.q("$daemonConfigPath.new")} ${RootShell.q(daemonConfigPath)} || exit 1",
                 "test -x ${RootShell.q(binary)}",
@@ -768,6 +828,9 @@ object RootDaemon {
                     if (managed && mode == Mode.TUN)
                         Logs.i("ROOT boot: managed TUN starts phone-only; autonomous templates=${templateCore != null}")
                 }
+                hotTetherEnabled = managed && daemonDownstreams != null &&
+                    mode in listOf(Mode.TPROXY, Mode.TUN2SOCKS) &&
+                    serviceControl.get("enabled")?.asBoolean != true
                 appliedDownstreams = dynamicDownstreams
                 startedWaiting = waiting
                 startLogForward(mode)
@@ -832,6 +895,7 @@ object RootDaemon {
     @Synchronized
     private fun shutdownVerified(): Boolean {
         if (!RootBoot.quiesceMonitor()) return false
+        hotTetherEnabled = false
         appliedDownstreams = null
         stopTunDiagnostics()
         stopLogForward()
