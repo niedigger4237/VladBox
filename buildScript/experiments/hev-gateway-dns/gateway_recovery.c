@@ -781,3 +781,39 @@ int main(void) {
     printf("PASS %u drain guard checks (no live firewall)\n",checks);return 0;
 }
 #endif
+
+#ifdef NF_RUNTIME_SESSION_HOST_TEST
+static unsigned checks;
+#define CHECK(x) do {if(!(x)){fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x);exit(1);}++checks;}while(0)
+int main(void) {
+    struct asteriskd_system_supervisor *s=calloc(1,sizeof(*s));CHECK(s);
+    CHECK(!nf_gateway_runtime_before_core(s));CHECK(!nf_gateway_runtime_core_identity(s));
+    CHECK(!nf_gateway_runtime_core_ready(s));CHECK(!nf_gateway_runtime_after_core_stop(s));
+    nf_gateway_runtime_dispose(s);CHECK(!s->nf_gateway_session);
+    s->loaded_config.config.nf_hev_gateway_dns_port=15353;
+    CHECK(nf_gateway_runtime_before_core(s)<0);CHECK(nf_gateway_runtime_core_ready(s)<0);
+    CHECK(nf_gateway_runtime_core_identity(s)<0);CHECK(!s->nf_gateway_session);
+    char path[]="/tmp/nf-runtime-session-XXXXXX";CHECK(mkdtemp(path));
+    int d=open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC);CHECK(d>=0);
+    struct nf_native_backend *a=calloc(1,sizeof(*a)),*b=calloc(1,sizeof(*b));CHECK(a&&b);
+    a->wal_fd=b->wal_fd=-1;
+    CHECK(!nf_runtime_init_wal(a,d,15353) && a->wal_ready && a->precore_certified && !a->wal.generation);
+    CHECK(nf_nonzero(a->wal.boot,16) && nf_nonzero(a->wal.session,16));
+    CHECK(nf_runtime_init_wal(b,d,15354)<0);nf_runtime_free(b);
+    struct nf_wal_record clean=a->wal;clean.generation=1;CHECK(!nf_gateway_wal_save(a->wal_fd,&clean,0));
+    nf_runtime_free(a);
+    a=calloc(1,sizeof(*a));CHECK(a);a->wal_fd=-1;
+    CHECK(!nf_runtime_init_wal(a,d,15354) && a->wal.generation==1 && a->wal.port==15354);
+    CHECK(memcmp(a->wal.session,clean.session,16)!=0);
+    uint8_t data[]={1};struct nf_wal_record dirty=a->wal;dirty.generation=2;dirty.debts=1;dirty.payload=data;dirty.length=1;
+    CHECK(!nf_gateway_wal_save(a->wal_fd,&dirty,1));nf_runtime_free(a);
+    a=calloc(1,sizeof(*a));CHECK(a);a->wal_fd=-1;
+    CHECK(nf_runtime_init_wal(a,d,15355)<0);nf_runtime_free(a);
+    CHECK(!unlinkat(d,NF_WAL_NAME,0));
+    int fd=openat(d,NF_WAL_TEMP,O_CREAT|O_WRONLY|O_EXCL,0600);CHECK(fd>=0);close(fd);
+    a=calloc(1,sizeof(*a));CHECK(a);a->wal_fd=-1;
+    CHECK(nf_runtime_init_wal(a,d,15355)<0);nf_runtime_free(a);
+    CHECK(!unlinkat(d,NF_WAL_TEMP,0));close(d);CHECK(!rmdir(path));free(s);
+    printf("PASS %u runtime session checks (no firewall mutation)\n",checks);return 0;
+}
+#endif
