@@ -17,6 +17,7 @@ bash "$ROOT/libcore/verify_utls.sh" "$SB"
 ( cd "$SB" && GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" CGO_ENABLED=1 go test -count=1 -tags "$TAGS" -run '^TestNieFigger(FirefoxFingerprint|RealityHybridOffer|RealityHybridRequiredRejectsUnsupportedFingerprint|RealityMldsa65)$' -v ./common/tls )
 ( cd "$SB" && GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" CGO_ENABLED=1 go test -count=1 -run '^TestNieFiggerVlessRecordBounds$' -v ./protocol/vless/encryption )
 ( cd "$SB" && GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" CGO_ENABLED=1 go test -count=1 -tags "$TAGS" -run '^TestNieFiggerXHTTPAutoMode$' -v ./transport/v2rayxhttp )
+( cd "$SB" && GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" CGO_ENABLED=1 go test -count=1 -tags "$TAGS" -run '^TestNieFigger(NetworkPauseRecovery|PlatformMonitorNoPause)$' -v ./route )
 
 # Exercise the host-side wire codec and relay generation table before packaging
 # an experimental native core. This is not an Android device stress test.

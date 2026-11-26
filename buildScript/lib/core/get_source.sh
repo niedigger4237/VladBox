@@ -49,6 +49,7 @@ cp "$ROOT/libcore/testdata/reality_hybrid_test.go" sing-box/common/tls/niefigger
 cp "$ROOT/libcore/testdata/reality_mldsa_test.go" sing-box/common/tls/niefigger_reality_mldsa_test.go
 cp "$ROOT/libcore/testdata/vless_record_test.go" sing-box/protocol/vless/encryption/niefigger_record_test.go
 cp "$ROOT/libcore/testdata/xhttp_auto_test.go" sing-box/transport/v2rayxhttp/niefigger_auto_test.go
+cp "$ROOT/libcore/testdata/network_pause_test.go" sing-box/route/niefigger_network_pause_test.go
 
 ####  libneko
 
