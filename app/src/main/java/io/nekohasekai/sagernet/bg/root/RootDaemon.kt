@@ -784,6 +784,9 @@ object RootDaemon {
             val prep = RootShell.run(
                 "set -e",
                 "umask 077",
+                // The gateway WAL requires an owner-only runtime directory, including upgrades from 0755.
+                // All app accesses to runDir already go through su; never chmod a symlink or a foreign-owned directory.
+                if (gatewayDnsPort != null) "mkdir -p ${RootShell.q(runDir)} && test ! -L ${RootShell.q(runDir)} && test -d ${RootShell.q(runDir)} && test \"$(stat -c %u ${RootShell.q(runDir)})\" = 0 && chmod 700 ${RootShell.q(runDir)} || exit 1" else "true",
                 "mkdir -p ${RootShell.q(logDir)} && chmod 700 ${RootShell.q(logDir)}",
                 "rm -f ${RootShell.q(coreLogPath)} ${RootShell.q(logPath)} ${RootShell.q("$logDir/error.log")} ${RootShell.q("$logDir/tun2socks.log")}",
                 "rm -f ${RootShell.q(runDir)}/geoip.db ${RootShell.q(runDir)}/geosite.db",
