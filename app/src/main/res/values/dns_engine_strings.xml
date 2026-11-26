@@ -148,4 +148,6 @@
         <item>@string/dns_cache_memory</item>
         <item>@string/dns_root_cache_persistent</item>
     </string-array>
+    <string name="tether_dns_hijack">Tethering DNS Hijacking (experimental)</string>
+    <string name="tether_dns_hijack_summary">Intercept TCP/UDP port 53 on selected tether interfaces before local bypass. Bundled ROOT TPROXY only, requires Port or Both, and Start on Boot off.</string>
 </resources>

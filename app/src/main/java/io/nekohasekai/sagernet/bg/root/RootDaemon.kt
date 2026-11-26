@@ -371,7 +371,7 @@ object RootDaemon {
         return names.filter { exactInterface.matches(it) && it !in internalInterfaces }.distinct()
     }
 
-    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String, flowToken: String? = null, matcher: Boolean = false, downstreams: List<String>? = null, downstreamIpv6: List<String> = emptyList(), serviceControl: JsonObject = ServiceControl.toJson()): String {
+    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String, flowToken: String? = null, matcher: Boolean = false, downstreams: List<String>? = null, downstreamIpv6: List<String> = emptyList(), serviceControl: JsonObject = ServiceControl.toJson(), tetherDnsHijack: Boolean = false): String {
         val root = JsonObject()
         root.addProperty("schemaVersion", SCHEMA)
         root.addProperty("owner", OWNER)
@@ -395,6 +395,8 @@ object RootDaemon {
             addProperty("enableIpv6", ipv6)
             addProperty("disableSystemIpv6", !ipv6 && DataStore.rootDisableSystemIpv6)
             addProperty("enableLocalDns", false)
+            // Optional extension: only emit for the patched native TPROXY path.
+            if (tetherDnsHijack) addProperty("nfTetherDnsHijack", true)
             addProperty("enableFakeDns", false)
             add("fakeDnsIpv4Pool", JsonNull.INSTANCE)
             val ignored = if (mode == Mode.TUN) emptyList() else ignoredInterfaces()
@@ -726,9 +728,19 @@ object RootDaemon {
         // selectors for daemon-managed modes when start-on-boot is enabled.
         val daemonDownstreams = if (mode != Mode.TUN &&
             DataStore.configurationStore.getBoolean("startOnBoot", false)) null else dynamicDownstreams?.names
+        val tetherDnsHijack = RootTetherDnsPolicy.enabled(
+            requested = DataStore.tetherDnsHijack,
+            managed = managed && core.bundled,
+            tproxy = mode == Mode.TPROXY,
+            exactDownstreams = daemonDownstreams != null,
+            startOnBoot = DataStore.configurationStore.getBoolean("startOnBoot", false),
+            coreConfig = effectiveConfig
+        )
+        if (DataStore.tetherDnsHijack && mode == Mode.TPROXY)
+            Logs.i("ROOT tether DNS interception: ${if (tetherDnsHijack) "enabled" else "not eligible"}")
         val dcfg = File(stage, "asteriskd.json").apply {
             writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, daemonDownstreams,
-                dynamicDownstreams?.ipv6Prefixes.orEmpty().map { it.subnet }, serviceControl))
+                dynamicDownstreams?.ipv6Prefixes.orEmpty().map { it.subnet }, serviceControl, tetherDnsHijack))
         }
         mark("generate configs")
         try {

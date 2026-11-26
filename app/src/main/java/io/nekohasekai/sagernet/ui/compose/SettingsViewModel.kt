@@ -35,7 +35,7 @@ class SettingsViewModel : ViewModel() {
 private val rootOnlySettings = setOf(
     "rootTproxyPort", "bpfBridgePort", "rootTunInterfaces", "rootTunBypassRuleSets",
     "rootHevMultiQueue", "rootHevTcpFastOpen", "rootFlowMetadata", "rootEbpfMatcher",
-    "rootIgnoredInterfaces", "tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet",
+    "rootIgnoredInterfaces", "tetherDnsHijack", "tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet",
     "tetherCustom", "serviceControl", "startOnBoot", "rootCoreUpdate", "rootCoreImport",
     "rootCoreRollback", "rootCoreBundled", "rootDisableSystemIpv6", "dnsRootCacheStorage", "dnsRootCacheClear"
 )
@@ -58,6 +58,7 @@ internal fun settingVisible(key: String?, mode: String, access: Access = Access.
     "rootTunInterfaces", "rootTunBypassRuleSets" -> mode == "root_tun"
     "rootHevMultiQueue", "rootHevTcpFastOpen" -> mode == "root_tun2socks"
     "rootFlowMetadata" -> mode == "root_tun2socks" || mode == "root_bpf2socks"
+    "tetherDnsHijack" -> mode == "root_tproxy"
     "rootEbpfMatcher" -> mode == "root_tproxy" || mode == "root_tun2socks"
     "rootIgnoredInterfaces" -> mode.startsWith("root_")
     "tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet", "tetherCustom" ->

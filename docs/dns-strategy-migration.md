@@ -317,3 +317,26 @@ Private DNS, DNS over HTTPS, network switching, service-control/boot,
 and tethering hot-refresh. Verify using packet capture at physical
 uplink and core logs without logging user queries by default.
 No changes to native firewall, tethering, Service Control or boot.
+
+## Scoped tether DNS interception (stage 1)
+
+Ordinary VPN's existing DNS DNAT is unchanged. Its watchdog now reads
+the owned NAT chain and checks exactly one TCP and UDP port-53 redirect
+per downstream, with the session DNS destination. A missing/altered rule
+uses existing guarded reconciliation. No new chains, hooks or journal
+formats.
+
+Experimental opt-in ROOT TPROXY only, default off. Requires bundled
+managed core, exact discovered downstreams, boot disabled and an
+unqualified port-53 hijack at the head of the effective core route.
+Patched native config accepts an optional nfTetherDnsHijack boolean
+without breaking existing 11-field network objects. The native chain
+builder inserts only selected-interface TCP/UDP 53 TPROXY rules before
+local bypass, after IPsec exclusions, never OUTPUT. Ignores excluded
+interfaces, preserves IPv6 enable policy and existing TCP6 socket
+handling. Native hot refresh rebuilds the same owned chains, with no
+additional hooks/cleanup. No global enableLocalDns or DNS Enhancement.
+Boot prefix selectors, raw/custom overridden capture, external cores and
+other ROOT modes are not enabled. TUN2SOCKS local routing, ROOT TUN
+nftables and BPF2SOCKS TC/cgroup handling require separate work.
+Native build/Android device testing outstanding; no leak-free claim.

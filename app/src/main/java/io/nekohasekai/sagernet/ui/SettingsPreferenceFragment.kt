@@ -206,7 +206,9 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             findPreference<Preference>(Key.ROOT_DNS_CACHE_CLEAR)?.isVisible = rootVisible
         }
         updatePersistentDnsVisibility(DataStore.dnsEngineMode, DataStore.serviceMode)
+        findPreference<Preference>("tetherDnsHijack")?.isVisible = DataStore.serviceMode == Key.MODE_ROOT_TPROXY
         serviceMode.setOnPreferenceChangeListener { _, value ->
+            findPreference<Preference>("tetherDnsHijack")?.isVisible = value == Key.MODE_ROOT_TPROXY
             updatePersistentDnsVisibility(DataStore.dnsEngineMode, value.toString())
             if (DataStore.serviceState.started) SagerNet.stopService()
             true
@@ -328,7 +330,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
             onPreferenceChangeListener = reloadListener
         }
-        for (k in listOf("tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet", "tetherCustom")) {
+        for (k in listOf("tetherDnsHijack", "tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet", "tetherCustom")) {
             findPreference<Preference>(k)!!.onPreferenceChangeListener = reloadListener
         }
         findPreference<Preference>("serviceControl")!!.setOnPreferenceClickListener {

@@ -306,11 +306,12 @@ object TetherVpn {
 
     /** Check hooks and owned routing entries before treating an unchanged snapshot as healthy. */
     private fun routingHealthy(r: RuleSet): Boolean {
-        fun family(tool: String, ip: String, forward: String, pre: String, post: String, downstreams: List<Pair<String, String>>): Boolean {
+        fun family(tool: String, ip: String, forward: String, pre: String, post: String, dns: String, downstreams: List<Pair<String, String>>): Boolean {
             val snapshot = RootShell.run(
                 "set -e",
                 "$tool -w 3 -t filter -S FORWARD",
                 "$tool -w 3 -t nat -S PREROUTING",
+                "$tool -w 3 -t nat -S $pre",
                 "$tool -w 3 -t nat -S POSTROUTING",
                 "$ip rule show",
                 "$ip route show table ${r.table}",
@@ -323,12 +324,16 @@ object TetherVpn {
             if (first != "-A FORWARD -j $forward" ||
                 "-A PREROUTING -j $pre" !in lines || "-A POSTROUTING -j $post" !in lines) return false
             if (lines.none { it == "default dev ${r.up}" || it.startsWith("default dev ${r.up} ") }) return false
+            if (!TetherSnapshotChecks.hasDnsRedirects(lines, pre, downstreams.map { it.first }.toSet(), dns)) {
+                Logs.w("VPN tether: DNS redirect chain differs; repairing owned rules")
+                return false
+            }
             return TetherSnapshotChecks.hasRouting(lines, r.up, r.table, r.pref, downstreams)
         }
-        if (!family("iptables", "ip -4", r.forward, r.prerouting, r.postrouting,
+        if (!family("iptables", "ip -4", r.forward, r.prerouting, r.postrouting, r.dns,
                 r.down.map { it.name to network(it.ip, it.prefix) })) return false
         installed6?.takeIf { ipv6Ready }?.let { v6 ->
-            if (!family("ip6tables", "ip -6", v6.forward, v6.prerouting, v6.postrouting,
+            if (!family("ip6tables", "ip -6", v6.forward, v6.prerouting, v6.postrouting, v6.dns,
                     v6.down.map { it.name to it.subnet })) {
                 ipv6Ready = false
                 ipv6RetryAt = 0L

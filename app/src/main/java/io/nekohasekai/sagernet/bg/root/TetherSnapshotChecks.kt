@@ -33,6 +33,37 @@ internal object TetherSnapshotChecks {
     private fun value(tokens: List<String>, key: String): String? =
         tokens.indexOf(key).takeIf { it >= 0 }?.let { tokens.getOrNull(it + 1) }
 
+    /** The managed NAT chain contains exactly one UDP and TCP redirect per
+     * selected interface. Accept iptables' optional explicit protocol match
+     * and numeric IPv6 compression, but no extra matches or foreign rules. */
+    fun hasDnsRedirects(lines: List<String>, chain: String, names: Set<String>, dns: String): Boolean {
+        val bits = if (':' in dns) 128 else 32
+        val expectedAddress = canonical("$dns/$bits") ?: return false
+        val expected = names.flatMap { name -> listOf(name to "udp", name to "tcp") }.toSet()
+        val actual = mutableSetOf<Pair<String, String>>()
+        val prefix = listOf("-A", chain)
+        for (line in lines) {
+            val tokens = line.trim().split(Regex("\\s+"))
+            if (tokens.take(2) != prefix) continue
+            val iface = value(tokens, "-i") ?: return false
+            val proto = value(tokens, "-p") ?: return false
+            val dest = value(tokens, "--to-destination") ?: return false
+            val addr = if (dest.startsWith("[")) {
+                if (!dest.endsWith("]:53")) return false
+                dest.removePrefix("[").removeSuffix("]:53")
+            } else {
+                if (!dest.endsWith(":53") || dest.count { it == ':' } != 1) return false
+                dest.removeSuffix(":53")
+            }
+            if (canonical("$addr/$bits") != expectedAddress) return false
+            val common = prefix + listOf("-i", iface, "-p", proto)
+            val tail = listOf("--dport", "53", "-j", "DNAT", "--to-destination", dest)
+            if (tokens != common + tail && tokens != common + listOf("-m", proto) + tail) return false
+            if (!actual.add(iface to proto)) return false
+        }
+        return actual == expected
+    }
+
     fun hasRouting(lines: List<String>, up: String, table: Int, pref: Int, downstreams: List<Pair<String, String>>): Boolean {
         val rows = lines.map { it.trim().split(Regex("\\s+")) }
         return downstreams.all { (name, subnet) ->
