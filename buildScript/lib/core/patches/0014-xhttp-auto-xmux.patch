@@ -1,0 +1,72 @@
+diff --git a/transport/v2rayxhttp/client.go b/transport/v2rayxhttp/client.go
+--- a/transport/v2rayxhttp/client.go
++++ b/transport/v2rayxhttp/client.go
+@@ -47,7 +47,8 @@
+ }
+ 
+ func NewClient(ctx context.Context, logger log.ContextLogger, dialer N.Dialer, serverAddr M.Socksaddr, options option.V2RayXHTTPOptions, tlsConfig tls.Config) (adapter.V2RayClientTransport, error) {
+-	if tlsConfig != nil && len(tlsConfig.NextProtos()) == 0 {
++	options.Mode = resolveClientMode(options.Mode, isRealityTLS(tlsConfig), options.Download != nil)
++	if tlsConfig != nil && len(tlsConfig.NextProtos()) == 0 {
+ 		tlsConfig.SetNextProtos([]string{"h2"})
+ 	}
+ 	if _, err := congestion.NewCongestionControl(options.CongestionController, options.CWND, nil); err != nil {
+@@ -136,7 +137,10 @@
+ 	requestURL := c.baseRequestURL
+ 	requestURL2 := c.baseRequestURL2
+ 	httpClient, xmuxClient := c.getHTTPClient()
+-	httpClient2, xmuxClient2 := c.getHTTPClient2()
++	httpClient2, xmuxClient2 := httpClient, xmuxClient
++	if c.xmuxManager2 != nil {
++		httpClient2, xmuxClient2 = c.getHTTPClient2()
++	}
+ 	if xmuxClient != nil {
+ 		xmuxClient.AddOpenUsage(1)
+ 	}
+@@ -268,7 +272,33 @@
+ 	return nil
+ }
+ 
+-func decideHTTPVersion(tlsConfig tls.Config) string {
++// Auto follows Xray: REALITY uses stream-one, or stream-up when split.
++func resolveClientMode(mode string, reality, download bool) string {
++	if mode != "" && mode != "auto" {
++		return mode
++	}
++	if !reality {
++		return "packet-up"
++	}
++	if download {
++		return "stream-up"
++	}
++	return "stream-one"
++}
++
++func isRealityTLS(config tls.Config) bool {
++	for config != nil {
++		if wrapper, ok := config.(*tls.KTLSClientConfig); ok {
++			config = wrapper.Config
++			continue
++		}
++		marker, ok := config.(interface{ IsRealityClient() bool })
++		return ok && marker.IsRealityClient()
++	}
++	return false
++}
++
++func decideHTTPVersion(tlsConfig tls.Config) string {
+ 	if tlsConfig == nil || len(tlsConfig.NextProtos()) == 0 || tlsConfig.NextProtos()[0] == "http/1.1" {
+ 		return "1.1"
+ 	}
+diff --git a/common/tls/niefigger_reality_marker.go b/common/tls/niefigger_reality_marker.go
+new file mode 100644
+--- /dev/null
++++ b/common/tls/niefigger_reality_marker.go
+@@ -0,0 +1,7 @@
++//go:build with_utls
++
++package tls
++
++// IsRealityClient lets transports resolve protocol defaults without relying on
++// fingerprint names or importing build-tag-specific types.
++func (e *RealityClientConfig) IsRealityClient() bool { return true }
