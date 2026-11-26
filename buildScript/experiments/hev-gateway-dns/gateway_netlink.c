@@ -119,7 +119,50 @@ static int nf_dump_proto(const struct nf_attr_view *v,uint8_t *proto) {
        nf_attrs(t[CTA_TUPLE_PROTO].p,t[CTA_TUPLE_PROTO].n,p,CTA_PROTO_MAX+1))return -1;
     return nf_scalar(&p[CTA_PROTO_NUM],proto,1);
 }
-static int nf_dump_part(const uint8_t *buf,size_t n,uint32_t local,uint8_t family,unsigned port,bool *done) {
+/* A dump is an occupancy observation, not a mark lease. Inventory requires
+ * an independent exclusive-writer proof and a quiesced old session. */
+struct nf_ct_scan {
+    const struct nf_ct_owner *owner;
+    struct nf_ct_record *records;
+    size_t capacity, count;
+    bool preflight;
+};
+static bool nf_scan_owner_valid(const struct nf_ct_owner *o) {
+    return o && o->mask && o->mark && !(o->mark & ~o->mask) &&
+        !(o->mask & ASTERISKD_DNS_MARK_MASK) && o->port>=1024;
+}
+static int nf_scan_record(struct nf_ct_scan *s,const struct nf_attr_view *v,
+                          const struct nf_ct_tuple *orig,const struct nf_ct_tuple *reply) {
+    const struct nf_ct_owner *o=s->owner;
+    uint32_t x=0,mark=0;
+    if(v[CTA_MARK].p) {
+        if(nf_scalar(&v[CTA_MARK],&x,4))return -1;
+        mark=ntohl(x);
+    }
+    bool port_match=reply && reply->sport==o->port;
+    if(s->preflight)return ((mark&o->mask) || port_match)?1:0;
+    if(!(mark&o->mask) && !port_match)return 0;
+    // Partial mask, foreign port, another protocol, or another zone is a
+    // collision, not a deletable entry. Never return a partial inventory.
+    if(!orig || !reply || !port_match || (mark&o->mask)!=o->mark)return 1;
+    struct nf_ct_record r={.orig=*orig,.reply=*reply,.mark=mark,.has_mark=v[CTA_MARK].p!=NULL};
+    uint16_t z=0;
+    if(nf_scalar(&v[CTA_ID],&x,4))return -1;
+    r.id=ntohl(x);r.has_id=true;
+    if(nf_scalar(&v[CTA_STATUS],&x,4))return -1;
+    r.status=ntohl(x);r.has_status=true;
+    if(v[CTA_ZONE].p && nf_scalar(&v[CTA_ZONE],&z,2))return -1;
+    r.zone=ntohs(z);r.has_zone=true;
+    if(!nf_ct_valid(o,&r))return 1;
+    for(size_t i=0;i<s->count;i++) {
+        const struct nf_ct_record *old=&s->records[i];
+        if(old->zone==r.zone && nf_ct_tuple_eq(&old->orig,&r.orig))return -1;
+    }
+    if(s->count>=s->capacity)return -1;
+    s->records[s->count++]=r;return 0;
+}
+
+static int nf_dump_part(const uint8_t *buf,size_t n,uint32_t local,uint8_t family,unsigned port,bool *done,struct nf_ct_scan *scan) {
     if(!n || *done)return -1;
     while(n) {
         struct nlmsghdr h;
@@ -142,7 +185,10 @@ static int nf_dump_part(const uint8_t *buf,size_t n,uint32_t local,uint8_t famil
         if(a==IPPROTO_TCP || a==IPPROTO_UDP) {
             struct nf_ct_tuple orig,reply;
             if(nf_tuple_read(&v[CTA_TUPLE_ORIG],family,&orig) || nf_tuple_read(&v[CTA_TUPLE_REPLY],family,&reply))return -1;
-            if(reply.sport==port)return 1;
+            if(scan) {int rc=nf_scan_record(scan,v,&orig,&reply);if(rc)return rc;}
+            else if(reply.sport==port)return 1;
+        } else if(scan) {
+            int rc=nf_scan_record(scan,v,NULL,NULL);if(rc)return rc;
         }
         buf+=step;n-=step;
     }
@@ -152,7 +198,7 @@ static int64_t nf_monotonic_ms(void) {
     struct timespec t;if(clock_gettime(CLOCK_MONOTONIC,&t))return -1;
     return (int64_t)t.tv_sec*1000+t.tv_nsec/1000000;
 }
-static int nf_dump_family(uint8_t family,unsigned port) {
+static int nf_dump_family(uint8_t family,unsigned port,struct nf_ct_scan *scan) {
     int fd=socket(AF_NETLINK,SOCK_RAW|SOCK_CLOEXEC|SOCK_NONBLOCK,NETLINK_NETFILTER);if(fd<0)return -1;
     struct sockaddr_nl local={.nl_family=AF_NETLINK},kernel={.nl_family=AF_NETLINK};socklen_t sl=sizeof(local);int rc=-1;
     if(bind(fd,(struct sockaddr*)&local,sizeof(local)) || getsockname(fd,(struct sockaddr*)&local,&sl) ||
@@ -172,7 +218,7 @@ static int nf_dump_family(uint8_t family,unsigned port) {
         if(n<=0 || (msg.msg_flags&(MSG_TRUNC|MSG_CTRUNC)) || msg.msg_namelen!=sizeof(sender) ||
            sender.nl_family!=AF_NETLINK || sender.nl_pid || sender.nl_groups || (size_t)n>16U*1024U*1024U-total)goto done;
         total+=(size_t)n;
-        int part=nf_dump_part(buf,(size_t)n,local.nl_pid,family,port,&complete);
+        int part=nf_dump_part(buf,(size_t)n,local.nl_pid,family,port,&complete,scan);
         if(part){rc=part;goto done;}
     }
     rc=0;
@@ -183,8 +229,31 @@ static int nf_dump_family(uint8_t family,unsigned port) {
  * atomic against new kernel flows: recheck before releasing the guard. */
 int nf_gateway_ct_port_absent(unsigned port) {
     if(port<1024 || port>65535)return -1;
-    int rc=nf_dump_family(AF_INET,port);if(rc)return rc;
-    return nf_dump_family(AF_INET6,port);
+    int rc=nf_dump_family(AF_INET,port,NULL);if(rc)return rc;
+    return nf_dump_family(AF_INET6,port,NULL);
+}
+
+/* 0 = no collision observed, 1 = occupied, -1 = incomplete inspection.
+ * A successful scan cannot grant exclusive ownership of future writes. */
+int nf_gateway_ct_mask_available(const struct nf_ct_owner *o) {
+    if(!nf_scan_owner_valid(o))return -1;
+    struct nf_ct_scan scan={.owner=o,.preflight=true};
+    int rc=nf_dump_family(AF_INET,o->port,&scan);if(rc)return rc;
+    return nf_dump_family(AF_INET6,o->port,&scan);
+}
+/* Caller must withdraw verified NAT, retain INPUT guard and prove that the
+ * old session exclusively owned the mask throughout its lifetime. Success
+ * is a complete observed inventory, not permission to delete without GET. */
+int nf_gateway_ct_inventory(const struct nf_ct_owner *o,struct nf_ct_record *records,
+                            size_t capacity,size_t *count) {
+    if(!count)return -1;
+    *count=0;
+    if(!nf_scan_owner_valid(o) || !o->verified_exclusive || !records || !capacity || capacity>4096U)return -1;
+    struct nf_ct_scan scan={.owner=o,.records=records,.capacity=capacity};
+    int rc=nf_dump_family(AF_INET,o->port,&scan);
+    if(!rc)rc=nf_dump_family(AF_INET6,o->port,&scan);
+    if(rc) {memset(records,0,scan.count*sizeof(*records));return rc;}
+    *count=scan.count;return 0;
 }
 
 #ifdef NF_NETLINK_HOST_TEST
@@ -222,17 +291,38 @@ int main(void) {
     CHECK(!nf_get_request(&a,0,1,&req));response(&reply,&a,b,0);CHECK(!nf_get_reply(reply.data,reply.len,42,&req,&a,0,&r) && r.orig.family==AF_INET6 && r.orig.proto==IPPROTO_TCP);
     // Multipart parser: busy, clean, interrupted, malformed and foreign responses.
     bool done=false;memcpy(&h,reply.data,sizeof(h));h.nlmsg_flags=NLM_F_MULTI;memcpy(reply.data,&h,sizeof(h));
-    CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,15353,&done)==1 && !done);
-    CHECK(!nf_dump_part(reply.data,reply.len,42,AF_INET6,15354,&done) && !done);
-    CHECK(nf_dump_part(reply.data,reply.len,43,AF_INET6,15354,&done)<0);
-    CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET,15354,&done)<0);
-    CHECK(nf_dump_part(reply.data,reply.len-1,42,AF_INET6,15354,&done)<0);
-    h.nlmsg_flags|=NLM_F_DUMP_INTR;memcpy(reply.data,&h,sizeof(h));CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,15354,&done)<0);
+    CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,15353,&done,NULL)==1 && !done);
+    CHECK(!nf_dump_part(reply.data,reply.len,42,AF_INET6,15354,&done,NULL) && !done);
+    CHECK(nf_dump_part(reply.data,reply.len,43,AF_INET6,15354,&done,NULL)<0);
+    CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET,15354,&done,NULL)<0);
+    CHECK(nf_dump_part(reply.data,reply.len-1,42,AF_INET6,15354,&done,NULL)<0);
+    h.nlmsg_flags|=NLM_F_DUMP_INTR;memcpy(reply.data,&h,sizeof(h));CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,15354,&done,NULL)<0);
     struct {struct nlmsghdr h;int error;} end={.h={.nlmsg_len=NLMSG_LENGTH(sizeof(int)),.nlmsg_type=NLMSG_DONE,.nlmsg_flags=NLM_F_MULTI,.nlmsg_seq=1,.nlmsg_pid=42}};
-    CHECK(!nf_dump_part((const uint8_t*)&end,sizeof(end),42,AF_INET6,15354,&done) && done);
-    CHECK(nf_dump_part((const uint8_t*)&end,sizeof(end),42,AF_INET6,15354,&done)<0);
-    done=false;end.error=-EINTR;CHECK(nf_dump_part((const uint8_t*)&end,sizeof(end),42,AF_INET6,15354,&done)<0 && !done);
+    CHECK(!nf_dump_part((const uint8_t*)&end,sizeof(end),42,AF_INET6,15354,&done,NULL) && done);
+    CHECK(nf_dump_part((const uint8_t*)&end,sizeof(end),42,AF_INET6,15354,&done,NULL)<0);
+    done=false;end.error=-EINTR;CHECK(nf_dump_part((const uint8_t*)&end,sizeof(end),42,AF_INET6,15354,&done,NULL)<0 && !done);
     CHECK(nf_gateway_ct_port_absent(53)<0);
+    struct nf_ct_owner owner={.mark=128,.mask=255,.port=15353,.zone=0,.verified_exclusive=true};
+    struct nf_ct_record entries[2];size_t count=99;
+    struct nf_ct_scan scan={.owner=&owner,.preflight=true};
+    response(&reply,&a,b,0);memcpy(&h,reply.data,sizeof(h));h.nlmsg_flags=NLM_F_MULTI;memcpy(reply.data,&h,sizeof(h));done=false;
+    CHECK(nf_scan_owner_valid(&owner));CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,owner.port,&done,&scan)==1);
+    owner.port=15354;CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,owner.port,&done,&scan)==1); // mask occupied elsewhere
+    owner.port=15353;owner.mask=64;owner.mark=64;CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,owner.port,&done,&scan)==1); // port occupied without mark
+    owner.port=15354;CHECK(!nf_dump_part(reply.data,reply.len,42,AF_INET6,owner.port,&done,&scan));
+    owner.port=15353;owner.mask=255;owner.mark=128;scan.preflight=false;scan.records=entries;scan.capacity=2;
+    CHECK(!nf_dump_part(reply.data,reply.len,42,AF_INET6,owner.port,&done,&scan) && scan.count==1 && entries[0].id==123 && entries[0].has_zone);
+    CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,owner.port,&done,&scan)<0 && scan.count==1); // duplicate tuple
+    scan.count=0;scan.capacity=0;CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,owner.port,&done,&scan)<0 && !scan.count);
+    scan.capacity=2;owner.zone=7;CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,owner.port,&done,&scan)==1 && !scan.count);
+    owner.zone=0;owner.mark=64;CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,owner.port,&done,&scan)==1 && !scan.count);
+    owner.mark=128;owner.port=15354;CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,owner.port,&done,&scan)==1 && !scan.count);
+    owner.port=15353;owner.verified_exclusive=false;CHECK(nf_gateway_ct_inventory(&owner,entries,2,&count)<0 && !count);
+    owner.verified_exclusive=true;owner.mask|=ASTERISKD_DNS_MARK_MASK;CHECK(nf_gateway_ct_mask_available(&owner)<0);CHECK(nf_gateway_ct_inventory(&owner,entries,2,&count)<0 && !count);
+    owner.mask=255;CHECK(nf_gateway_ct_inventory(&owner,entries,4097,&count)<0 && !count);
+    struct nf_attr_view attrs[CTA_MAX+1]={0};uint32_t mark=htonl(128);attrs[CTA_MARK]=(struct nf_attr_view){(uint8_t*)&mark,4};
+    CHECK(nf_scan_record(&scan,attrs,NULL,NULL)==1 && !scan.count); // marked non-TCP/UDP
+    attrs[CTA_MARK].n=3;CHECK(nf_scan_record(&scan,attrs,NULL,NULL)<0);
     printf("Live read-only DUMP result: %d\n",nf_gateway_ct_port_absent(15353));
     int live=nf_gateway_ct_get(&a,0,&r);printf("Live read-only GET result: %d (0=record, 1=absent, -1=error)\n",live);
     printf("PASS %u netlink checks\n",checks);return 0;
