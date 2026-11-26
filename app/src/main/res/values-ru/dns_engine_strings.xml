@@ -11,4 +11,5 @@
     <string name="dns_optimistic_3">1 час</string>
     <string name="dns_optimistic_4">24 часа</string>
     <string name="dns_optimistic_5">3 дня</string>
+    <string name="dns_optimistic_default">Стандарт ядра (3 дня)</string>
 </resources>

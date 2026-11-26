@@ -12,6 +12,12 @@ class DnsOptimisticPolicyTest {
         assertNull(DnsOptimisticPolicy.options(true, true, "5m"))
     }
 
+    @Test fun defaultInheritsCoreWindow() {
+        assertEquals(true, DnsOptimisticPolicy.options(true, false, "default"))
+        assertNull(DnsOptimisticPolicy.options(false, false, "default"))
+        assertNull(DnsOptimisticPolicy.options(true, true, "default"))
+    }
+
     @Test fun allSupportedWindows() {
         for (window in listOf("30s", "5m", "1h", "24h", "72h")) {
             assertEquals(mapOf("enabled" to true, "timeout" to window),

@@ -19,8 +19,10 @@
     <string name="dns_optimistic_3">1 hour</string>
     <string name="dns_optimistic_4">24 hours</string>
     <string name="dns_optimistic_5">3 days</string>
+    <string name="dns_optimistic_default">Default (3 days)</string>
     <string-array name="dns_optimistic_names">
         <item>@string/dns_optimistic_0</item>
+        <item>@string/dns_optimistic_default</item>
         <item>@string/dns_optimistic_1</item>
         <item>@string/dns_optimistic_2</item>
         <item>@string/dns_optimistic_3</item>
@@ -29,6 +31,7 @@
     </string-array>
     <string-array name="dns_optimistic_values" translatable="false">
         <item>off</item>
+        <item>default</item>
         <item>30s</item>
         <item>5m</item>
         <item>1h</item>

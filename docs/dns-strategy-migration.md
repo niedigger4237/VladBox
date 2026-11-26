@@ -63,9 +63,11 @@ and conditional runtime response availability; the application check is not
 a replacement for sing-box check or device testing.
 
 ## Optimistic DNS Cache
-Optional Modern setting: `dnsOptimisticWindow`. Default off; allowed windows
-30s, 5m, 1h, 24h, 72h. Emits `dns.optimistic: {"enabled":true,"timeout":"5m"}`
-when selected. The window is measured from original TTL expiration, not query
+Optional Modern setting: `dnsOptimisticWindow`. Default off. The explicit
+Default (3 days) selection emits `dns.optimistic: true` and inherits the
+core's default stale window (3 days in the pinned version). Manual windows
+30s, 5m, 1h, 24h, 72h emit `dns.optimistic: {"enabled":true,"timeout":"5m"}`
+with the selected duration. Existing 72h selections remain explicit. The window is measured from original TTL expiration, not query
 timeout. Pinned core returns stale entries with TTL 1 and triggers its own
 refresh. No application polling, extra worker, persistent cache enablement,
 or firewall changes. Legacy, URL-test generation and raw imports do not
