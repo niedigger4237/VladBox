@@ -199,8 +199,10 @@ object TetherVpn {
     }
 
     private fun allocate(up: String, down: List<Addr>, plan: TunAddressPlan, down6: List<TetherIpv6.Down>, dns6: String?): RuleSet? {
-        if (down.map { network(it.ip, it.prefix) }.distinct().size != down.size) {
-            Logs.w("VPN tether: duplicate downstream subnet")
+        if (down.indices.any { i -> (0 until i).any { j ->
+                TunAddressPlan.intersects(down[i].ip, down[i].prefix, network(down[j].ip, down[j].prefix))
+            } }) {
+            Logs.w("VPN tether: overlapping downstream subnets")
             return null
         }
         val rules = RootShell.run("ip -4 rule show", timeoutMs = 5000)
@@ -304,7 +306,7 @@ object TetherVpn {
 
     /** Check hooks and owned routing entries before treating an unchanged snapshot as healthy. */
     private fun routingHealthy(r: RuleSet): Boolean {
-        fun family(tool: String, ip: String, forward: String, pre: String, post: String, names: List<String>): Boolean {
+        fun family(tool: String, ip: String, forward: String, pre: String, post: String, downstreams: List<Pair<String, String>>): Boolean {
             val snapshot = RootShell.run(
                 "set -e",
                 "$tool -w 3 -t filter -S FORWARD",
@@ -321,16 +323,13 @@ object TetherVpn {
             if (first != "-A FORWARD -j $forward" ||
                 "-A PREROUTING -j $pre" !in lines || "-A POSTROUTING -j $post" !in lines) return false
             if (lines.none { it == "default dev ${r.up}" || it.startsWith("default dev ${r.up} ") }) return false
-            return names.all { name ->
-                lines.any { line ->
-                    line.substringBefore(':').trim().toIntOrNull() == r.pref &&
-                        Regex("""\biif\s+${Regex.escape(name)}\s+lookup\s+${r.table}\b""").containsMatchIn(line)
-                }
-            }
+            return TetherSnapshotChecks.hasRouting(lines, r.up, r.table, r.pref, downstreams)
         }
-        if (!family("iptables", "ip -4", r.forward, r.prerouting, r.postrouting, r.down.map { it.name })) return false
+        if (!family("iptables", "ip -4", r.forward, r.prerouting, r.postrouting,
+                r.down.map { it.name to network(it.ip, it.prefix) })) return false
         installed6?.takeIf { ipv6Ready }?.let { v6 ->
-            if (!family("ip6tables", "ip -6", v6.forward, v6.prerouting, v6.postrouting, v6.down.map { it.name }.distinct())) {
+            if (!family("ip6tables", "ip -6", v6.forward, v6.prerouting, v6.postrouting,
+                    v6.down.map { it.name to it.subnet })) {
                 ipv6Ready = false
                 ipv6RetryAt = 0L
             }
@@ -402,11 +401,13 @@ object TetherVpn {
                 return
             }
             val active = state.out.lineSequence().mapNotNull { tetherLine.matchEntire(it)?.groupValues?.get(1) }.toSet()
-            val names = active.filter { name ->
-                name !in uplinks && !skip.matches(name) &&
-                    sel.any { c -> if (c.endsWith("+")) name.startsWith(c.dropLast(1)) else name == c }
-            }.toSet()
+            val names = TetherSnapshotChecks.selected(active, sel, uplinks, skip)
             if (token != generation) return
+            if (names == null) {
+                clearLocked()
+                Logs.w("VPN tether: selected active downstream overlaps an uplink or reserved interface; retaining guards")
+                return
+            }
             if (names.isEmpty()) {
                 // A verified empty snapshot permits cleanup and release.
                 // Ambiguous snapshots return earlier and keep existing guards.
@@ -425,11 +426,18 @@ object TetherVpn {
                 return
             }
             if (up == null) { clearLocked(); Logs.w("VPN tether: current VPN interface not confirmed; guard retained"); return }
-            val downs = addrs.filter { a ->
-                a.name in names && a.prefix in 16..30
-            }.distinctBy { it.name }
-
-            val ordered = downs.sortedBy { it.name }
+            // Multiple addresses with one canonical subnet are equivalent for
+            // routing. Multiple distinct subnets must not be chosen arbitrarily.
+            val candidates = addrs.filter { a -> a.name in names && a.prefix in 16..30 }
+                .groupBy { it.name }
+            if (!TetherSnapshotChecks.uniqueSubnets(names, candidates.mapValues { (_, values) ->
+                    values.map { network(it.ip, it.prefix) }
+                })) {
+                clearLocked()
+                Logs.w("VPN tether: downstream IPv4 addresses incomplete or ambiguous; retaining guards")
+                return
+            }
+            val ordered = candidates.values.map { values -> values.minByOrNull { it.ip }!! }.sortedBy { it.name }
             if (ordered.any { TunAddressPlan.intersects(it.ip, it.prefix, plan.cidr4) }) {
                 clearLocked()
                 Logs.w("VPN tether: downstream IPv4 subnet overlaps active TUN; reconnect with a different subnet")
