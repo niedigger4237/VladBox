@@ -504,7 +504,43 @@ static int nf_runtime_init_wal(struct nf_native_backend *b,int directory,unsigne
         asteriskd_supervisor_log_failure(b->system,ASTERISKD_COMPONENT_CORE,"gateway DNS journal: cannot establish boot/session identity");
         return -1;
     }
-    b->wal_ready=true;b->precore_certified=true;return 0;
+    b->wal_ready=true;return 0;
+}
+/* Device-owner opt-in for a cooperating firewall environment. This is
+ * an administrative reservation, NOT proof against arbitrary privileged
+ * writers. Never infer it from an empty conntrack dump or a recovered WAL.
+ * Revalidate the same private file and audit other visible mark consumers
+ * while the owned gateway NAT is absent and INPUT is closed. */
+#define NF_RUNTIME_MARK UINT32_C(0x00800000)
+#define NF_MARK_LEASE_FILE "nf-hev-ctmark-lease"
+static int nf_runtime_mark_lease(struct nf_native_backend *b,bool initial) {
+    static const char expected[]="NF_HEV_CTMARK_V1 0x00800000\n";
+    int fd=openat(b->wal_fd,NF_MARK_LEASE_FILE,O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+    if(fd<0)return -1;
+    struct stat st;char buf[sizeof(expected)];
+    int rc=-1;
+    if(nf_file_ok(fd) && !fstat(fd,&st) && st.st_size==(off_t)(sizeof(expected)-1U) &&
+       !nf_io(fd,buf,sizeof(expected)-1U,false) && !memcmp(buf,expected,sizeof(expected)-1U)) {
+        if(initial) {
+            b->mark_lease_device=(uint64_t)st.st_dev;b->mark_lease_inode=(uint64_t)st.st_ino;
+            rc=0;
+        } else if(b->mark_lease_device==(uint64_t)st.st_dev && b->mark_lease_inode==(uint64_t)st.st_ino)rc=0;
+    }
+    close(fd);return rc;
+}
+static int nf_runtime_mark_recheck(void *ctx,uint32_t mark,uint32_t mask) {
+    struct nf_native_backend *b=ctx;
+    if(!b || mark!=NF_RUNTIME_MARK || mask!=NF_RUNTIME_MARK ||
+       nf_runtime_mark_lease(b,false) || nf_gateway_native_audit_mark(b->system,mask))return -1;
+    return nf_runtime_mark_lease(b,false);
+}
+static int nf_runtime_mark_reserve(struct nf_native_backend *b,unsigned port) {
+    if(nf_runtime_mark_lease(b,true) ||
+       nf_runtime_mark_recheck(b,NF_RUNTIME_MARK,NF_RUNTIME_MARK) ||
+       nf_gateway_ct_candidate_available(NF_RUNTIME_MARK,NF_RUNTIME_MARK,(uint16_t)port))return -1;
+    if(nf_gateway_native_bind_mark(b,NF_RUNTIME_MARK,NF_RUNTIME_MARK,true) ||
+       nf_gateway_native_set_mark_recheck(b,nf_runtime_mark_recheck,b))return -1;
+    return nf_native_mark_recheck(b);
 }
 static int nf_gateway_start_error(struct asteriskd_system_supervisor *s,const char *message) {
     asteriskd_supervisor_log_failure(s,ASTERISKD_COMPONENT_CORE,message);
@@ -530,6 +566,10 @@ int nf_gateway_runtime_before_core(struct asteriskd_system_supervisor *s) {
     if(nf_runtime_init_wal(b,s->store.directory_fd,port)) {
         nf_runtime_free(b);return nf_gateway_start_error(s,"gateway DNS preflight: journal lock or initialization failed");
     }
+    if(nf_runtime_mark_reserve(b,port)) {
+        nf_runtime_free(b);return nf_gateway_start_error(s,"gateway DNS preflight: explicit connmark reservation missing, busy or not verifiable");
+    }
+    b->precore_certified=true;
     // The real stop/release path must retain the handle even if a write fails.
     s->nf_gateway_session=b;
     if(nf_native_write(b,&b->guard,port,true,false))
@@ -656,7 +696,7 @@ int nf_gateway_runtime_prepare_rules(struct asteriskd_system_supervisor *s) {
     if(!b->service_links_valid)return 0;
     struct nf_link_snapshot current;unsigned families=0;
     unsigned required=b->ipv6_nat_disabled?3U:15U;
-    if(!b->wal_ready || b->links_published || b->session_mask || b->session_mark ||
+    if(!b->wal_ready || b->links_published || nf_native_mark_recheck(b) ||
        !nf_closed_guard_only(b) || nf_runtime_links(s,&current) ||
        !nf_service_links_match(b,&current) || nf_native_record_core(b) ||
        nf_native_verify(s,&b->guard,false) || nf_live_names_absence(s,true) ||
@@ -672,7 +712,7 @@ int nf_gateway_runtime_prepare_rules(struct asteriskd_system_supervisor *s) {
 int nf_gateway_runtime_publish(struct asteriskd_system_supervisor *s) {
     struct nf_native_backend *b=s->nf_gateway_session;
     if(!b)return s->loaded_config.config.nf_hev_gateway_dns_port?-1:0;
-    if(!b->wal_ready || b->session_mask || b->session_mark || !s->rules_verified ||
+    if(!b->wal_ready || !b->session_mask || !b->session_mark || nf_native_mark_recheck(b) || !s->rules_verified ||
        !nf_closed_guard_only(b) || nf_native_verify(s,&b->guard,false) ||
        nf_native_record_core(b))return -1;
     struct nf_link_snapshot before,after;unsigned families=0;
@@ -722,6 +762,9 @@ int nf_gateway_runtime_refresh_begin(struct asteriskd_system_supervisor *s) {
     struct nf_native_backend *b=s->nf_gateway_session;
     if(!b)return s->loaded_config.config.nf_hev_gateway_dns_port?-1:0;
     if(nf_gateway_runtime_withdraw(s))return -1;
+    if(b->session_mask && b->wal.epoch && (b->wal.debts&31U)==31U) {
+        if(nf_gateway_native_drain_marked(b))return -1;
+    }
     return nf_gateway_ct_port_absent(b->wal.port)==0?0:-1;
 }
 /* Called only after the upstream selector transaction and verification.
@@ -776,12 +819,17 @@ int nf_gateway_runtime_after_core_stop(struct asteriskd_system_supervisor *s) {
         return nf_gateway_start_error(s,"gateway DNS cleanup: NAT chains still present or unreadable");
     if(nf_recovery_preflight(b,&b->guard))
         return nf_gateway_start_error(s,"gateway DNS cleanup: guard ownership not verified");
-    // Brief bounded drain for expiring mappings. A positive result is busy;
-    // an unreadable dump is not absence and must never authorize removal.
+    // Live, explicitly reserved marked sessions can delete exact verified
+    // tuples. Never apply this to old unmarked sessions or recovered WALs.
     int ct=nf_gateway_ct_port_absent(b->wal.port);
-    for(unsigned attempt=0;ct==1 && attempt<6U;attempt++) {
-        usleep(250000U);
-        ct=nf_gateway_ct_port_absent(b->wal.port);
+    if(ct==1 && b->session_mask && b->mark_authorized && b->wal.epoch &&
+       (b->wal.debts&31U)==31U) {
+        for(unsigned attempt=0;ct==1 && attempt<4U;attempt++) {
+            if(nf_native_drain_check(b))break;
+            int drain=nf_gateway_ct_drain(b->session_mark,b->session_mask,b->wal.port,0,nf_native_drain_check,b);
+            if(drain<0)break;
+            ct=nf_gateway_ct_port_absent(b->wal.port);
+        }
     }
     if(ct) return nf_gateway_start_error(s,ct==1?
         "gateway DNS cleanup: conntrack mappings remain; closed guard and journal retained":
