@@ -488,26 +488,40 @@ static int nf_runtime_init_wal(struct nf_native_backend *b,int directory,unsigne
     if(nf_boot_read(b->wal.boot) || nf_runtime_session_id(b->wal.session))return -1;
     b->wal_ready=true;b->precore_certified=true;return 0;
 }
+static int nf_gateway_start_error(struct asteriskd_system_supervisor *s,const char *message) {
+    asteriskd_supervisor_log_failure(s,ASTERISKD_COMPONENT_CORE,message);
+    return -1;
+}
 int nf_gateway_runtime_before_core(struct asteriskd_system_supervisor *s) {
     unsigned port=s->loaded_config.config.nf_hev_gateway_dns_port;
     if(!port)return s->nf_gateway_session?-1:0;
-    if(s->nf_gateway_session || !nf_valid(&s->loaded_config.config,port) ||
-       !s->loaded_config.config.nf_tether_dns_hijack || !nf_native_available(s) ||
-       nf_gateway_port_absent(port))return -1;
-    struct nf_native_backend *b=calloc(1,sizeof(*b));if(!b)return -1;
+    if(s->nf_gateway_session)return nf_gateway_start_error(s,"gateway DNS preflight: session already present");
+    if(!nf_valid(&s->loaded_config.config,port) || !s->loaded_config.config.nf_tether_dns_hijack)
+        return nf_gateway_start_error(s,"gateway DNS preflight: ineligible native config");
+    if(!nf_native_available(s))return nf_gateway_start_error(s,"gateway DNS preflight: native rule reactor busy");
+    if(nf_gateway_port_absent(port))return nf_gateway_start_error(s,"gateway DNS preflight: cannot prove port free from socket tables");
+    struct nf_native_backend *b=calloc(1,sizeof(*b));
+    if(!b)return nf_gateway_start_error(s,"gateway DNS preflight: allocation failed");
     b->system=s;b->wal_fd=-1;
     b->ipv6_nat_disabled=true;
     if(s->loaded_config.config.enable_ipv6) {
         int capability=nf_nat6_probe(s);
-        if(capability<0){nf_runtime_free(b);return -1;}
+        if(capability<0){nf_runtime_free(b);return nf_gateway_start_error(s,"gateway DNS preflight: IPv6 NAT capability unknown");}
         b->ipv6_nat_disabled=capability==1;
     }
-    if(nf_runtime_init_wal(b,s->store.directory_fd,port)) {nf_runtime_free(b);return -1;}
+    if(nf_runtime_init_wal(b,s->store.directory_fd,port)) {
+        nf_runtime_free(b);return nf_gateway_start_error(s,"gateway DNS preflight: journal lock or initialization failed");
+    }
     // The real stop/release path must retain the handle even if a write fails.
     s->nf_gateway_session=b;
-    if(nf_native_write(b,&b->guard,port,true,false))return -1;
+    if(nf_native_write(b,&b->guard,port,true,false))
+        return nf_gateway_start_error(s,"gateway DNS preflight: closed INPUT guard installation or verification failed");
     b->precore_certified=false;b->wal.debts|=4U;
-    return nf_native_checkpoint(b,NF_GUARD_CLOSED);
+    if(nf_native_checkpoint(b,NF_GUARD_CLOSED))
+        return nf_gateway_start_error(s,"gateway DNS preflight: core spawn intent journal write failed");
+    (void)asteriskd_log_line(&s->logger,ASTERISKD_LOG_LEVEL_INFO,ASTERISKD_COMPONENT_CORE,
+        ASTERISKD_LOG_EVENT_DIAGNOSTIC,"gateway DNS preflight: closed INPUT guard and journal ready");
+    return 0;
 }
 int nf_gateway_runtime_core_identity(struct asteriskd_system_supervisor *s) {
     struct nf_native_backend *b=s->nf_gateway_session;
