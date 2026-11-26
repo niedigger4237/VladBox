@@ -30,11 +30,21 @@ struct nf_native_backend {
     int wal_fd;
     bool wal_ready;
     bool precore_certified;
+    uint32_t session_mark, session_mask;
+    bool mark_authorized; // live assertion; never restored from disk
     bool core_evidence_valid;
     struct nf_core_evidence core_evidence;
     struct nf_wal_record wal;
 };
 
+/* Bind a caller-supplied, independently verified mark before reservation.
+ * This API does not allocate bits or establish exclusive ownership itself. */
+int nf_gateway_native_bind_mark(struct nf_native_backend *b,uint32_t mark,uint32_t mask,bool exclusive) {
+    if(!b || !exclusive || !b->wal_ready || b->wal.debts || b->wal.epoch ||
+       b->precore_certified || b->core_evidence_valid || b->guard.owned || b->nat.owned ||
+       b->session_mark || b->session_mask || !nf_gateway_mark_valid(mark,mask))return -1;
+    b->session_mark=mark;b->session_mask=mask;b->mark_authorized=true;return 0;
+}
 /* Persist exact old/pending chain images before any kernel mutation.
  * The schema stores guard then NAT, with family order fixed by the planner.
  * No raw struct/pointer serialization. Caller must separately journal core,
@@ -42,7 +52,11 @@ struct nf_native_backend {
 static int nf_native_checkpoint(struct nf_native_backend *b,enum nf_step op) {
     if(!b->wal_ready || b->wal.generation==UINT64_MAX) return -1;
     uint8_t *data=calloc(1,NF_WAL_MAX);if(!data)return -1;
-    memcpy(data,"NFFW01",6);data[6]=(uint8_t)op;data[7]=(b->precore_certified?1U:0U)|(b->core_evidence_valid?2U:0U);size_t pos=8;
+    memcpy(data,"NFFW01",6);data[6]=(uint8_t)op;data[7]=(b->precore_certified?1U:0U)|(b->core_evidence_valid?2U:0U)|(b->session_mask?4U:0U);size_t pos=8;
+    if(b->session_mark || b->session_mask) {
+        if(!nf_gateway_mark_valid(b->session_mark,b->session_mask))goto fail;
+        nf_put(data+pos,4,b->session_mark);nf_put(data+pos+4,4,b->session_mask);pos+=8;
+    }
     struct nf_native_slot *slots[]={&b->guard,&b->nat};
     for(size_t j=0;j<2;j++) {
         struct nf_native_slot *s=slots[j];
@@ -120,13 +134,24 @@ static int nf_native_verify(struct asteriskd_system_supervisor *s,
     asteriskd_supervisor_rule_snapshot_destroy(&s->rule_snapshot);
     return rc;
 }
+static int nf_native_populate(struct asteriskd_system_supervisor *s,
+        const struct asteriskd_private_chain_group *g,unsigned port,bool active,
+        uint32_t mark,uint32_t mask,bool authorized) {
+    if(mark || mask) {
+        if(!nf_gateway_mark_valid(mark,mask))return -1;
+        if(active)return nf_gateway_populate_marked(s,g,port,true,mark,mask,authorized);
+    }
+    // Recovery can close an owned guard without authorizing new mark writes.
+    return nf_gateway_populate(s,g,port,active);
+}
 static int nf_native_render(struct asteriskd_system_supervisor *s,
-        struct nf_native_slot *slot,unsigned port,bool active) {
+        struct nf_native_slot *slot,unsigned port,bool active,
+        uint32_t mark,uint32_t mask,bool authorized) {
     if (asteriskd_supervisor_rule_batch_begin(&s->rule_commands)!=0) return -1;
     int rc=0;
     for(size_t i=0;i<slot->plan.private_group_count;i++) {
         const struct asteriskd_private_chain_group *g=&slot->plan.private_groups[i];
-        if(nf_gateway_populate(s,g,port,active)!=0) {rc=-1;break;}
+        if(nf_native_populate(s,g,port,active,mark,mask,authorized)!=0) {rc=-1;break;}
         const struct asteriskd_byte_buffer *b=&s->rule_commands.xtables[0][g->family][g->table];
         if(b->length && asteriskd_byte_buffer_append(&slot->pending[i],b->bytes,b->length)!=0) {rc=-1;break;}
     }
@@ -160,12 +185,12 @@ static int nf_native_write(struct nf_native_backend *b,
         if(nf_native_classify(s,slot,i,!fresh,false)!=(fresh?0:1)) rc=-1;
     asteriskd_supervisor_rule_snapshot_destroy(&s->rule_snapshot);
     if(rc) return -1;
-    if(nf_native_render(s,slot,port,active)!=0) goto render_failed;
+    if(nf_native_render(s,slot,port,active,b->session_mark,b->session_mask,b->mark_authorized)!=0) goto render_failed;
     if(asteriskd_supervisor_rule_batch_begin(&s->rule_commands)!=0) goto render_failed;
     for(size_t i=0;i<slot->plan.private_group_count;i++) {
         const struct asteriskd_private_chain_group *g=&slot->plan.private_groups[i];
         if(asteriskd_supervisor_xtables_zero(s,g->family,g->table,fresh?"-N":"-F",g->names[0],NULL,0)!=0 ||
-           nf_gateway_populate(s,g,port,active)!=0 ||
+           nf_native_populate(s,g,port,active,b->session_mark,b->session_mask,b->mark_authorized)!=0 ||
            (fresh && asteriskd_supervisor_apply_hook_group(s,&slot->plan.hook_groups[i])!=0)) {rc=-1;break;}
     }
     if(!rc) {
@@ -240,6 +265,7 @@ int nf_gateway_native_step(void *opaque,enum nf_step op,unsigned port,uint64_t e
     if(b->wal_ready && epoch)b->wal.epoch=epoch;
     switch(op) {
     case NF_RESERVE: {
+        if((b->session_mark || b->session_mask) && (!b->mark_authorized || !nf_gateway_mark_valid(b->session_mark,b->session_mask)))return -1;
         int rc=b->lifecycle_operations.step(b->lifecycle_operations.ctx,op,port,epoch);
         if(!rc && b->wal_ready && !b->wal.debts && !b->wal.epoch &&
            b->wal.port==port && !b->guard.owned && !b->nat.owned) b->precore_certified=true;
@@ -282,7 +308,7 @@ int main(void) {
     strcpy(c->helper.value.hev.tunnel_name,"hevtun0");
     strcpy(c->hotspot_interfaces[0],"ap0");c->hotspot_interface_count=1;
     BTEST(!nf_gateway_plan(c,15353,true,&slot->plan));
-    BTEST(!nf_native_render(s,slot,15353,false));slot->pending_valid=true;
+    BTEST(!nf_native_render(s,slot,15353,false,0,0,false));slot->pending_valid=true;
     const char *closed="-A NF_HEV_DNS4_IN -p udp -m udp --dport 15353 -j DROP\n-A NF_HEV_DNS4_IN -p tcp -m tcp --dport 15353 -j DROP\n";
     char listing[4096];
     BTEST(classify_text(s,slot,"-P INPUT ACCEPT\n",false,false)==0);
