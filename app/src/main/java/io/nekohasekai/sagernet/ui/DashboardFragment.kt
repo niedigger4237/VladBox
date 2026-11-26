@@ -35,12 +35,23 @@ class DashboardFragment : ToolbarFragment() {
 
     override fun onResume() {
         super.onResume()
-        dashboardVisible = true
+        dashboardVisible = !isHidden
     }
 
     override fun onPause() {
         dashboardVisible = false
         super.onPause()
+    }
+
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        dashboardVisible = !hidden &&
+            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+    }
+
+    override fun onDestroyView() {
+        dashboardVisible = false
+        super.onDestroyView()
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -104,7 +115,9 @@ class DashboardFragment : ToolbarFragment() {
                             }
                         }
                         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(key(tab) { rememberScrollState() }).padding(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (tab == 0) {
+                            if (!dashboardVisible) {
+                                // Dispose all tab-specific effects and scopes while hidden or paused.
+                            } else if (tab == 0) {
                                 val green = Color(0xFF81D99A)
                                 OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
                                     colors = CardDefaults.outlinedCardColors(containerColor = if (connected) green.copy(alpha = .14f) else MaterialTheme.colorScheme.surfaceVariant),
@@ -180,8 +193,6 @@ class DashboardFragment : ToolbarFragment() {
                                     }
                                 }
                                 DashboardMemory(dashboardVisible, connected, ui.mode)
-                            } else if (!dashboardVisible) {
-                                // Remove live tabs from composition while paused.
                             } else if (tab == 2) {
                                 DashboardLiveProxies(connected)
                             } else if (tab == 3) {
@@ -229,7 +240,7 @@ private fun DashboardMemory(visible: Boolean, connected: Boolean, mode: String) 
     var expanded by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(visible, connected, mode, expanded) {
         while (visible) {
-            sample = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            sample = kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
                 val info = android.os.Debug.MemoryInfo()
                 android.os.Debug.getMemoryInfo(info)
                 val runtime = Runtime.getRuntime()
