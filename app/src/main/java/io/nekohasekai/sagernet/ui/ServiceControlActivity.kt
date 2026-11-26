@@ -13,6 +13,10 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.nekohasekai.sagernet.R
+import io.nekohasekai.sagernet.Key
+import io.nekohasekai.sagernet.SagerNet
+import io.nekohasekai.sagernet.bg.BaseService
+import kotlinx.coroutines.delay
 import io.nekohasekai.sagernet.bg.root.ServiceControl
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ui.compose.HubTheme
@@ -31,6 +35,16 @@ class ServiceControlActivity : ThemedActivity() {
 private fun ServiceControlScreen(close: () -> Unit) {
     val store = DataStore.configurationStore
     var revision by remember { mutableStateOf(0) }
+    var serviceState by remember { mutableStateOf(DataStore.serviceState) }
+    var rootMode by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            serviceState = DataStore.serviceState
+            rootMode = DataStore.serviceMode in listOf(Key.MODE_ROOT_TUN, Key.MODE_ROOT_TPROXY,
+                Key.MODE_ROOT_TUN2SOCKS, Key.MODE_ROOT_BPF2SOCKS)
+            delay(500)
+        }
+    }
     fun enabled(key: String): Boolean {
         revision
         return store.getBoolean(key, false)
@@ -42,6 +56,21 @@ private fun ServiceControlScreen(close: () -> Unit) {
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (rootMode && serviceState.started) ControlCard {
+                Text(stringResource(R.string.need_reload), style = MaterialTheme.typography.bodyMedium)
+                FilledTonalButton(
+                    enabled = serviceState == BaseService.State.Connected,
+                    onClick = {
+                        if (DataStore.serviceState == BaseService.State.Connected &&
+                            DataStore.serviceMode in listOf(Key.MODE_ROOT_TUN, Key.MODE_ROOT_TPROXY,
+                                Key.MODE_ROOT_TUN2SOCKS, Key.MODE_ROOT_BPF2SOCKS)) {
+                            SagerNet.reloadService()
+                            serviceState = BaseService.State.Connecting
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(stringResource(R.string.apply)) }
+            }
             ControlCard {
                 ControlSwitch(stringResource(R.string.sc_enable), master, true, stringResource(R.string.sc_enable_sum)) {
                     store.putBoolean("scEnabled", it); revision++
