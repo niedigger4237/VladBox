@@ -546,6 +546,7 @@ SOURCES=$(cd "$SRC" && find . -name '*.c' -not -path './.git/*' | LC_ALL=C sort)
 # remains gated until owned listener, conntrack and crash recovery are wired.
 # The backend includes gateway_journal.c: durable checkpoint before firewall mutation.
 # Recovery includes the existing backend; compile once, not both units.
+# Same-boot pre-core recovery requires the durable spawn-intent checkpoint.
 HEV_GATEWAY_BACKEND="$ROOT/buildScript/experiments/hev-gateway-dns/gateway_recovery.c"
 
 build() { # abi cc-prefix
