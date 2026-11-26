@@ -2,6 +2,7 @@ package libcore
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"path/filepath"
 )
@@ -65,6 +66,9 @@ func NewManagedDnsCacheInstance(config string, localTransport LocalDNSTransport,
 	instance, err := NewSingBoxInstance(string(effective), localTransport)
 	if err != nil {
 		return nil, err
+	}
+	if instance == nil {
+		return nil, errors.New("managed DNS core was not created")
 	}
 	instance.managedDNSCacheLease = lease
 	attached = true

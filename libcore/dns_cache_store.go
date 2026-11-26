@@ -52,6 +52,17 @@ func readManagedScope(path string) (string, error) {
 	return string(content), err
 }
 
+// Persist directory entry changes before a new scope can start writing DNS
+// answers; a reboot must not restore the previous scope marker over new data.
+func syncManagedCacheDirectory(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
+}
+
 // Returns a lease held until core close, or nil for memory/clear operations.
 // Empty scope clears the reserved database. Never removes a locked DB.
 func prepareManagedDNSCache(dir, scope string) (lease *os.File, err error) {
@@ -117,6 +128,9 @@ func prepareManagedDNSCache(dir, scope string) (lease *os.File, err error) {
 		if err = os.Remove(scopePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
+		if err = syncManagedCacheDirectory(dir); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	}
 	// Precreate with 0600, even though sing-box defaults to 0666 before umask.
@@ -152,6 +166,9 @@ func prepareManagedDNSCache(dir, scope string) (lease *os.File, err error) {
 		if err = os.Rename(tmp, scopePath); err != nil {
 			return nil, err
 		}
+	}
+	if err = syncManagedCacheDirectory(dir); err != nil {
+		return nil, err
 	}
 	return lock, nil
 }
