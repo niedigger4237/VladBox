@@ -1300,3 +1300,38 @@ and empty snapshots. These are isolated checks, not a full linked
 supervisor test or actual pause/resume on Android. New assertions
 in NF_RUNTIME_SESSION_HOST_TEST were not executed in this turn.
 Full NDK/APK and full patched-branch link remain unverified.
+
+## Start on Boot: staged HEV exact-downstream template
+
+The existing autonomous boot monitor is reused for a future explicit
+nfHevGatewayDnsPort configuration. RootBoot.publish validates the HEV
+base with an empty downstream array, native opt-in and Service Control
+disabled. The daemon template must be structurally identical except
+for the runtime core path and exact downstream placeholder. Only then
+does publication append gateway 1 to the policy and copy the daemon
+template before arming the boot marker. Normal boot configurations are
+unchanged. RootDaemon does not emit this opt-in or template yet.
+
+The monitor waits for two matching Android tether observations, renders
+only validated names from the current snapshot (unique nonzero uint32
+ifindices, no wildcard/internal names, at most 16 links), and uses the
+existing shutdown/status/restart transaction under the handoff lock.
+The HEV core JSON is unchanged; no ROOT TUN forwarding rules are
+installed or removed by this branch. After shutdown, discovery must
+still match the rendered snapshot, otherwise launch the known-empty
+base and retain attempted software IPv6 guards until reclassification.
+A failed native stop or unresolved WAL prevents replacement. The
+monitor does not authorize conntrack deletion. A busy or unreadable
+conntrack table can still block a restart; no seamless boot refresh
+or recovery of a failed boot service is claimed. Combined Service
+Control and gateway boot is intentionally not armed by this stage.
+
+Validation: the exact new renderer was extracted into a local shell
+harness, passed sh -n and 24 cases for empty/valid selections, invalid
+names, duplicate interfaces/ifindices, bounds and missing/repeated
+placeholders. Committed test_boot_template.py exercises the complete
+monitor through --render-hev; that repository test, full monitor
+syntax check, Kotlin compilation, full NDK/APK build and Android
+boot/restart behavior have not been run in this turn. No live device
+changes. Next: app-side config generation and a full integration
+build, before user-facing activation.
