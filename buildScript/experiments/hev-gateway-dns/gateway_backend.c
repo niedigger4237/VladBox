@@ -145,6 +145,9 @@ static bool nf_native_available(const struct asteriskd_system_supervisor *s) {
     return s && !s->rule_commands.active && !s->verify_private_rules &&
         s->rule_snapshot.phase == SYSTEM_RULE_SNAPSHOT_NONE && !s->action_spawned;
 }
+#include <errno.h>
+#include "gateway_mark_audit.c"
+extern int nf_gateway_ct_candidate_available(uint32_t mark,uint32_t mask,uint16_t port);
 static void nf_native_clear(struct nf_native_slot *slot) {
     for (size_t i=0;i<2;i++) {
         asteriskd_byte_buffer_destroy(&slot->expected[i]);
@@ -339,6 +342,9 @@ int nf_gateway_native_step(void *opaque,enum nf_step op,unsigned port,uint64_t e
             if(capability<0)return -1;
             b->ipv6_nat_disabled=capability==1;
         }
+        if(b->session_mask && (nf_gateway_native_audit_mark(b->system,b->session_mask) ||
+            nf_gateway_ct_candidate_available(b->session_mark,b->session_mask,port) ||
+            nf_native_mark_recheck(b)))return -1;
         int rc=b->lifecycle_operations.step(b->lifecycle_operations.ctx,op,port,epoch);
         if(!rc && b->wal_ready && !b->wal.debts && !b->wal.epoch &&
            b->wal.port==port && !b->guard.owned && !b->nat.owned) b->precore_certified=true;
@@ -437,6 +443,18 @@ int main(void) {
     BTEST(!nf_nat6_missing(0,3,true,0,missing,strlen(missing)));
     BTEST(!nf_nat6_missing(0,3,false,1,missing,strlen(missing)));
     BTEST(!nf_nat6_missing(0,3,false,0,missing,strlen(missing)-1));
+    char audit1[]="-A X -j CONNMARK --save-mark --nfmask 0xfffff --ctmask 0xfffff";
+    char audit2[]="-A X -j CONNMARK --save-mark --nfmask 0x800000 --ctmask 0xfffff";
+    char audit3[]="-A X -j MARK --set-xmark 0x800000/0x800000";
+    char audit4[]="-A X -j CONNMARK --unknown";
+    BTEST(nf_audit_rule(audit1,0x800000)==0);
+    BTEST(nf_audit_rule(audit2,0x800000)==1);
+    BTEST(nf_audit_rule(audit3,0x800000)==0);
+    BTEST(nf_audit_rule(audit4,0x800000)<0);
+    const char *save="*filter\n:INPUT ACCEPT [0:0]\nCOMMIT\n*mangle\nCOMMIT\n*raw\nCOMMIT\n";
+    BTEST(nf_audit_save(save,strlen(save),0x800000,true)==0);
+    BTEST(nf_audit_save(save,strlen(save),0x800000,false)<0);
+    BTEST(nf_audit_save(save,strlen(save)-1,0x800000,true)<0);
     free(slot);free(s);
     printf("PASS %u backend checks\n",backend_checks);return 0;
 }
