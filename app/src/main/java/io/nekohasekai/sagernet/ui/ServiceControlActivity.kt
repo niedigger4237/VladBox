@@ -18,6 +18,9 @@ import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.bg.BaseService
 import kotlinx.coroutines.delay
 import io.nekohasekai.sagernet.bg.root.ServiceControl
+import io.nekohasekai.sagernet.bg.root.RootDaemon
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ui.compose.HubTheme
 
@@ -45,6 +48,16 @@ private fun ServiceControlScreen(close: () -> Unit) {
             delay(500)
         }
     }
+    var daemonPhase by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(rootMode, serviceState) {
+        daemonPhase = null
+        if (rootMode && serviceState == BaseService.State.Connected) {
+            while (true) {
+                daemonPhase = withContext(Dispatchers.IO) { RootDaemon.phase() }
+                delay(3000)
+            }
+        }
+    }
     fun enabled(key: String): Boolean {
         revision
         return store.getBoolean(key, false)
@@ -56,6 +69,18 @@ private fun ServiceControlScreen(close: () -> Unit) {
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (rootMode && serviceState.started) ControlCard {
+                Text("Supervisor status", style = MaterialTheme.typography.titleLarge)
+                Text(when (daemonPhase) {
+                    "running" -> "Traffic active"
+                    "paused" -> "Traffic paused • automation remains available"
+                    "stopped" -> "Traffic stopped • waiting for a configured event if supervisor is active"
+                    "failed" -> "Supervisor reported a failure"
+                    "starting", "validating", "acquiring", "applying-rules" -> "Starting traffic"
+                    "stopping" -> "Stopping traffic"
+                    else -> "Supervisor status unavailable"
+                }, style = MaterialTheme.typography.bodyMedium)
+            }
             if (rootMode && serviceState.started) ControlCard {
                 Text(stringResource(R.string.need_reload), style = MaterialTheme.typography.bodyMedium)
                 FilledTonalButton(
