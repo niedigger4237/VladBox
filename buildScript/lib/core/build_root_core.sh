@@ -14,7 +14,9 @@ TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
 # Verify the actual module selected by Go and its serialized ClientHello.
 bash "$ROOT/libcore/verify_utls.sh" "$SB"
-( cd "$SB" && GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" CGO_ENABLED=1 go test -count=1 -tags "$TAGS" -run '^TestNieFiggerFirefoxFingerprint$' -v ./common/tls )
+( cd "$SB" && GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" CGO_ENABLED=1 go test -count=1 -tags "$TAGS" -run '^TestNieFigger(FirefoxFingerprint|RealityHybridOffer|RealityHybridRequiredRejectsUnsupportedFingerprint|RealityMldsa65)$' -v ./common/tls )
+( cd "$SB" && GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" CGO_ENABLED=1 go test -count=1 -run '^TestNieFiggerVlessRecordBounds$' -v ./protocol/vless/encryption )
+( cd "$SB" && GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" CGO_ENABLED=1 go test -count=1 -tags "$TAGS" -run '^TestNieFiggerXHTTPAutoMode$' -v ./transport/v2rayxhttp )
 
 # Exercise the host-side wire codec and relay generation table before packaging
 # an experimental native core. This is not an Android device stress test.

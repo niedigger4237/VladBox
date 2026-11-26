@@ -1,6 +1,8 @@
 package io.nekohasekai.sagernet.database
 
 import android.database.sqlite.SQLiteCantOpenDatabaseException
+import io.nekohasekai.sagernet.fmt.internal.ChainBean
+import io.nekohasekai.sagernet.fmt.v2ray.XrayJsonImport
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.aidl.TrafficData
 import io.nekohasekai.sagernet.fmt.AbstractBean
@@ -83,6 +85,42 @@ object ProfileManager {
         profile.id = SagerDatabase.proxyDao.addProxy(profile)
         iterator { onAdd(profile) }
         return profile
+    }
+
+    /** Insert chain members and resolve their actual database IDs atomically.
+     * Use identity, not AbstractBean.equals (which ignores profile names).
+     * Do not notify UI listeners until the transaction has committed.
+     */
+    suspend fun createImportedChains(
+        groupId: Long, beans: List<AbstractBean>, chains: List<XrayJsonImport.ImportedChain>
+    ) {
+        val group = SagerDatabase.groupDao.getById(groupId) ?: error("Import group not found")
+        require(group.frontProxy <= 0L && group.landingProxy <= 0L) {
+            "Import Xray chains into a group without front or landing proxies"
+        }
+        val ids = java.util.IdentityHashMap<AbstractBean, Long>()
+        val created = ArrayList<ProxyEntity>()
+        SagerDatabase.instance.runInTransaction {
+            fun insert(bean: AbstractBean): ProxyEntity {
+                bean.applyDefaultValues()
+                val entity = ProxyEntity(groupId = groupId).apply {
+                    putBean(bean)
+                    userOrder = SagerDatabase.proxyDao.nextOrder(groupId) ?: 1
+                }
+                entity.id = SagerDatabase.proxyDao.addProxy(entity)
+                created.add(entity)
+                return entity
+            }
+            for (bean in beans) ids[bean] = insert(bean).id
+            for (chain in chains) {
+                require(chain.hops.size >= 2) { "Incomplete imported Xray chain" }
+                insert(ChainBean().apply {
+                    name = chain.name
+                    proxies = chain.hops.map { ids[it] ?: error("Missing imported Xray hop") }
+                })
+            }
+        }
+        for (entity in created) iterator { onAdd(entity) }
     }
 
     suspend fun updateProfile(profile: ProxyEntity) {

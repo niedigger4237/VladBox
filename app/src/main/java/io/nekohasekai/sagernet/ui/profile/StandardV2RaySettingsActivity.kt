@@ -48,6 +48,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
     private val utlsFingerprint = pbm.add(PreferenceBinding(Type.Text, "utlsFingerprint"))
     private val realityPubKey = pbm.add(PreferenceBinding(Type.Text, "realityPubKey"))
     private val realityShortId = pbm.add(PreferenceBinding(Type.Text, "realityShortId"))
+    private val realityMldsa65Verify = pbm.add(PreferenceBinding(Type.Text, "realityMldsa65Verify"))
 
     private val enableECH = pbm.add(PreferenceBinding(Type.Bool, "enableECH"))
     private val echConfig = pbm.add(PreferenceBinding(Type.Text, "echConfig"))
@@ -82,7 +83,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
     private val tlsClientCertificate = pbm.add(PreferenceBinding(Type.Text, "tlsClientCertificate"))
     private val tlsClientKey = pbm.add(PreferenceBinding(Type.Text, "tlsClientKey"))
     private val echQueryName = pbm.add(PreferenceBinding(Type.Text, "echQueryName"))
-    private val realityHybrid = pbm.add(PreferenceBinding(Type.Bool, "realityHybrid"))
+    private val realityHybrid = pbm.add(PreferenceBinding(Type.Text, "realityHybridMode"))
     private val vlessEncryption = pbm.add(PreferenceBinding(Type.Text, "vlessEncryption"))
     private val vlessNetwork = pbm.add(PreferenceBinding(Type.Text, "vlessNetwork"))
     private val kcpMtu = pbm.add(PreferenceBinding(Type.Text, "kcpMtu"))
@@ -128,6 +129,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
             this@StandardV2RaySettingsActivity.password.disable = true
         }
         pbm.fromCacheAll(this)
+        this.realityHybrid = effectiveRealityHybridMode() != "disabled"
         if (this is HttpBean) httpExtra.fromCacheAll(this)
     }
 
@@ -502,6 +504,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
         tlsClientKey.preference.isVisible = isTLS
         echQueryName.preference.isVisible = isTLS
         realityHybrid.preference.isVisible = isTLS
+        realityMldsa65Verify.preference.isVisible = isTLS
         tlsSpoof.preference.isVisible = isTLS
         tlsSpoofMethod.preference.isVisible = isTLS
         tlsKernelTx.preference.isVisible = isTLS

@@ -61,6 +61,7 @@ import io.nekohasekai.sagernet.database.preference.OnPreferenceDataStoreChangeLi
 import io.nekohasekai.sagernet.databinding.LayoutProfileListBinding
 import io.nekohasekai.sagernet.databinding.LayoutProgressListBinding
 import io.nekohasekai.sagernet.fmt.AbstractBean
+import io.nekohasekai.sagernet.fmt.v2ray.XrayJsonImport
 import io.nekohasekai.sagernet.fmt.toUniversalLink
 import io.nekohasekai.sagernet.group.GroupUpdater
 import io.nekohasekai.sagernet.group.RawUpdater
@@ -307,67 +308,87 @@ class ConfigurationFragment @JvmOverloads constructor(
         return super.onKeyDown(ketCode, event)
     }
 
+    // Imports may finish after navigation or Activity recreation. Never call
+    // requireActivity/requireContext from their asynchronous result handlers.
+    private fun showImportMessage(message: CharSequence) {
+        val host = activity as? MainActivity
+        if (isAdded && view != null && host != null && !host.isFinishing && !host.isDestroyed) {
+            host.snackbar(message).show()
+        } else {
+            android.widget.Toast.makeText(app, message, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
     private val importFile =
         registerForActivityResult(ActivityResultContracts.GetContent()) { file ->
-            if (file != null) runOnDefaultDispatcher {
-                try {
-                    val fileName =
-                        requireContext().contentResolver.query(file, null, null, null, null)
-                            ?.use { cursor ->
-                                cursor.moveToFirst()
-                                cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME)
-                                    .let(cursor::getString)
-                            }
-                    val proxies = mutableListOf<AbstractBean>()
-                    if (fileName != null && fileName.endsWith(".zip")) {
-                        // try parse wireguard zip
-                        val zip =
-                            ZipInputStream(requireContext().contentResolver.openInputStream(file)!!)
-                        while (true) {
-                            val entry = zip.nextEntry ?: break
-                            if (entry.isDirectory) continue
-                            val fileText = zip.bufferedReader().readText()
-                            RawUpdater.parseRaw(fileText, entry.name)
-                                ?.let { pl -> proxies.addAll(pl) }
-                            zip.closeEntry()
+            if (file != null) {
+                // Capture a resolver while the picker result is delivered.
+                val resolver = app.contentResolver
+                runOnDefaultDispatcher {
+                    try {
+                        val fileName = resolver.query(file, null, null, null, null)?.use { cursor ->
+                            if (cursor.moveToFirst()) {
+                                val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                                if (column >= 0) cursor.getString(column) else null
+                            } else null
                         }
-                        zip.closeQuietly()
-                    } else {
-                        val fileText =
-                            requireContext().contentResolver.openInputStream(file)!!.use {
+                        val proxies = mutableListOf<AbstractBean>()
+                        var xrayProfiles = false
+                        val xrayChains = mutableListOf<XrayJsonImport.ImportedChain>()
+                        if (fileName?.endsWith(".zip", ignoreCase = true) == true) {
+                            ZipInputStream(requireNotNull(resolver.openInputStream(file))).use { zip ->
+                                while (true) {
+                                    val entry = zip.nextEntry ?: break
+                                    try {
+                                        if (!entry.isDirectory) {
+                                            val fileText = zip.bufferedReader().readText()
+                                            RawUpdater.parseRaw(fileText, entry.name, { xrayChains.addAll(it) }) { xrayProfiles = true }
+                                                ?.let { proxies.addAll(it) }
+                                        }
+                                    } finally {
+                                        zip.closeEntry()
+                                    }
+                                }
+                            }
+                        } else {
+                            val fileText = requireNotNull(resolver.openInputStream(file)).use {
                                 it.bufferedReader().readText()
                             }
-                        RawUpdater.parseRaw(fileText, fileName ?: "")
-                            ?.let { pl -> proxies.addAll(pl) }
-                    }
-                    if (proxies.isEmpty()) onMainDispatcher {
-                        snackbar(getString(R.string.no_proxies_found_in_file)).show()
-                    } else import(proxies)
-                } catch (e: SubscriptionFoundException) {
-                    (requireActivity() as MainActivity).importSubscription(e.link.toUri())
-                } catch (e: Exception) {
-                    Logs.w(e)
-                    onMainDispatcher {
-                        snackbar(e.readableMessage).show()
+                            RawUpdater.parseRaw(fileText, fileName ?: "", { xrayChains.addAll(it) }) { xrayProfiles = true }
+                                ?.let { proxies.addAll(it) }
+                        }
+                        if (proxies.isEmpty()) onMainDispatcher {
+                            showImportMessage(app.getString(R.string.no_proxies_found_in_file))
+                        } else import(proxies, xrayProfiles, xrayChains)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: SubscriptionFoundException) {
+                        onMainDispatcher {
+                            (activity as? MainActivity)?.takeUnless { it.isFinishing || it.isDestroyed }?.importSubscription(e.link.toUri())
+                        }
+                    } catch (e: Exception) {
+                        Logs.w(e)
+                        onMainDispatcher {
+                            showImportMessage(e.readableMessage)
+                        }
                     }
                 }
             }
         }
 
-    suspend fun import(proxies: List<AbstractBean>) {
+    suspend fun import(proxies: List<AbstractBean>, xrayProfiles: Boolean = false, xrayChains: List<XrayJsonImport.ImportedChain> = emptyList()) {
         val targetId = DataStore.selectedGroupForImport()
-        for (proxy in proxies) {
-            ProfileManager.createProfile(targetId, proxy)
+        if (xrayChains.isNotEmpty()) {
+            ProfileManager.createImportedChains(targetId, proxies, xrayChains)
+        } else {
+            for (proxy in proxies) ProfileManager.createProfile(targetId, proxy)
         }
         onMainDispatcher {
             DataStore.editingGroup = targetId
-            snackbar(
-                requireContext().resources.getQuantityString(
-                    R.plurals.added, proxies.size, proxies.size
-                )
-            ).show()
+            val count = proxies.size + xrayChains.size
+            val added = app.resources.getQuantityString(R.plurals.added, count, count)
+            showImportMessage(if (xrayProfiles) "$added. ${app.getString(R.string.xray_import_profiles_only)}" else added)
         }
-
     }
 
     override fun onMenuItemClick(item: MenuItem): Boolean = onProfileAction(item.itemId)
@@ -399,17 +420,22 @@ class ConfigurationFragment @JvmOverloads constructor(
                     snackbar(getString(R.string.clipboard_empty)).show()
                 } else runOnDefaultDispatcher {
                     try {
-                        val proxies = RawUpdater.parseRaw(text)
+                        var xrayProfiles = false
+                        val xrayChains = mutableListOf<XrayJsonImport.ImportedChain>()
+                        val proxies = RawUpdater.parseRaw(text, onXrayChains = { xrayChains.addAll(it) }) { xrayProfiles = true }
                         if (proxies.isNullOrEmpty()) onMainDispatcher {
-                            snackbar(getString(R.string.no_proxies_found_in_clipboard)).show()
-                        } else import(proxies)
+                            showImportMessage(app.getString(R.string.no_proxies_found_in_clipboard))
+                        } else import(proxies, xrayProfiles, xrayChains)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: SubscriptionFoundException) {
-                        (requireActivity() as MainActivity).importSubscription(e.link.toUri())
+                        onMainDispatcher {
+                            (activity as? MainActivity)?.takeUnless { it.isFinishing || it.isDestroyed }?.importSubscription(e.link.toUri())
+                        }
                     } catch (e: Exception) {
                         Logs.w(e)
-
                         onMainDispatcher {
-                            snackbar(e.readableMessage).show()
+                            showImportMessage(e.readableMessage)
                         }
                     }
                 }

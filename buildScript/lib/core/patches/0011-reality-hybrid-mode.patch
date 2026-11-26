@@ -1,0 +1,82 @@
+diff --git a/option/tls.go b/option/tls.go
+--- a/option/tls.go
++++ b/option/tls.go
+@@ -253,5 +253,6 @@
+ 	Enabled               bool   `json:"enabled,omitempty"`
+ 	PublicKey             string `json:"public_key,omitempty"`
+ 	ShortID               string `json:"short_id,omitempty"`
+-	SupportX25519MLKEM768 bool   `json:"support_x25519mlkem768,omitempty"`
++	SupportX25519MLKEM768 bool   `json:"support_x25519mlkem768,omitempty"`
++	RequireX25519MLKEM768 bool   `json:"require_x25519mlkem768,omitempty"`
+ }
+diff --git a/common/tls/reality_client.go b/common/tls/reality_client.go
+--- a/common/tls/reality_client.go
++++ b/common/tls/reality_client.go
+@@ -49,7 +49,8 @@
+ 	uClient               *UTLSClientConfig
+ 	publicKey             []byte
+ 	shortID               [8]byte
+-	supportX25519MLKEM768 bool
++	supportX25519MLKEM768 bool
++	requireX25519MLKEM768 bool
+ }
+ 
+ func NewRealityClient(ctx context.Context, logger logger.ContextLogger, serverAddress string, options option.OutboundTLSOptions) (Config, error) {
+@@ -85,7 +86,7 @@
+ 		return nil, E.New("invalid short_id")
+ 	}
+ 
+-	var config Config = &RealityClientConfig{ctx, uClient.(*UTLSClientConfig), publicKey, shortID, options.Reality.SupportX25519MLKEM768}
++	var config Config = &RealityClientConfig{ctx, uClient.(*UTLSClientConfig), publicKey, shortID, options.Reality.SupportX25519MLKEM768 || options.Reality.RequireX25519MLKEM768, options.Reality.RequireX25519MLKEM768}
+ 	if options.KernelRx || options.KernelTx {
+ 		if !C.IsLinux {
+ 			return nil, E.New("kTLS is only supported on Linux")
+@@ -165,7 +166,23 @@
+ 		}
+ 	}
+ 
+-	if len(uConfig.NextProtos) > 0 {
++	if e.requireX25519MLKEM768 {
++		found := false
++		for _, extension := range uConn.Extensions {
++			if ks, ok := extension.(*utls.KeyShareExtension); ok {
++				for _, share := range ks.KeyShares {
++					if share.Group == utls.X25519MLKEM768 {
++						found = true
++					}
++				}
++			}
++		}
++		if !found {
++			return nil, E.New("REALITY: fingerprint does not offer X25519MLKEM768; select Automatic or a compatible fingerprint")
++		}
++	}
++
++	if len(uConfig.NextProtos) > 0 {
+ 		for _, extension := range uConn.Extensions {
+ 			if alpnExtension, isALPN := extension.(*utls.ALPNExtension); isALPN {
+ 				alpnExtension.AlpnProtocols = uConfig.NextProtos
+@@ -202,8 +219,11 @@
+ 	if keyShareKeys == nil {
+ 		return nil, E.New("nil KeyShareKeys")
+ 	}
+-	ecdheKey := keyShareKeys.Ecdhe
+-	if ecdheKey == nil {
++	ecdheKey := keyShareKeys.Ecdhe
++	if ecdheKey == nil && e.supportX25519MLKEM768 {
++		ecdheKey = keyShareKeys.MlkemEcdhe
++	}
++	if ecdheKey == nil {
+ 		return nil, E.New("nil ecdheKey")
+ 	}
+ 	authKey, err := ecdheKey.ECDH(publicKey)
+@@ -274,7 +294,8 @@
+ 		e.uClient.Clone().(*UTLSClientConfig),
+ 		e.publicKey,
+ 		e.shortID,
+-		e.supportX25519MLKEM768,
++		e.supportX25519MLKEM768,
++		e.requireX25519MLKEM768,
+ 	}
+ }
+ 

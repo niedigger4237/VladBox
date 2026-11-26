@@ -591,4 +591,10 @@
         <item>port</item>
         <item>off</item>
     </string-array>
+    <string-array name="reality_hybrid_entries">
+        <item>Automatic</item><item>Enabled</item><item>Disabled</item>
+    </string-array>
+    <string-array name="reality_hybrid_values" translatable="false">
+        <item>auto</item><item>enabled</item><item>disabled</item>
+    </string-array>
 </resources>

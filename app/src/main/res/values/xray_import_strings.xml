@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xray_import_profiles_only">Xray outbounds imported as profiles. DNS, inbounds and routing are managed by the app. Xray socket domainStrategy and happyEyeballs are ignored.</string>
+</resources>

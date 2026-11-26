@@ -15,6 +15,7 @@ import io.nekohasekai.sagernet.fmt.trojan_go.parseTrojanGo
 import io.nekohasekai.sagernet.fmt.tuic.TuicBean
 import io.nekohasekai.sagernet.fmt.v2ray.StandardV2RayBean
 import io.nekohasekai.sagernet.fmt.v2ray.VMessBean
+import io.nekohasekai.sagernet.fmt.v2ray.XrayJsonImport
 import io.nekohasekai.sagernet.fmt.v2ray.isTLS
 import io.nekohasekai.sagernet.fmt.v2ray.setTLS
 import io.nekohasekai.sagernet.fmt.wireguard.WireGuardBean
@@ -224,9 +225,15 @@ object RawUpdater : GroupUpdater() {
     }
 
     @Suppress("UNCHECKED_CAST")
-    suspend fun parseRaw(text: String, fileName: String = ""): List<AbstractBean>? {
+    suspend fun parseRaw(text: String, fileName: String = "", onXrayChains: ((List<XrayJsonImport.ImportedChain>) -> Unit)? = null, onXrayProfiles: (() -> Unit)? = null): List<AbstractBean>? {
 
         val proxies = mutableListOf<AbstractBean>()
+
+        // Detect Xray before generic JSON/YAML and preserve its validation errors.
+        val jsonCandidate = runCatching { JSONTokener(text.trim().removePrefix("\uFEFF")).nextValue() }.getOrNull()
+        if (XrayJsonImport.recognizes(jsonCandidate)) {
+            return XrayJsonImport.parse(requireNotNull(jsonCandidate), fileName, onXrayChains).also { onXrayProfiles?.invoke() }
+        }
 
         if (text.contains("proxies:")) {
 
@@ -379,6 +386,9 @@ object RawUpdater : GroupUpdater() {
 
                                                 "short-id" -> bean.realityShortId =
                                                     realityOpt.value?.toString()
+
+                                                "mldsa65-verify", "mldsa65Verify", "mldsa65_verify", "pqv" -> bean.realityMldsa65Verify =
+                                                    io.nekohasekai.sagernet.fmt.v2ray.validateRealityMldsa65(realityOpt.value?.toString().orEmpty())
                                             }
                                         }
                                     }
@@ -777,6 +787,7 @@ object RawUpdater : GroupUpdater() {
     }
 
     fun parseJSON(json: Any): List<AbstractBean> {
+        if (XrayJsonImport.recognizes(json)) return XrayJsonImport.parse(json)
         val proxies = ArrayList<AbstractBean>()
 
         if (json is JSONObject) {

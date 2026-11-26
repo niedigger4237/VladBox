@@ -29,10 +29,15 @@ for p in "$PATCH_DIR"/*.patch; do
 done
 popd
 
-####  uTLS Firefox 148 (sing-box-lx SPEC 086)
-# Keep the metacubex module path and pin the reviewed fork revision.
+####  MetaCubeX uTLS upstream (Firefox 148, Safari 26.3)
+# Keep the existing local directory name for libcore and ROOT build compatibility.
 if [ ! -d "utls-lx/.git" ]; then
   git clone --no-checkout "$UTLS_REPO" utls-lx
+else
+  git -C utls-lx remote set-url origin "$UTLS_REPO"
+fi
+if ! git -C utls-lx cat-file -e "$UTLS_COMMIT^{commit}" 2>/dev/null; then
+  git -C utls-lx fetch --no-tags origin "$UTLS_COMMIT"
 fi
 git -C utls-lx checkout --detach "$UTLS_COMMIT"
 [ "$(git -C utls-lx rev-parse HEAD)" = "$UTLS_COMMIT" ]
@@ -40,6 +45,10 @@ git -C utls-lx checkout --detach "$UTLS_COMMIT"
 (cd sing-box && go mod edit -replace=github.com/metacubex/utls=../utls-lx)
 # Verify the production fingerprint resolver during ROOT validation.
 cp "$ROOT/libcore/testdata/firefox_mapping_test.go" sing-box/common/tls/niefigger_firefox_mapping_test.go
+cp "$ROOT/libcore/testdata/reality_hybrid_test.go" sing-box/common/tls/niefigger_reality_hybrid_test.go
+cp "$ROOT/libcore/testdata/reality_mldsa_test.go" sing-box/common/tls/niefigger_reality_mldsa_test.go
+cp "$ROOT/libcore/testdata/vless_record_test.go" sing-box/protocol/vless/encryption/niefigger_record_test.go
+cp "$ROOT/libcore/testdata/xhttp_auto_test.go" sing-box/transport/v2rayxhttp/niefigger_auto_test.go
 
 ####  libneko
 
