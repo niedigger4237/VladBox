@@ -61,7 +61,7 @@ class ServiceControlActivity : ThemedActivity() {
                     true
                 }
             }
-            for (k in listOf("scEnabled", "scSchedule", "scWifi", "scKeyguard")) {
+            for (k in listOf("scEnabled", "scSchedule", "scWifi", "scKeyguard", "scMonitorOnly")) {
                 findPreference<SwitchPreference>(k)!!.setOnPreferenceChangeListener { _, _ ->
                     changed()
                     true

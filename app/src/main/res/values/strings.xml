@@ -732,4 +732,6 @@
     <string name="sc_invalid_ssid">SSID must be 1–32 UTF-8 bytes. Maximum 64 entries.</string>
     <string name="sc_invalid_bssid">Invalid BSSID. Enter up to 64 MAC addresses.</string>
     <string name="sc_waiting">Waiting for conditions</string>
+    <string name="sc_monitor_only">Wait for a start condition</string>
+    <string name="sc_monitor_only_sum">Arm ROOT without connecting on manual start. Requires at least one valid start rule. The power button disarms the monitor. Tethering IPv6 protection stays active if configured.</string>
 </resources>
