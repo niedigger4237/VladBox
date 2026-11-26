@@ -764,3 +764,44 @@ does not constitute active gateway hijacking or recovery of running
 sessions. Next work must implement actual durable child/flow provenance,
 or choose an alternative design that avoids the shared conntrack problem,
 then wire runtime call sites and validate on Android.
+
+## Same-boot recovery after verified core exit, before redirect publication
+
+The NFFW01 payload now optionally contains an explicit, fixed-width
+32-byte core identity extension (flag byte 7 = 2). It records PID, process
+group, start ticks, executable device and inode. NF_CORE_READY first calls
+the real lifecycle backend, then revalidates the upstream supervisor's
+recorded child against its actual process identity and argv specification.
+It commits the evidence before permitting guard opening or NAT install.
+A failed checkpoint is not treated as successful readiness. A crash before
+identity publication still has ambiguous spawn debt and is fenced.
+
+The existing startup reconciliation can now recover a same-boot journal
+with verified core identity and only closed INPUT guard/core debt, before
+any NAT/conntrack debt or downstream epoch was acquired. The recorded PID
+and whole process group must be absent (signal 0 returns ESRCH) and the
+TCP/UDP listener port must be absent in two procfs observations. Checks
+are repeated after guard removal. It does not signal a live or reused
+PID, delete conntrack entries, or remove a guard based on an incomplete
+process identity. A live core, occupied port, failed inspection, open
+guard image or NAT/flow debt blocks this recovery path. The port check is
+not an atomic reservation or a proof against concurrent external writers.
+Old journal formats remain readable but do not authorize post-core cleanup.
+
+Local host validation against the pinned source with the previously
+applied admission/IPv6 changes: 32 post-core recovery, 28 pre-core, 31
+reboot, 32 recovery reader, 27 admission, 26 backend and 29 socket
+assertions (205 total). The post-core test creates an actual independent
+session child (/bin/sleep as a test double, not sing-box), reads its
+identity, persists it, confirms recovery refusal while alive and while
+the port is occupied, then tests recovery after exit with a simulated
+firewall removal callback. The changed C units compile with C17 -Wall
+-Wextra -Werror; full host link succeeded. Committed source hashes match
+the tested sources. Live Android iptables, actual sing-box readiness,
+full downstream Android NDK build and conntrack are not validated.
+
+This is not recovery of an active redirect session. A durable identity
+alone cannot prove provenance or absence of redirected conntrack flows.
+Before enabling gateway capture, resolve flow ownership and drain,
+wire real lifecycle callbacks and verify the resulting build and behavior
+on Android. Do not advertise full same-boot recovery yet.
