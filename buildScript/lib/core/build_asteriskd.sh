@@ -550,7 +550,7 @@ SOURCES=$(cd "$SRC" && find . -name '*.c' -not -path './.git/*' | LC_ALL=C sort)
 # Post-core recovery persists verified child identity and checks listener absence.
 # Active recovery closes the guard and waits for read-only conntrack drain.
 # Inventory also checks candidate connmark masks without allocating them.
-# Marked rule generation remains opt-in until mask ownership and WAL support are wired.
+# Marked gateway rules and WAL metadata are connected; live mark ownership remains unverified.
 HEV_GATEWAY_BACKEND="$ROOT/buildScript/experiments/hev-gateway-dns/gateway_recovery.c"
 
 build() { # abi cc-prefix
