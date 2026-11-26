@@ -98,6 +98,13 @@ int nf_gateway_socket_observe(struct asteriskd_system_supervisor *s,unsigned por
        nf_scan_tables(pid,port,&b) || !nf_same_sockets(&a,&b) || nf_owned_fds(pid,&b) || !nf_core_identity(s)) return -1;
     *families=b.families; return 0;
 }
+/* Used only during recovery of an exited process. No port reservation. */
+int nf_gateway_port_absent(unsigned port) {
+    struct nf_socket_observation a,b;
+    if(port<1024 || port>65535 || nf_scan_tables(getpid(),port,&a) || a.count ||
+       nf_scan_tables(getpid(),port,&b) || b.count)return -1;
+    return 0;
+}
 #ifdef NF_SOCKET_HOST_TEST
 #include <sys/wait.h>
 #include <sys/socket.h>
@@ -112,11 +119,11 @@ int main(void) {
     CHECK(!bind(u,(void*)&a,sizeof(a)));
     unsigned port=ntohs(a.sin_port); struct nf_socket_observation o,b;
     CHECK(!nf_scan_tables(getpid(),port,&o)); CHECK(o.families==(NF_TCP4|NF_UDP4) && o.count==2);
-    CHECK(!nf_owned_fds(getpid(),&o)); CHECK(!nf_scan_tables(getpid(),port,&b) && nf_same_sockets(&o,&b));
+    CHECK(!nf_owned_fds(getpid(),&o)); CHECK(nf_gateway_port_absent(port)!=0); CHECK(!nf_scan_tables(getpid(),port,&b) && nf_same_sockets(&o,&b));
     b.inode[0]=UINT64_MAX; CHECK(!nf_same_sockets(&o,&b));
     CHECK(nf_owned_fds(getpid(),&b)!=0);
     close(u); CHECK(!nf_scan_tables(getpid(),port,&b) && b.families==NF_TCP4 && !nf_same_sockets(&o,&b));
-    close(t); CHECK(!nf_scan_tables(getpid(),port,&b) && !b.count);
+    close(t); CHECK(!nf_scan_tables(getpid(),port,&b) && !b.count); CHECK(!nf_gateway_port_absent(port));
     int v=socket(AF_INET6,SOCK_STREAM,0); CHECK(v>=0);
     int only=1; CHECK(!setsockopt(v,IPPROTO_IPV6,IPV6_V6ONLY,&only,sizeof(only)));
     struct sockaddr_in6 a6={.sin6_family=AF_INET6};len=sizeof(a6);
