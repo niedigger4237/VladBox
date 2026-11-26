@@ -898,3 +898,35 @@ source and other gateway modules succeeded. The committed netlink blob
 matches the tested local file. Real GET/DUMP returned -1 in the host
 without CAP_NET_ADMIN. No Android NDK build, device mark audit, real
 conntrack deletion or gateway listener activation was performed.
+
+## Marked NAT and INPUT generator (not active)
+
+AOSP netd documents low 20 bits (0x000fffff) and strict flags
+0x01000000/0x02000000; the pinned asteriskd reserves 0x61000000.
+See https://android.googlesource.com/platform/system/netd/+/4875b7de3f4adf63a4f93364305fbc9d87a3b539%5E2..4875b7de3f4adf63a4f93364305fbc9d87a3b539/
+and current Controllers.cpp. Vendor kernels, modules and other mark
+writers may use additional bits. Older netd implementations may clear
+more bits when saving packet marks. No range is guaranteed free.
+
+The marked generator in native_gateway_dns.c restricts trial masks to
+0x00f00000, checks nonzero value/mask and subset, requires an independent
+exclusive-owner assertion, emits a masked CONNMARK --set-xmark for matching
+local DNS only when the mask is clear, then a REDIRECT requiring the exact
+mark, and a matching INPUT exception with the existing original-direction
+DNAT checks. The closed guard remains unconditional DROP. The masked SET
+preserves other bits in the single-operation formula, not a guarantee
+against concurrent read-modify-write races. Test masks are not device
+allocations. The previous unmarked caller and WAL grammar are unchanged.
+Do not call marked generation in production until a device audit, actual
+lifetime ownership, kernel target compatibility, persistence of mark/mask
+and recovery grammar are complete.
+
+Actual host tests: PASS 76 native generator checks (27 added), PASS 26
+backend, PASS 32 recovery, PASS 20 active recovery. The planner compiled
+with GCC C17 -Wall -Wextra -Werror and the full host link succeeded with
+the locally patched pinned source. The committed source blob matches
+the tested file (d2b1db7bdbd4936b43dc092267e55c6cf24bb16d).
+No real iptables, Android NDK or device mask audit was performed.
+Next: audit actual device CONNMARK writers and kernel support, persist
+the chosen mask, then wire marked rules and targeted DELETE. Gateway
+capture remains disabled.
