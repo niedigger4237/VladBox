@@ -1264,3 +1264,39 @@ link or Android build. Additional runtime host assertions were
 committed but the complete test unit was not executed. The native
 opt-in still is not emitted by the Android app. Service Control,
 boot integration and real marked ownership remain outstanding.
+
+## Service Control pause/resume integration
+
+The pinned upstream TUN2SOCKS service-control lifecycle already retains
+the owned core and helper while pausing traffic. Its pause invokes
+quiesce_traffic, which withdraws gateway NAT and closes INPUT; resume
+invokes apply_rules. No second service-control engine is needed.
+The gateway now preserves the last published exact downstream
+snapshot (including an empty selection) over a service-control pause.
+A new pre-apply hook runs on resume before installing upstream traffic
+rules. It requires the same downstream identities, closed verified
+guard, old NAT absent, old conntrack port mappings absent, verified
+core identity and required owned socket families. Publication repeats
+the identity check, and continues to compare the pre/post snapshots.
+The snapshot is discarded with the session, not persisted as a mark
+lease. Existing disabled sessions take the no-op path.
+
+Current limitation: the Android hot downstream request path is still
+disabled with Service Control enabled. Therefore a changed downstream
+or busy/unreadable conntrack on resume fails closed through the
+existing lifecycle error path; it is not automatically adopted and
+seamless resume is not guaranteed. There is no active conntrack DELETE
+or new mark authorization. The app still does not emit the native
+opt-in field. Boot and application config integration are outstanding.
+
+Validation in this turn: applied the two new service hook substitutions
+to the previously patched local pinned upstream supervisor_rules.c;
+GCC C17 -Wall -Wextra -Werror compilation passed. A separate C17
+harness of the new resume preflight with mocked external effects and
+the exact snapshot comparator passed 28 checks, covering no-op,
+missing session, matching and changed interfaces, closed guard,
+core, NAT, occupied and unreadable conntrack, required socket family
+and empty snapshots. These are isolated checks, not a full linked
+supervisor test or actual pause/resume on Android. New assertions
+in NF_RUNTIME_SESSION_HOST_TEST were not executed in this turn.
+Full NDK/APK and full patched-branch link remain unverified.
