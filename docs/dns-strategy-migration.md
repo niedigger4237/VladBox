@@ -540,3 +540,43 @@ coordinator assertions (47 fault positions). The host tests use real native
 parsers and queued command generation, but synthetic listings. No live
 iptables, Android NDK build, or device packet test was performed. Kernel
 normalization of listing syntax and competing netd changes remain unverified.
+
+## Strict HEV DNS listener observation
+
+The pinned upstream readiness implementation in process/process.c
+(process_listener_file_matches, system_context_listener_ready) searches a
+TCP port marker and explicitly does not verify socket ownership. The new
+gateway_socket.c is separate from that path and is linked by the native
+build. It re-reads the existing verified core identity (PID, process group,
+start-time ticks, executable device/inode and core spec/argv), reads all
+four /proc/<pid>/net TCP/UDP tables, requires wildcard listening addresses,
+and matches every relevant listener inode against /proc/<pid>/fd.
+It takes two socket observations and rejects changes or unreadable tables.
+TCP accepted connections and TIME_WAIT are not mistaken for listeners.
+It returns observed transport/family bits, NOT a boolean readiness claim.
+
+Host validation: PASS 27 socket checks, including actual TCP/UDP IPv4
+sockets, IPv6-only socket, loopback rejection, changed inode and missing
+transport, and a live foreign UDP socket owned by a different process.
+The new translation unit compiles with GCC C17 -Wall -Wextra -Werror;
+full host supervisor link with gateway_backend.c and gateway_socket.c
+succeeded against the supplied pinned source with the prior IPv6 patch.
+The test checks table/FD ownership primitives and invalid identity rejection,
+not full readiness of a real sing-box child. Android SELinux/procfs access,
+full NDK build, listener readiness and live DNS are not verified.
+
+Do not infer IPv4 coverage from an IPv6 wildcard socket: dual-stack needs
+an explicit IPV6_V6ONLY observation or separate listeners. This is not
+atomic port reservation, nor proof that another process cannot hold a
+duplicate socket FD. Recheck immediately before NAT publication and during
+reconciliation; never activate on missing ownership evidence. Existing
+readiness of other modes is unchanged.
+
+Conntrack deletion remains deliberately disabled. Port 15353 alone, a
+destination port of 53, DNAT status, or a matching gateway subnet does not
+establish flow provenance. A production cleanup backend needs a collision-
+checked session ownership mechanism plus immutable old tuples (including
+family, protocol, both directions and zone), kernel identity checks and
+verified deletion. Do not choose a CONNMARK bit without auditing netd,
+vendor firewall and other VPN marks; never flush shared conntrack.
+No new runtime activation or settings change.
