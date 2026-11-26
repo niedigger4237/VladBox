@@ -552,6 +552,7 @@ SOURCES=$(cd "$SRC" && find . -name '*.c' -not -path './.git/*' | LC_ALL=C sort)
 # Inventory also checks candidate connmark masks without allocating them.
 # Marked gateway rules and WAL metadata are connected; live mark ownership remains unverified.
 # Bounded marked drain is connected to the staged lifecycle; production ownership is not enabled.
+# Gateway NAT6 capability is checked independently from core IPv6 routing.
 HEV_GATEWAY_BACKEND="$ROOT/buildScript/experiments/hev-gateway-dns/gateway_recovery.c"
 
 build() { # abi cc-prefix
