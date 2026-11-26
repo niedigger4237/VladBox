@@ -1052,7 +1052,17 @@ object RootDaemon {
             Logs.w(it)
             false
         }
-        if (!clean) Logs.w("ROOT supervisor: cleanup not confirmed; no forced kill")
+        if (!clean) {
+            Logs.w("ROOT supervisor: cleanup not confirmed; no forced kill")
+            // Log forwarding has already stopped. Preserve the native shutdown
+            // diagnostics now, before a later start rotates/truncates logPath.
+            val tail = RootShell.run(
+                "tail -n 30 ${RootShell.q(logPath)}",
+                timeoutMs = 3000
+            )
+            if (tail.ok && tail.out.isNotBlank())
+                Logs.w("ROOT native shutdown diagnostics:\n${tail.out}")
+        }
         return clean
     }
 }
