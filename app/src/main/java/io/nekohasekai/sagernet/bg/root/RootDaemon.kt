@@ -715,10 +715,19 @@ object RootDaemon {
         val bootEnabled = DataStore.configurationStore.getBoolean("startOnBoot", false)
         // Preview trial: ordinary managed IPv4 HEV sessions only.
         // Boot, Service Control and dual-stack remain on the previous path.
-        val gatewayTrial = HevGatewayDnsConfig.ENABLE_RUNTIME && managed && core.bundled &&
+        val gatewayEligible = HevGatewayDnsConfig.ENABLE_RUNTIME && managed && core.bundled &&
             mode == Mode.TUN2SOCKS && DataStore.tetherHevDnsHijack && !ipv6 &&
             !bootEnabled && serviceControl.get("enabled")?.asBoolean == false &&
             !monitorOnly
+        // An explicit root-owned reservation is required for the marked test.
+        // Native admission validates permissions, identity, contents and conflicts again.
+        val leasePath = RootShell.q("$runDir/nf-hev-ctmark-lease")
+        val gatewayTrial = gatewayEligible && RootShell.run(
+            "test ! -L $leasePath && test -f $leasePath && test \"$(stat -c %u:%a $leasePath)\" = 0:600 && grep -Fxq 'NF_HEV_CTMARK_V1 0x00800000' $leasePath",
+            timeoutMs = 3000
+        ).ok
+        if (gatewayEligible && !gatewayTrial)
+            Logs.i("ROOT HEV gateway DNS trial: no explicit connmark reservation; using non-local DNS path")
         val verifiedGatewayDownstreams = if (gatewayTrial)
             resolveDownstreams(mode, requireReliable = true, ipv6 = ipv6) else null
         val dynamicDownstreams = verifiedGatewayDownstreams ?: if (managed && (mode != Mode.TUN ||
