@@ -10,6 +10,17 @@ struct nf_native_slot {
     struct asteriskd_byte_buffer pending[2];
     bool owned, expected_valid, pending_valid;
 };
+/* Stable same-boot process identity, never a pointer or raw native struct. */
+struct nf_core_evidence {
+    uint32_t pid, group;
+    uint64_t start, device, inode;
+};
+static bool nf_core_evidence_valid(const struct nf_core_evidence *e) {
+    return e->pid>1 && e->pid<=INT32_MAX && e->group==e->pid && e->start && e->device && e->inode;
+}
+static bool nf_core_evidence_equal(const struct nf_core_evidence *a,const struct nf_core_evidence *b) {
+    return a->pid==b->pid && a->group==b->group && a->start==b->start && a->device==b->device && a->inode==b->inode;
+}
 struct nf_native_backend {
     struct asteriskd_system_supervisor *system;
     struct nf_native_slot guard, nat;
@@ -19,6 +30,8 @@ struct nf_native_backend {
     int wal_fd;
     bool wal_ready;
     bool precore_certified;
+    bool core_evidence_valid;
+    struct nf_core_evidence core_evidence;
     struct nf_wal_record wal;
 };
 
@@ -29,7 +42,7 @@ struct nf_native_backend {
 static int nf_native_checkpoint(struct nf_native_backend *b,enum nf_step op) {
     if(!b->wal_ready || b->wal.generation==UINT64_MAX) return -1;
     uint8_t *data=calloc(1,NF_WAL_MAX);if(!data)return -1;
-    memcpy(data,"NFFW01",6);data[6]=(uint8_t)op;data[7]=b->precore_certified?1U:0U;size_t pos=8;
+    memcpy(data,"NFFW01",6);data[6]=(uint8_t)op;data[7]=(b->precore_certified?1U:0U)|(b->core_evidence_valid?2U:0U);size_t pos=8;
     struct nf_native_slot *slots[]={&b->guard,&b->nat};
     for(size_t j=0;j<2;j++) {
         struct nf_native_slot *s=slots[j];
@@ -44,6 +57,12 @@ static int nf_native_checkpoint(struct nf_native_backend *b,enum nf_step op) {
             pos+=v->length;
         }
         if(pos>NF_WAL_MAX-20)goto fail;
+    }
+    if(b->core_evidence_valid) {
+        const struct nf_core_evidence *e=&b->core_evidence;
+        if(b->precore_certified || !(b->wal.debts&4U) || !nf_core_evidence_valid(e) || pos>NF_WAL_MAX-32)goto fail;
+        nf_put(data+pos,4,e->pid);nf_put(data+pos+4,4,e->group);
+        nf_put(data+pos+8,8,e->start);nf_put(data+pos+16,8,e->device);nf_put(data+pos+24,8,e->inode);pos+=32;
     }
     struct nf_wal_record r=b->wal;r.generation++;r.schema=1;r.payload=data;r.length=pos;
     r.debts|=1U|(b->guard.owned?2U:0U)|(b->nat.owned?24U:0U);
@@ -192,6 +211,25 @@ static int nf_native_remove(struct nf_native_backend *b,struct nf_native_slot *s
     if(!rc) nf_native_clear(slot);
     return rc;
 }
+/* Record only the already verified child from the upstream supervisor. A
+ * crash between spawn and readiness remains ambiguous and blocks recovery. */
+static int nf_native_record_core(struct nf_native_backend *b) {
+    struct asteriskd_system_supervisor *s=b->system;
+    if(!b->wal_ready || b->precore_certified || !(b->wal.debts&4U) || !s->core_spawned ||
+       s->core_reaped || !s->core_identity_ready || !s->core_spec_ready)return -1;
+    const struct asteriskd_child_identity *old=&s->core_identity;
+    struct asteriskd_child_identity now;char error[128];
+    if(old->pid!=s->core_process.pid || old->type!=ASTERISKD_CHILD_TYPE_SING_BOX || old->role!=ASTERISKD_CHILD_CORE ||
+       asteriskd_process_identity_read(asteriskd_system_process_identity_backend(),old->pid,old->role,old->type,&s->core_spec,&now,error,sizeof(error)) ||
+       now.pid!=old->pid || now.process_group_id!=old->process_group_id || now.start_time_ticks!=old->start_time_ticks ||
+       now.exe_device!=old->exe_device || now.exe_inode!=old->exe_inode)return -1;
+    struct nf_core_evidence e={.pid=(uint32_t)now.pid,.group=(uint32_t)now.process_group_id,.start=now.start_time_ticks,.device=now.exe_device,.inode=now.exe_inode};
+    if(!nf_core_evidence_valid(&e))return -1;
+    if(b->core_evidence_valid)return nf_core_evidence_equal(&b->core_evidence,&e)?0:-1;
+    b->core_evidence=e;b->core_evidence_valid=true;
+    if(nf_native_checkpoint(b,NF_GUARD_CLOSED)) {b->core_evidence_valid=false;memset(&b->core_evidence,0,sizeof(b->core_evidence));return -1;}
+    return 0;
+}
 // Connect the real firewall operations to the coordinator. Deliberately
 // require the process/port/link/conntrack callbacks; no successful stub.
 int nf_gateway_native_step(void *opaque,enum nf_step op,unsigned port,uint64_t epoch) {
@@ -209,14 +247,17 @@ int nf_gateway_native_step(void *opaque,enum nf_step op,unsigned port,uint64_t e
     }
     case NF_START_CORE:
         // Record possible process creation before invoking any spawn callback.
-        if(!b->wal_ready || !b->guard.owned)return -1;
+        if(!b->wal_ready || !b->guard.owned || b->core_evidence_valid)return -1;
         b->precore_certified=false;b->wal.debts|=4U;
         if(nf_native_checkpoint(b,NF_GUARD_CLOSED))return -1;
         return b->lifecycle_operations.step(b->lifecycle_operations.ctx,op,port,epoch);
+    case NF_CORE_READY:
+        if(b->lifecycle_operations.step(b->lifecycle_operations.ctx,op,port,epoch))return -1;
+        return nf_native_record_core(b);
     case NF_GUARD_CLOSED: return nf_native_write(b,&b->guard,port,true,false);
-    case NF_GUARD_OPEN: if(b->precore_certified || !(b->wal.debts&4U))return -1; return nf_native_write(b,&b->guard,port,true,true);
+    case NF_GUARD_OPEN: if(b->precore_certified || !(b->wal.debts&4U) || !b->core_evidence_valid || nf_native_record_core(b))return -1; return nf_native_write(b,&b->guard,port,true,true);
     case NF_GUARD_VERIFY: return b->guard.pending_valid?-1:nf_native_verify(b->system,&b->guard,false);
-    case NF_NAT_INSTALL: if(b->precore_certified || !(b->wal.debts&4U))return -1; return nf_native_write(b,&b->nat,port,false,true);
+    case NF_NAT_INSTALL: if(b->precore_certified || !(b->wal.debts&4U) || !b->core_evidence_valid || nf_native_record_core(b))return -1; return nf_native_write(b,&b->nat,port,false,true);
     case NF_NAT_VERIFY: return b->nat.pending_valid?-1:nf_native_verify(b->system,&b->nat,false);
     case NF_NAT_REMOVE: return nf_native_remove(b,&b->nat);
     case NF_GUARD_REMOVE: return nf_native_remove(b,&b->guard);
