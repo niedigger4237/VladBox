@@ -530,6 +530,32 @@ done:
     if(rc)memset(out,0,sizeof(*out));
     return rc;
 }
+/* Service Control retains the core over pause. It does not reclassify
+ * downstreams while paused, so require the last trusted identity on resume.
+ * Initial publication (including an empty selection) freezes that identity.
+ * Never turn an unverified name reuse into a new downstream lease. */
+static bool nf_service_links_match(const struct nf_native_backend *b,const struct nf_link_snapshot *current) {
+    return !b->service_links_valid || nf_runtime_links_equal(current,&b->published_links);
+}
+/* Invoked before upstream apply_rules, including resume. Fail before
+ * installing traffic hooks when an old gateway epoch cannot be drained.
+ * A failed resume follows the existing lifecycle teardown, not a new core. */
+int nf_gateway_runtime_prepare_rules(struct asteriskd_system_supervisor *s) {
+    struct nf_native_backend *b=s->nf_gateway_session;
+    if(!b)return s->loaded_config.config.nf_hev_gateway_dns_port?-1:0;
+    if(!b->service_links_valid)return 0;
+    struct nf_link_snapshot current;unsigned families=0;
+    unsigned required=b->ipv6_nat_disabled?3U:15U;
+    if(!b->wal_ready || b->links_published || b->session_mask || b->session_mark ||
+       !nf_closed_guard_only(b) || nf_runtime_links(s,&current) ||
+       !nf_service_links_match(b,&current) || nf_native_record_core(b) ||
+       nf_native_verify(s,&b->guard,false) || nf_live_names_absence(s,true) ||
+       nf_gateway_ct_port_absent(b->wal.port) ||
+       nf_gateway_socket_observe(s,b->wal.port,&families) ||
+       (families&required)!=required)return -1;
+    return 0;
+}
+
 /* The core's regular apply_rules callback has already installed and verified
  * its routing rules. No publish unless both socket transports are observed
  * in every requested family. Never turn this observation into a mark lease. */
@@ -539,10 +565,16 @@ int nf_gateway_runtime_publish(struct asteriskd_system_supervisor *s) {
     if(!b->wal_ready || b->session_mask || b->session_mark || !s->rules_verified ||
        !nf_closed_guard_only(b) || nf_native_verify(s,&b->guard,false) ||
        nf_native_record_core(b))return -1;
-    if(!s->loaded_config.config.hotspot_interface_count)return 0;
     struct nf_link_snapshot before,after;unsigned families=0;
+    if(nf_runtime_links(s,&before) || !nf_service_links_match(b,&before))return -1;
+    if(!before.count) {
+        if(s->loaded_config.config.service_control.enabled) {
+            b->published_links=before;b->service_links_valid=true;
+        }
+        return 0;
+    }
     unsigned required=b->ipv6_nat_disabled?3U:15U;
-    if(nf_runtime_links(s,&before) || nf_gateway_socket_observe(s,b->wal.port,&families) ||
+    if(nf_gateway_socket_observe(s,b->wal.port,&families) ||
        (families&required)!=required || nf_live_names_absence(s,true) ||
        nf_gateway_ct_port_absent(b->wal.port) || b->wal.generation==UINT64_MAX ||
        nf_runtime_links(s,&after) || !nf_runtime_links_equal(&before,&after))return -1;
@@ -553,6 +585,7 @@ int nf_gateway_runtime_publish(struct asteriskd_system_supervisor *s) {
        nf_runtime_links(s,&after) || !nf_runtime_links_equal(&before,&after) ||
        nf_gateway_socket_observe(s,b->wal.port,&families) || (families&required)!=required)return -1;
     b->published_links=after;b->links_published=true;
+    b->service_links_valid=s->loaded_config.config.service_control.enabled;
     return 0;
 }
 /* Close INPUT before withdrawing REDIRECT. Old mappings may persist:
@@ -567,7 +600,8 @@ int nf_gateway_runtime_withdraw(struct asteriskd_system_supervisor *s) {
        nf_native_write(b,&b->guard,b->wal.port,true,false))return -1;
     if(nf_recovery_preflight(b,&b->nat) || nf_native_remove(b,&b->nat) ||
        nf_native_verify(s,&b->guard,false) || nf_live_names_absence(s,true))return -1;
-    b->links_published=false;memset(&b->published_links,0,sizeof(b->published_links));
+    b->links_published=false;
+    if(!b->service_links_valid)memset(&b->published_links,0,sizeof(b->published_links));
     return 0;
 }
 
@@ -945,12 +979,13 @@ int main(void) {
     CHECK(!nf_gateway_runtime_before_core(s));CHECK(!nf_gateway_runtime_core_identity(s));
     CHECK(!nf_gateway_runtime_core_ready(s));CHECK(!nf_gateway_runtime_after_core_stop(s));
     CHECK(!nf_gateway_runtime_publish(s));CHECK(!nf_gateway_runtime_withdraw(s));
+    CHECK(!nf_gateway_runtime_prepare_rules(s));
     CHECK(!nf_gateway_runtime_refresh_begin(s));CHECK(!nf_gateway_runtime_refresh_finish(s));
     CHECK(!nf_gateway_runtime_reconcile(s));
     nf_gateway_runtime_dispose(s);CHECK(!s->nf_gateway_session);
     s->loaded_config.config.nf_hev_gateway_dns_port=15353;
     CHECK(nf_gateway_runtime_before_core(s)<0);CHECK(nf_gateway_runtime_core_ready(s)<0);
-    CHECK(nf_gateway_runtime_publish(s)<0);
+    CHECK(nf_gateway_runtime_publish(s)<0);CHECK(nf_gateway_runtime_prepare_rules(s)<0);
     CHECK(nf_gateway_runtime_core_identity(s)<0);CHECK(!s->nf_gateway_session);
     struct asteriskd_config *c=&s->loaded_config.config;
     c->owner=ASTERISKD_OWNER_BOX;c->core_type=ASTERISKD_CORE_SING_BOX;c->mode=ASTERISKD_MODE_TUN2SOCKS;
@@ -973,6 +1008,15 @@ int main(void) {
     qsort(other.links[0].addresses,2,sizeof(tmp),nf_link_address_compare);
     CHECK(nf_runtime_links_equal(&links,&other));
     other=links;strcpy(other.links[0].name,"test1");CHECK(!nf_runtime_links_equal(&links,&other));
+    struct nf_native_backend *paused=calloc(1,sizeof(*paused));CHECK(paused);
+    CHECK(nf_service_links_match(paused,&other));paused->service_links_valid=true;
+    paused->published_links=links;CHECK(nf_service_links_match(paused,&links));
+    CHECK(!nf_service_links_match(paused,&other));other=links;
+    other.links[0].addresses[0].address[3]++;CHECK(!nf_service_links_match(paused,&other));
+    other=links;other.links[0].index++;CHECK(!nf_service_links_match(paused,&other));
+    memset(&other,0,sizeof(other));CHECK(!nf_service_links_match(paused,&other));
+    paused->published_links=other;CHECK(nf_service_links_match(paused,&other));
+    CHECK(!nf_service_links_match(paused,&links));free(paused);
     c->hotspot_interface_count=1;strcpy(c->hotspot_interfaces[0],"lo");
     CHECK(nf_runtime_links(s,&links)<0);
     strcpy(c->hotspot_interfaces[0],"nfmissing0");CHECK(nf_runtime_links(s,&links)<0);
