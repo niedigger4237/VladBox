@@ -217,6 +217,35 @@ static int nf_live_names_absence(void *ctx,bool nat_only) {
     return 0;
 }
 static int nf_reboot_live_absence(void *ctx) {return nf_live_names_absence(ctx,false);}
+/* A marked live session may drain only while the exact closed guard is
+ * still installed and all NAT names are absent. Do not infer a live lease
+ * from recovered WAL metadata. Recheck before each mutation. */
+extern int nf_gateway_ct_drain(uint32_t mark,uint32_t mask,uint16_t port,uint16_t zone,
+                               int (*check)(void *),void *ctx);
+static bool nf_drain_guard_closed(const struct nf_native_backend *b) {
+    if(!b || !b->wal_ready || !b->guard.owned || !b->guard.expected_valid || b->guard.pending_valid ||
+       b->guard.plan.private_group_count!=2 || b->nat.owned || b->nat.plan.private_group_count ||
+       (b->wal.debts&31U)!=31U || !b->wal.epoch)return false;
+    for(size_t i=0;i<2;i++) {
+        const struct asteriskd_byte_buffer *v=&b->guard.expected[i];
+        if(!v->bytes || !v->length || memmem(v->bytes,v->length,"-j ACCEPT",9) ||
+           !nf_recovery_image(v->bytes,v->length,b->guard.plan.private_groups[i].names[0],true,b->wal.port,b->session_mark,b->session_mask))return false;
+    }
+    return true;
+}
+static int nf_native_drain_check(void *ctx) {
+    struct nf_native_backend *b=ctx;
+    if(!nf_drain_guard_closed(b) || !b->session_mask || nf_native_mark_recheck(b) ||
+       nf_recovery_preflight(b,&b->guard) || nf_native_verify(b->system,&b->guard,false) ||
+       nf_live_names_absence(b->system,true))return -1;
+    return nf_native_mark_recheck(b);
+}
+int nf_gateway_native_drain_marked(struct nf_native_backend *b) {
+    if(nf_native_drain_check(b))return -1;
+    // Default zone only; inventory rejects collisions in any other zone.
+    return nf_gateway_ct_drain(b->session_mark,b->session_mask,b->wal.port,0,nf_native_drain_check,b)==0?0:-1;
+}
+
 #ifdef NF_REBOOT_HOST_TEST
 static bool nf_reboot_view_absent(const struct system_rule_view *v) {return nf_names_view_absent(v,false);}
 #endif
@@ -602,5 +631,34 @@ int main(void) {
     CHECK(nf_gateway_recovery_load(b,boot)<0 && !b->wal_ready && !b->session_mask);
     CHECK(!unlinkat(b->wal_fd,NF_WAL_NAME,0));close(b->wal_fd);close(d);CHECK(!rmdir(path));nf_native_clear(&a->guard);nf_native_clear(&a->nat);free(raw);free(a);free(b);free(s);
     printf("PASS %u marked WAL checks\n",checks);return 0;
+}
+#endif
+#ifdef NF_DRAIN_GUARD_HOST_TEST
+static unsigned checks;
+#define CHECK(x) do{if(!(x)){fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x);exit(1);}++checks;}while(0)
+static int check_mark(void *ctx,uint32_t mark,uint32_t mask) {
+    return *(bool *)ctx && mark==0x100000 && mask==0x300000?0:-1;
+}
+int main(void) {
+    struct asteriskd_system_supervisor *s=calloc(1,sizeof(*s));struct nf_native_backend *b=calloc(1,sizeof(*b));CHECK(s&&b);
+    struct asteriskd_config *c=&s->loaded_config.config;c->owner=ASTERISKD_OWNER_BOX;c->core_type=ASTERISKD_CORE_SING_BOX;c->mode=ASTERISKD_MODE_TUN2SOCKS;c->enable_ipv6=true;
+    strcpy(c->hotspot_interfaces[0],"ap0");c->hotspot_interface_count=1;
+    b->system=s;b->wal_ready=true;b->wal.port=15353;bool authorized=true;
+    CHECK(!nf_gateway_native_bind_mark(b,0x100000,0x300000,true));CHECK(nf_native_mark_recheck(b)<0);
+    CHECK(!nf_gateway_native_set_mark_recheck(b,check_mark,&authorized));CHECK(!nf_native_mark_recheck(b));
+    CHECK(nf_gateway_native_set_mark_recheck(b,check_mark,&authorized)<0);authorized=false;CHECK(nf_native_mark_recheck(b)<0);authorized=true;
+    CHECK(!nf_gateway_plan(c,15353,true,&b->guard.plan));CHECK(!nf_native_render(s,&b->guard,15353,false,b->session_mark,b->session_mask,true));
+    b->guard.owned=b->guard.expected_valid=true;b->wal.debts=31;b->wal.epoch=1;
+    for(size_t i=0;i<2;i++){b->guard.expected[i]=b->guard.pending[i];memset(&b->guard.pending[i],0,sizeof(b->guard.pending[i]));}
+    CHECK(nf_drain_guard_closed(b));b->nat.owned=true;CHECK(!nf_drain_guard_closed(b));b->nat.owned=false;
+    b->guard.pending_valid=true;CHECK(!nf_drain_guard_closed(b));b->guard.pending_valid=false;
+    b->wal.epoch=0;CHECK(!nf_drain_guard_closed(b));b->wal.epoch=1;
+    b->wal.debts=7;CHECK(!nf_drain_guard_closed(b));b->wal.debts=31;
+    authorized=false;CHECK(nf_native_drain_check(b)<0);authorized=true;
+    b->mark_authorized=false;CHECK(nf_gateway_native_drain_marked(b)<0);b->mark_authorized=true;
+    CHECK(!nf_native_render(s,&b->guard,15353,true,b->session_mark,b->session_mask,true));
+    for(size_t i=0;i<2;i++){asteriskd_byte_buffer_destroy(&b->guard.expected[i]);b->guard.expected[i]=b->guard.pending[i];memset(&b->guard.pending[i],0,sizeof(b->guard.pending[i]));}
+    CHECK(!nf_drain_guard_closed(b));nf_native_clear(&b->guard);free(b);free(s);
+    printf("PASS %u drain guard checks (no live firewall)\n",checks);return 0;
 }
 #endif
