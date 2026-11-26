@@ -930,3 +930,38 @@ No real iptables, Android NDK or device mask audit was performed.
 Next: audit actual device CONNMARK writers and kernel support, persist
 the chosen mask, then wire marked rules and targeted DELETE. Gateway
 capture remains disabled.
+
+## Marked gateway firewall backend and persistent session identity
+
+The native backend can now bind a validated caller-supplied mark/mask
+before resource reservation, only for a clean new session and with an
+independent exclusive-ownership assertion. Once bound, the mark cannot
+be replaced by another bind. Active NAT and INPUT generation use the
+marked planner for both the pending image and the actual queued rules.
+A closed guard needs no authorization to write new marks. A checkpoint
+is required before the firewall batch flush as before.
+
+NFFW01 flag byte 7 bit 2 indicates an eight-byte big-endian extension
+(mark and mask) before the slot records. Unmarked records retain the
+old layout. The reader validates the candidate mask and exact marked
+grammar, including the paired CONNMARK/REDIRECT lines in NAT and the
+corresponding INPUT match. It rejects a mismatch between saved mark
+metadata and rule images. Recovered metadata explicitly does NOT restore
+live mark authorization; it allows conservative recovery/closing only.
+Older readers will refuse the new optional extension rather than
+misinterpret it. The existing no-delete drain remains unchanged.
+
+Host validation with the pinned locally patched asteriskd source:
+32 marked-WAL tests and 196 regression checks (26 backend, 32 recovery,
+27 admission, 31 reboot, 28 pre-core, 32 post-core, 20 active recovery).
+C17 -Wall -Wextra -Werror compile and complete host link succeeded.
+Both committed C source hashes match the locally tested sources:
+bdd3e0e01070bf4c261c60aabdf8a058bc8965b2 and
+76c14e85a67ed34eb1d1800bda25911f1d8b6336.
+Tests exercise real local journal files and queued rule generation,
+not live Android firewall mutation. The mask in tests is synthetic.
+No device ownership audit, CTNETLINK DELETE, full NDK/APK build or
+gateway listener activation has occurred. The bind API is not called
+from the production supervisor lifecycle; do not grant exclusivity
+based on mask occupancy alone. Next work is actual ownership validation
+and the exact delete transport, with a device audit before live use.
