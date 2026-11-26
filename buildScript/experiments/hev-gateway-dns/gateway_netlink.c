@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-// Read-only CTNETLINK GET transport. Compile instead of gateway_conntrack.c.
+// CTNETLINK observation and gated exact deletion. Compile instead of gateway_conntrack.c.
 #include "gateway_conntrack.c"
 #include <errno.h>
 #include <poll.h>
@@ -256,6 +256,66 @@ int nf_gateway_ct_inventory(const struct nf_ct_owner *o,struct nf_ct_record *rec
     *count=scan.count;return 0;
 }
 
+/* Only an exact, acknowledged DELETE is accepted. No dump/flush path. */
+static int nf_delete_ack(const uint8_t *buf,size_t n,uint32_t local,const struct nf_ct_message *request) {
+    struct nlmsghdr h,q;struct nlmsgerr e;
+    if(n<NLMSG_LENGTH(sizeof(e)) || request->len<NLMSG_HDRLEN)return -1;
+    memcpy(&h,buf,sizeof(h));memcpy(&q,request->data,sizeof(q));
+    if(q.nlmsg_type!=((NFNL_SUBSYS_CTNETLINK<<8)|IPCTNL_MSG_CT_DELETE) ||
+       q.nlmsg_flags!=(NLM_F_REQUEST|NLM_F_ACK) || q.nlmsg_len!=request->len ||
+       h.nlmsg_type!=NLMSG_ERROR || h.nlmsg_len!=n || h.nlmsg_seq!=q.nlmsg_seq ||
+       h.nlmsg_pid!=local || (h.nlmsg_flags&~NLM_F_CAPPED))return -1;
+    memcpy(&e,buf+NLMSG_HDRLEN,sizeof(e));
+    if(memcmp(&e.msg,&q,sizeof(q)))return -1;
+    size_t base=NLMSG_LENGTH(sizeof(e)),body=request->len-NLMSG_HDRLEN;
+    if(h.nlmsg_flags&NLM_F_CAPPED) {if(n!=base)return -1;}
+    else if(e.error) {if(n!=base+body || memcmp(buf+base,request->data+NLMSG_HDRLEN,body))return -1;}
+    else if(n!=base)return -1;
+    return !e.error?0:e.error==-ENOENT?1:-1;
+}
+static int nf_delete_exchange(struct nf_ct_message *request) {
+    int fd=socket(AF_NETLINK,SOCK_RAW|SOCK_CLOEXEC|SOCK_NONBLOCK,NETLINK_NETFILTER);if(fd<0)return -1;
+    struct sockaddr_nl local={.nl_family=AF_NETLINK},kernel={.nl_family=AF_NETLINK};socklen_t sl=sizeof(local);int rc=-1;
+    if(bind(fd,(struct sockaddr*)&local,sizeof(local)) || getsockname(fd,(struct sockaddr*)&local,&sl) ||
+       sl!=sizeof(local) || local.nl_family!=AF_NETLINK || !local.nl_pid || local.nl_groups)goto done;
+    struct nlmsghdr h;memcpy(&h,request->data,sizeof(h));h.nlmsg_pid=local.nl_pid;memcpy(request->data,&h,sizeof(h));
+    if(sendto(fd,request->data,request->len,0,(struct sockaddr*)&kernel,sizeof(kernel))!=(ssize_t)request->len)goto done;
+    struct pollfd p={.fd=fd,.events=POLLIN};if(poll(&p,1,1000)!=1 || p.revents!=POLLIN)goto done;
+    uint8_t buf[16384];struct sockaddr_nl sender={0};struct iovec iov={buf,sizeof(buf)};
+    struct msghdr msg={.msg_name=&sender,.msg_namelen=sizeof(sender),.msg_iov=&iov,.msg_iovlen=1};
+    ssize_t n=recvmsg(fd,&msg,0);
+    if(n<=0 || (msg.msg_flags&(MSG_TRUNC|MSG_CTRUNC)) || msg.msg_namelen!=sizeof(sender) ||
+       sender.nl_family!=AF_NETLINK || sender.nl_pid || sender.nl_groups)goto done;
+    rc=nf_delete_ack(buf,(size_t)n,local.nl_pid,request);
+ done: close(fd);return rc;
+}
+/* Recheck must validate the live exclusive mark contract, withdrawn NAT
+ * and closed guard under the caller's session lock. A callback is required;
+ * a successful occupancy scan alone does not satisfy this contract. */
+typedef int (*nf_ct_recheck_fn)(void *,const struct nf_ct_owner *);
+static int nf_delete_checked(const struct nf_ct_owner *owner,const struct nf_ct_record *old,
+        nf_ct_recheck_fn recheck,void *ctx,
+        int (*get)(const struct nf_ct_tuple *,uint16_t,struct nf_ct_record *),
+        int (*send_delete)(struct nf_ct_message *)) {
+    if(!recheck || !get || !send_delete || !nf_ct_valid(owner,old) || recheck(ctx,owner))return -1;
+    struct nf_ct_record fresh={0};struct nf_ct_message request;
+    int rc=get(&old->orig,old->zone,&fresh);
+    if(rc==1)return recheck(ctx,owner)?-1:0;
+    if(rc || nf_gateway_ct_delete_request(owner,old,&fresh,1,&request) || recheck(ctx,owner))return -1;
+    // Kernel DELETE compares tuple and ID, not the mark atomically.
+    rc=send_delete(&request);
+    if(rc!=0 && rc!=1)return -1; // ambiguous ACK: retain debt, no blind retry
+    if(get(&old->orig,old->zone,&fresh)!=1 || recheck(ctx,owner))return -1;
+    return 0;
+}
+/* One old inventory entry per call. Only success or verified absence can
+ * discharge that entry. No replacement flow is deleted on mismatch. Not
+ * invoked by the supervisor until real device ownership is established. */
+int nf_gateway_ct_delete_owned(const struct nf_ct_owner *owner,const struct nf_ct_record *old,
+        nf_ct_recheck_fn recheck,void *ctx) {
+    return nf_delete_checked(owner,old,recheck,ctx,nf_gateway_ct_get,nf_delete_exchange);
+}
+
 #ifdef NF_NETLINK_HOST_TEST
 #include <stdio.h>
 #include <stdlib.h>
@@ -326,5 +386,59 @@ int main(void) {
     printf("Live read-only DUMP result: %d\n",nf_gateway_ct_port_absent(15353));
     int live=nf_gateway_ct_get(&a,0,&r);printf("Live read-only GET result: %d (0=record, 1=absent, -1=error)\n",live);
     printf("PASS %u netlink checks\n",checks);return 0;
+}
+#endif
+#ifdef NF_DELETE_HOST_TEST
+#include <stdio.h>
+#include <stdlib.h>
+static unsigned checks;
+#define CHECK(x) do {if(!(x)){fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x);exit(1);}++checks;}while(0)
+static struct nf_ct_record sample;
+static struct {unsigned gets,sends,verifies,fail_verify;int before,after,ack;bool changed;} mock;
+static int fake_get(const struct nf_ct_tuple *t,uint16_t z,struct nf_ct_record *out) {
+    if(!nf_ct_tuple_eq(t,&sample.orig) || z!=sample.zone)return -1;
+    *out=sample;if(mock.changed)out->id++;
+    return mock.gets++?mock.after:mock.before;
+}
+static int fake_delete(struct nf_ct_message *m) {
+    struct nlmsghdr h;memcpy(&h,m->data,sizeof(h));mock.sends++;
+    return h.nlmsg_type==((NFNL_SUBSYS_CTNETLINK<<8)|IPCTNL_MSG_CT_DELETE) && m->len>NLMSG_HDRLEN+sizeof(struct nfgenmsg)?mock.ack:-1;
+}
+static int fake_recheck(void *ctx,const struct nf_ct_owner *o) {
+    (void)ctx;(void)o;return ++mock.verifies==mock.fail_verify?-1:0;
+}
+static void reset(void){memset(&mock,0,sizeof(mock));mock.after=1;}
+static size_t ack(uint8_t *buf,const struct nf_ct_message *req,int err,bool capped) {
+    struct nlmsgerr e={.error=err};memcpy(&e.msg,req->data,sizeof(e.msg));
+    size_t n=NLMSG_LENGTH(sizeof(e));
+    if(err&&!capped){memcpy(buf+n,req->data+NLMSG_HDRLEN,req->len-NLMSG_HDRLEN);n+=req->len-NLMSG_HDRLEN;}
+    struct nlmsghdr h={.nlmsg_type=NLMSG_ERROR,.nlmsg_len=(uint32_t)n,.nlmsg_seq=e.msg.nlmsg_seq,.nlmsg_pid=42,.nlmsg_flags=capped?NLM_F_CAPPED:0};
+    memcpy(buf,&h,sizeof(h));memcpy(buf+NLMSG_HDRLEN,&e,sizeof(e));return n;
+}
+int main(void) {
+    struct nf_ct_owner owner={.mark=0x100000,.mask=0x300000,.port=15353,.zone=0,.verified_exclusive=true};
+    sample=(struct nf_ct_record){.orig={.family=AF_INET,.proto=IPPROTO_UDP,.sport=12345,.dport=53},.reply={.family=AF_INET,.proto=IPPROTO_UDP,.sport=15353,.dport=12345},.id=123,.mark=owner.mark,.status=IPS_DST_NAT|IPS_DST_NAT_DONE,.has_id=true,.has_mark=true,.has_status=true,.has_zone=true};
+    inet_pton(AF_INET,"192.168.1.2",sample.orig.src);inet_pton(AF_INET,"192.168.1.1",sample.orig.dst);memcpy(sample.reply.src,sample.orig.dst,4);memcpy(sample.reply.dst,sample.orig.src,4);
+    struct nf_ct_message req;uint8_t buf[512];size_t n;
+    CHECK(!nf_gateway_ct_delete_request(&owner,&sample,&sample,1,&req));
+    n=ack(buf,&req,0,true);CHECK(!nf_delete_ack(buf,n,42,&req));CHECK(nf_delete_ack(buf,n,43,&req)<0);CHECK(nf_delete_ack(buf,n-1,42,&req)<0);
+    n=ack(buf,&req,-ENOENT,false);CHECK(nf_delete_ack(buf,n,42,&req)==1);buf[n-1]^=1;CHECK(nf_delete_ack(buf,n,42,&req)<0);
+    n=ack(buf,&req,-EPERM,true);CHECK(nf_delete_ack(buf,n,42,&req)<0);
+    n=ack(buf,&req,-ENOENT,true);CHECK(nf_delete_ack(buf,n,42,&req)==1);buf[NLMSG_HDRLEN+sizeof(int)+8]^=1;CHECK(nf_delete_ack(buf,n,42,&req)<0);
+#define RUN() nf_delete_checked(&owner,&sample,fake_recheck,NULL,fake_get,fake_delete)
+    reset();CHECK(!RUN() && mock.gets==2 && mock.sends==1 && mock.verifies==3);
+    reset();mock.before=1;CHECK(!RUN() && !mock.sends && mock.gets==1);
+    reset();mock.before=-1;CHECK(RUN()<0 && !mock.sends);
+    reset();mock.changed=true;CHECK(RUN()<0 && !mock.sends);
+    reset();mock.fail_verify=1;CHECK(RUN()<0 && !mock.gets && !mock.sends);
+    reset();mock.fail_verify=2;CHECK(RUN()<0 && mock.gets==1 && !mock.sends);
+    reset();mock.fail_verify=3;CHECK(RUN()<0 && mock.gets==2 && mock.sends==1);
+    reset();mock.ack=-1;CHECK(RUN()<0 && mock.gets==1 && mock.sends==1);
+    reset();mock.ack=1;CHECK(!RUN() && mock.gets==2 && mock.sends==1);
+    reset();mock.after=0;CHECK(RUN()<0 && mock.gets==2 && mock.sends==1);
+    reset();mock.after=-1;CHECK(RUN()<0 && mock.gets==2 && mock.sends==1);
+    reset();owner.verified_exclusive=false;CHECK(RUN()<0 && !mock.gets && !mock.sends);
+    CHECK(nf_gateway_ct_delete_owned(&owner,&sample,NULL,NULL)<0);
+    printf("PASS %u delete transport checks (simulated; no live DELETE)\n",checks);return 0;
 }
 #endif
