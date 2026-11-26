@@ -108,6 +108,85 @@ int nf_gateway_ct_get(const struct nf_ct_tuple *tuple,uint16_t zone,struct nf_ct
     rc=nf_get_reply(buf,(size_t)n,local.nl_pid,&request,tuple,zone,out);
  done: close(fd);return rc;
 }
+/* Conservative drain check: never delete shared conntrack entries. Scan both
+ * families and all zones; a reply TCP/UDP source port matching the private
+ * listener is sufficient to retain the guard, regardless of mark or DNAT.
+ * No absence claim until a complete uninterrupted multipart dump ends. */
+#include <time.h>
+static int nf_dump_proto(const struct nf_attr_view *v,uint8_t *proto) {
+    struct nf_attr_view t[CTA_TUPLE_MAX+1]={0},p[CTA_PROTO_MAX+1]={0};
+    if(!v->p || nf_attrs(v->p,v->n,t,CTA_TUPLE_MAX+1) || !t[CTA_TUPLE_PROTO].p ||
+       nf_attrs(t[CTA_TUPLE_PROTO].p,t[CTA_TUPLE_PROTO].n,p,CTA_PROTO_MAX+1))return -1;
+    return nf_scalar(&p[CTA_PROTO_NUM],proto,1);
+}
+static int nf_dump_part(const uint8_t *buf,size_t n,uint32_t local,uint8_t family,unsigned port,bool *done) {
+    if(!n || *done)return -1;
+    while(n) {
+        struct nlmsghdr h;
+        if(n<sizeof(h))return -1;
+        memcpy(&h,buf,sizeof(h));size_t step=NLMSG_ALIGN((size_t)h.nlmsg_len);
+        if(h.nlmsg_len<NLMSG_HDRLEN || step>n || h.nlmsg_seq!=1 || h.nlmsg_pid!=local ||
+           !(h.nlmsg_flags&NLM_F_MULTI) || (h.nlmsg_flags&NLM_F_DUMP_INTR))return -1;
+        const uint8_t *p=buf+NLMSG_HDRLEN;size_t len=h.nlmsg_len-NLMSG_HDRLEN;
+        if(h.nlmsg_type==NLMSG_DONE) {
+            int error=0;if(len==sizeof(error))memcpy(&error,p,sizeof(error));else if(len)return -1;
+            if(error || step!=n)return -1;
+            *done=true;return 0;
+        }
+        struct nfgenmsg g;
+        if(h.nlmsg_type!=((NFNL_SUBSYS_CTNETLINK<<8)|IPCTNL_MSG_CT_NEW) || len<sizeof(g))return -1;
+        memcpy(&g,p,sizeof(g));if(g.version!=NFNETLINK_V0 || g.nfgen_family!=family)return -1;
+        struct nf_attr_view v[CTA_MAX+1]={0};uint8_t a,b;
+        if(nf_attrs(p+sizeof(g),len-sizeof(g),v,CTA_MAX+1) ||
+           nf_dump_proto(&v[CTA_TUPLE_ORIG],&a) || nf_dump_proto(&v[CTA_TUPLE_REPLY],&b) || a!=b)return -1;
+        if(a==IPPROTO_TCP || a==IPPROTO_UDP) {
+            struct nf_ct_tuple orig,reply;
+            if(nf_tuple_read(&v[CTA_TUPLE_ORIG],family,&orig) || nf_tuple_read(&v[CTA_TUPLE_REPLY],family,&reply))return -1;
+            if(reply.sport==port)return 1;
+        }
+        buf+=step;n-=step;
+    }
+    return 0;
+}
+static int64_t nf_monotonic_ms(void) {
+    struct timespec t;if(clock_gettime(CLOCK_MONOTONIC,&t))return -1;
+    return (int64_t)t.tv_sec*1000+t.tv_nsec/1000000;
+}
+static int nf_dump_family(uint8_t family,unsigned port) {
+    int fd=socket(AF_NETLINK,SOCK_RAW|SOCK_CLOEXEC|SOCK_NONBLOCK,NETLINK_NETFILTER);if(fd<0)return -1;
+    struct sockaddr_nl local={.nl_family=AF_NETLINK},kernel={.nl_family=AF_NETLINK};socklen_t sl=sizeof(local);int rc=-1;
+    if(bind(fd,(struct sockaddr*)&local,sizeof(local)) || getsockname(fd,(struct sockaddr*)&local,&sl) ||
+       sl!=sizeof(local) || local.nl_family!=AF_NETLINK || !local.nl_pid || local.nl_groups)goto done;
+    struct {struct nlmsghdr h;struct nfgenmsg g;} req={.h={.nlmsg_len=NLMSG_LENGTH(sizeof(struct nfgenmsg)),
+        .nlmsg_type=(NFNL_SUBSYS_CTNETLINK<<8)|IPCTNL_MSG_CT_GET,.nlmsg_flags=NLM_F_REQUEST|NLM_F_DUMP,
+        .nlmsg_seq=1,.nlmsg_pid=local.nl_pid},.g={.nfgen_family=family,.version=NFNETLINK_V0}};
+    int64_t start=nf_monotonic_ms();if(start<0)goto done;
+    if(sendto(fd,&req,req.h.nlmsg_len,0,(struct sockaddr*)&kernel,sizeof(kernel))!=(ssize_t)req.h.nlmsg_len)goto done;
+    bool complete=false;size_t total=0;
+    while(!complete) {
+        int64_t now=nf_monotonic_ms();if(now<start || now-start>=2000)goto done;
+        struct pollfd p={.fd=fd,.events=POLLIN};if(poll(&p,1,(int)(2000-(now-start)))!=1 || p.revents!=POLLIN)goto done;
+        uint8_t buf[32768];struct sockaddr_nl sender={0};struct iovec iov={buf,sizeof(buf)};
+        struct msghdr msg={.msg_name=&sender,.msg_namelen=sizeof(sender),.msg_iov=&iov,.msg_iovlen=1};
+        ssize_t n=recvmsg(fd,&msg,0);
+        if(n<=0 || (msg.msg_flags&(MSG_TRUNC|MSG_CTRUNC)) || msg.msg_namelen!=sizeof(sender) ||
+           sender.nl_family!=AF_NETLINK || sender.nl_pid || sender.nl_groups || (size_t)n>16U*1024U*1024U-total)goto done;
+        total+=(size_t)n;
+        int part=nf_dump_part(buf,(size_t)n,local.nl_pid,family,port,&complete);
+        if(part){rc=part;goto done;}
+    }
+    rc=0;
+ done: close(fd);return rc;
+}
+/* Caller must first withdraw and verify NAT and keep the port protected.
+ * 0=observed absent, 1=possibly busy, -1=inspection failed. A dump is not
+ * atomic against new kernel flows: recheck before releasing the guard. */
+int nf_gateway_ct_port_absent(unsigned port) {
+    if(port<1024 || port>65535)return -1;
+    int rc=nf_dump_family(AF_INET,port);if(rc)return rc;
+    return nf_dump_family(AF_INET6,port);
+}
+
 #ifdef NF_NETLINK_HOST_TEST
 #include <stdio.h>
 #include <stdlib.h>
@@ -141,6 +220,20 @@ int main(void) {
     e.error=-ENOENT;e.msg.nlmsg_seq++;memcpy(reply.data+NLMSG_HDRLEN,&e,sizeof(e));CHECK(nf_get_reply(reply.data,reply.len,42,&req,&a,7,&r)<0);
     a.family=b.family=AF_INET6;a.proto=b.proto=IPPROTO_TCP;inet_pton(AF_INET6,"fd00::2",a.src);inet_pton(AF_INET6,"fd00::1",a.dst);memcpy(b.src,a.dst,16);memcpy(b.dst,a.src,16);
     CHECK(!nf_get_request(&a,0,1,&req));response(&reply,&a,b,0);CHECK(!nf_get_reply(reply.data,reply.len,42,&req,&a,0,&r) && r.orig.family==AF_INET6 && r.orig.proto==IPPROTO_TCP);
+    // Multipart parser: busy, clean, interrupted, malformed and foreign responses.
+    bool done=false;memcpy(&h,reply.data,sizeof(h));h.nlmsg_flags=NLM_F_MULTI;memcpy(reply.data,&h,sizeof(h));
+    CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,15353,&done)==1 && !done);
+    CHECK(!nf_dump_part(reply.data,reply.len,42,AF_INET6,15354,&done) && !done);
+    CHECK(nf_dump_part(reply.data,reply.len,43,AF_INET6,15354,&done)<0);
+    CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET,15354,&done)<0);
+    CHECK(nf_dump_part(reply.data,reply.len-1,42,AF_INET6,15354,&done)<0);
+    h.nlmsg_flags|=NLM_F_DUMP_INTR;memcpy(reply.data,&h,sizeof(h));CHECK(nf_dump_part(reply.data,reply.len,42,AF_INET6,15354,&done)<0);
+    struct {struct nlmsghdr h;int error;} end={.h={.nlmsg_len=NLMSG_LENGTH(sizeof(int)),.nlmsg_type=NLMSG_DONE,.nlmsg_flags=NLM_F_MULTI,.nlmsg_seq=1,.nlmsg_pid=42}};
+    CHECK(!nf_dump_part((const uint8_t*)&end,sizeof(end),42,AF_INET6,15354,&done) && done);
+    CHECK(nf_dump_part((const uint8_t*)&end,sizeof(end),42,AF_INET6,15354,&done)<0);
+    done=false;end.error=-EINTR;CHECK(nf_dump_part((const uint8_t*)&end,sizeof(end),42,AF_INET6,15354,&done)<0 && !done);
+    CHECK(nf_gateway_ct_port_absent(53)<0);
+    printf("Live read-only DUMP result: %d\n",nf_gateway_ct_port_absent(15353));
     int live=nf_gateway_ct_get(&a,0,&r);printf("Live read-only GET result: %d (0=record, 1=absent, -1=error)\n",live);
     printf("PASS %u netlink checks\n",checks);return 0;
 }
