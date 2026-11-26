@@ -14,6 +14,21 @@ object ServiceControl {
 
     fun enabled(): Boolean = b("scEnabled")
 
+    fun monitorRequested(): Boolean = enabled() && b("scMonitorOnly")
+
+    fun hasStartRule(config: JsonObject): Boolean {
+        if (!config.get("enabled").asBoolean) return false
+        val wifi = config.getAsJsonObject("wifi")
+        val keyguard = config.getAsJsonObject("keyguard")
+        return config.getAsJsonObject("schedule").get("enabled").asBoolean ||
+            (wifi.get("enabled").asBoolean && listOf("connectStart", "disconnectStart").any {
+                wifi.getAsJsonObject(it).get("enabled").asBoolean
+            }) ||
+            (keyguard.get("enabled").asBoolean && listOf("lockStart", "unlockStart").any {
+                keyguard.get(it).asBoolean
+            })
+    }
+
     fun toJson(): JsonObject {
         val master = enabled()
         fun rule(name: String): JsonObject {
@@ -49,16 +64,21 @@ object ServiceControl {
                 addProperty("stopCron", if (on && stop is ServiceCronParseResult.Valid) stop.expression else "")
             })
             add("wifi", JsonObject().apply {
-                addProperty("enabled", master && b("scWifi"))
                 WIFI_RULES.forEach { add(it, rule(it)) }
+                addProperty("enabled", WIFI_RULES.any { getAsJsonObject(it).get("enabled").asBoolean })
             })
             add("keyguard", JsonObject().apply {
                 val on = master && b("scKeyguard") && android.os.Build.VERSION.SDK_INT >= 33
-                addProperty("enabled", on)
+                addProperty("enabled", on && (b("scLockStart") || b("scLockStop") || b("scUnlockStart") || b("scUnlockStop")))
                 addProperty("lockStart", on && b("scLockStart") && !b("scLockStop"))
                 addProperty("lockStop", on && b("scLockStop"))
                 addProperty("unlockStart", on && b("scUnlockStart") && !b("scUnlockStop"))
                 addProperty("unlockStop", on && b("scUnlockStop"))
+            })
+            // Do not launch event sources or a resident supervisor for a master
+            // switch without any valid, enabled actions.
+            addProperty("enabled", listOf("schedule", "wifi", "keyguard").any {
+                getAsJsonObject(it).get("enabled").asBoolean
             })
         }
     }
