@@ -371,7 +371,9 @@ object RootDaemon {
         return names.filter { exactInterface.matches(it) && it !in internalInterfaces }.distinct()
     }
 
-    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String, flowToken: String? = null, matcher: Boolean = false, downstreams: List<String>? = null, downstreamIpv6: List<String> = emptyList(), serviceControl: JsonObject = ServiceControl.toJson(), tetherDnsHijack: Boolean = false): String {
+    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String, flowToken: String? = null, matcher: Boolean = false, downstreams: List<String>? = null, downstreamIpv6: List<String> = emptyList(), serviceControl: JsonObject = ServiceControl.toJson(), tetherDnsHijack: Boolean = false, gatewayDnsPort: Int? = null): String {
+        require(gatewayDnsPort == null || (mode == Mode.TUN2SOCKS && tetherDnsHijack && downstreams != null &&
+            gatewayDnsPort in 1024..65535)) { "Invalid HEV gateway DNS config" }
         val root = JsonObject()
         root.addProperty("schemaVersion", SCHEMA)
         root.addProperty("owner", OWNER)
@@ -397,6 +399,7 @@ object RootDaemon {
             addProperty("enableLocalDns", false)
             // Optional extension: only emit for an eligible patched native mode.
             if (tetherDnsHijack) addProperty("nfTetherDnsHijack", true)
+            if (gatewayDnsPort != null) addProperty("nfHevGatewayDnsPort", gatewayDnsPort)
             addProperty("enableFakeDns", false)
             add("fakeDnsIpv4Pool", JsonNull.INSTANCE)
             val ignored = if (mode == Mode.TUN) emptyList() else ignoredInterfaces()
@@ -709,14 +712,35 @@ object RootDaemon {
         val useFlow = managed && core.patched && DataStore.rootFlowMetadata &&
             mode in listOf(Mode.TUN2SOCKS, Mode.BPF2SOCKS)
         val flowToken = if (useFlow) newFlowToken() else null
-        val dynamicDownstreams = if (managed && (mode != Mode.TUN ||
+        val bootEnabled = DataStore.configurationStore.getBoolean("startOnBoot", false)
+        // First guarded runtime trial is IPv4-only. Keep dual-stack and
+        // combined boot/service-control on the existing interception path.
+        val gatewayTrial = HevGatewayDnsConfig.ENABLE_RUNTIME && managed && core.bundled &&
+            mode == Mode.TUN2SOCKS && DataStore.tetherHevDnsHijack && !ipv6 &&
+            !(bootEnabled && serviceControl.get("enabled")?.asBoolean == true)
+        val verifiedGatewayDownstreams = if (gatewayTrial)
+            resolveDownstreams(mode, requireReliable = true, ipv6 = ipv6) else null
+        val dynamicDownstreams = verifiedGatewayDownstreams ?: if (managed && (mode != Mode.TUN ||
             managedTunInbound(com.google.gson.JsonParser.parseString(singBoxConfig).asJsonObject) != null))
             resolveDownstreams(mode, ipv6 = ipv6) else null
-        val effectiveConfig = when {
+        val baseConfig = when {
             managed && mode == Mode.TUN -> withTunDownstreams(cacheConfig, dynamicDownstreams)
             flowToken != null -> withFlowMetadata(cacheConfig, flowToken)
             else -> cacheConfig
         }
+        val gatewayConfig = if (gatewayTrial && verifiedGatewayDownstreams != null &&
+            RootTetherDnsPolicy.enabled(true, true, true, true, false, baseConfig)) {
+            runCatching {
+                HevGatewayDnsConfig.prepare(
+                    com.google.gson.JsonParser.parseString(baseConfig).asJsonObject,
+                    HevGatewayDnsConfig.PORT, ipv6,
+                    setOf(DataStore.mixedPort, DataStore.socksPort, DataStore.rootTproxyPort, DataStore.bpfBridgePort),
+                    eligible = true
+                )
+            }.getOrNull()
+        } else null
+        val gatewayDnsPort = gatewayConfig?.let { HevGatewayDnsConfig.PORT }
+        val effectiveConfig = gatewayConfig?.let { gson.toJson(it) } ?: baseConfig
         if (useFlow) Logs.i("ROOT flow metadata: enabled")
         val useMatcher = matcherAvailable(mode, ipv6)
         if (managed && mode == Mode.TUN) {
@@ -726,26 +750,26 @@ object RootDaemon {
         val cfg = File(stage, "config.json").apply { writeText(withLogFile(effectiveConfig)) }
         // A boot-started native daemon has no Android app monitor. Keep its native prefix
         // selectors for daemon-managed modes when start-on-boot is enabled.
-        val daemonDownstreams = if (mode != Mode.TUN &&
-            DataStore.configurationStore.getBoolean("startOnBoot", false)) null else dynamicDownstreams?.names
+        val daemonDownstreams = if (gatewayDnsPort != null) verifiedGatewayDownstreams!!.names
+            else if (mode != Mode.TUN && bootEnabled) null else dynamicDownstreams?.names
         val dnsCaptureRequested = when (mode) {
             Mode.TPROXY -> DataStore.tetherDnsHijack
             Mode.TUN2SOCKS -> DataStore.tetherHevDnsHijack
             else -> false
         }
-        val tetherDnsHijack = RootTetherDnsPolicy.enabled(
+        val tetherDnsHijack = gatewayDnsPort != null || RootTetherDnsPolicy.enabled(
             requested = dnsCaptureRequested,
             managed = managed && core.bundled,
             supportedMode = mode == Mode.TPROXY || mode == Mode.TUN2SOCKS,
             exactDownstreams = daemonDownstreams != null,
             startOnBoot = DataStore.configurationStore.getBoolean("startOnBoot", false),
-            coreConfig = effectiveConfig
+            coreConfig = baseConfig
         )
         if (dnsCaptureRequested)
-            Logs.i("ROOT ${mode.wire} tether DNS interception: ${if (!tetherDnsHijack) "not eligible" else if (mode == Mode.TUN2SOCKS) if (ipv6) "IPv4 and IPv6 non-local DNS only" else "IPv4 non-local unicast only" else "enabled"}")
+            Logs.i("ROOT ${mode.wire} tether DNS interception: ${if (gatewayDnsPort != null) "experimental gateway DNS" else if (!tetherDnsHijack) "not eligible" else if (mode == Mode.TUN2SOCKS) if (ipv6) "IPv4 and IPv6 non-local DNS only" else "IPv4 non-local unicast only" else "enabled"}")
         val dcfg = File(stage, "asteriskd.json").apply {
             writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, daemonDownstreams,
-                dynamicDownstreams?.ipv6Prefixes.orEmpty().map { it.subnet }, serviceControl, tetherDnsHijack))
+                dynamicDownstreams?.ipv6Prefixes.orEmpty().map { it.subnet }, serviceControl, tetherDnsHijack, gatewayDnsPort))
         }
         mark("generate configs")
         try {
@@ -825,7 +849,10 @@ object RootDaemon {
                         withTunDownstreams(cacheConfig, null) else effectiveConfig
                     val bootDaemon = com.google.gson.JsonParser.parseString(
                         buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort,
-                            ipv6, bootCore, flowToken, useMatcher, serviceControl = serviceControl)
+                            ipv6, bootCore, flowToken, useMatcher,
+                            downstreams = if (gatewayDnsPort != null) emptyList() else null,
+                            serviceControl = serviceControl, tetherDnsHijack = gatewayDnsPort != null,
+                            gatewayDnsPort = gatewayDnsPort)
                     ).asJsonObject.apply {
                         addProperty("coreConfigPath", RootBoot.bootCoreConfigPath)
                     }
@@ -852,7 +879,7 @@ object RootDaemon {
                             gson.toJson(json)
                         }
                     } else null
-                    val templateDaemon = if (templateCore != null) bootDaemon.deepCopy().apply {
+                    val templateDaemon = if (templateCore != null || gatewayDnsPort != null) bootDaemon.deepCopy().apply {
                         addProperty("coreConfigPath", RootBoot.runtimeBootCorePath)
                         getAsJsonObject("network").add("hotspotInterfaces", strings(listOf("__NF_BOOT_IFACES__")))
                     } else null
