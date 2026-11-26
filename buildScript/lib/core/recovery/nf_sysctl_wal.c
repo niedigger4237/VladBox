@@ -4,13 +4,14 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 #define NF_WAL_TMP ".nf-sysctl-journal.v1.new"
-#define NF_WAL_LIMIT (128 + NF_WAL_MAX * 64)
+#define NF_WAL_LIMIT (256 + NF_WAL_MAX_CHILDREN * 100 + NF_WAL_MAX * 64)
 
 static int valid_boot(const char *s) {
     if (strnlen(s,37)!=36) return 0;
@@ -34,7 +35,14 @@ static int valid_name(const char *s) {
     return 1;
 }
 static int valid_wal(const struct nf_wal *w) {
-    if(!w||!valid_scope(&w->scope)||w->count>NF_WAL_MAX) return 0;
+    if(!w||!valid_scope(&w->scope)||w->count>NF_WAL_MAX||
+       !w->pidns_ino||w->child_count>NF_WAL_MAX_CHILDREN||
+       (w->count&&!w->child_count)) return 0;
+    for(size_t i=0;i<w->child_count;i++) {
+        const struct nf_child_identity *id=&w->children[i];
+        if(id->pid<=1||id->pid>INT_MAX||!id->start_ticks||!id->exe_ino) return 0;
+        for(size_t j=0;j<i;j++) if(w->children[j].pid==id->pid) return 0;
+    }
     for(size_t i=0;i<w->count;i++) {
         const struct nf_wal_record *r=&w->records[i];
         if(!r->ifindex||!valid_name(r->name)||(r->kind!=NF_ROUTE_LOCALNET&&r->kind!=NF_DISABLE_IPV6)||r->original>1||r->desired>1) return 0;
@@ -94,9 +102,17 @@ int nf_wal_current_scope(struct nf_wal_scope *s) {
 }
 static int encode(const struct nf_wal *w,char *out,size_t cap,size_t *len) {
     if(!valid_wal(w)) return -1;
-    int n=snprintf(out,cap,"NF_SYSCTL_V1 %s %" PRIu64 " %" PRIu64 "\n",w->scope.boot_id,w->scope.netns_dev,w->scope.netns_ino);
+    int n=snprintf(out,cap,"NF_SYSCTL_V2 %s %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64 " %zu\n",
+        w->scope.boot_id,w->scope.netns_dev,w->scope.netns_ino,w->pidns_dev,w->pidns_ino,w->child_count);
     if(n<0||(size_t)n>=cap) return -1;
     size_t off=(size_t)n;
+    for(size_t i=0;i<w->child_count;i++) {
+        const struct nf_child_identity *id=&w->children[i];
+        n=snprintf(out+off,cap-off,"%" PRIu32 " %" PRIu64 " %" PRIu64 " %" PRIu64 "\n",
+            id->pid,id->start_ticks,id->exe_dev,id->exe_ino);
+        if(n<0||(size_t)n>=cap-off) return -1;
+        off+=(size_t)n;
+    }
     for(size_t i=0;i<w->count;i++) {
         const struct nf_wal_record *r=&w->records[i];
         n=snprintf(out+off,cap-off,"%" PRIu32 " %u %u %u %s\n",r->ifindex,(unsigned)r->kind,(unsigned)r->original,(unsigned)r->desired,r->name);
@@ -129,22 +145,37 @@ static int parse_uint(const char **p,uint64_t *out) {
     if(*s!=' ') return -1;
     *p=s+1;*out=n;return 0;
 }
+/* Parse a final decimal field without accepting trailing tokens. */
+static int parse_final_uint(const char **p,uint64_t *out) {
+    char *line=strchr(*p,'\n');
+    if(!line) return -1;
+    *line=' ';
+    int rc=parse_uint(p,out);
+    *line='\n';
+    return rc||*p!=line+1?-1:0;
+}
 static int decode(char *bytes,size_t n,struct nf_wal *w) {
-    const char tag[]="NF_SYSCTL_V1 ";
+    const char tag[]="NF_SYSCTL_V2 ";
     if(!n||bytes[n-1]!='\n'||memchr(bytes,0,n)||n<sizeof(tag)-1+37||memcmp(bytes,tag,sizeof(tag)-1)) return -1;
     memset(w,0,sizeof(*w));
     bytes[n]=0;
     const char *p=bytes+sizeof(tag)-1;
     memcpy(w->scope.boot_id,p,36);p+=36;
     if(*p++!=' ') return -1;
-    if(parse_uint(&p,&w->scope.netns_dev)) return -1;
-    char *line=strchr(p,'\n');
-    if(!line) return -1;
-    *line=' ';
-    int rc=parse_uint(&p,&w->scope.netns_ino);
-    *line='\n';
-    if(rc||p!=line+1) return -1;
+    uint64_t count;
+    if(parse_uint(&p,&w->scope.netns_dev)||parse_uint(&p,&w->scope.netns_ino)||
+       parse_uint(&p,&w->pidns_dev)||parse_uint(&p,&w->pidns_ino)||
+       parse_final_uint(&p,&count)||count>NF_WAL_MAX_CHILDREN) return -1;
+    w->child_count=(size_t)count;
+    for(size_t i=0;i<w->child_count;i++) {
+        struct nf_child_identity *id=&w->children[i];
+        uint64_t pid;
+        if(parse_uint(&p,&pid)||pid>UINT32_MAX||parse_uint(&p,&id->start_ticks)||
+           parse_uint(&p,&id->exe_dev)||parse_final_uint(&p,&id->exe_ino)) return -1;
+        id->pid=(uint32_t)pid;
+    }
     while(*p) {
+        const char *line;
         if(w->count==NF_WAL_MAX) return -1;
         uint64_t idx,kind,original,desired;
         if(parse_uint(&p,&idx)||parse_uint(&p,&kind)||parse_uint(&p,&original)||parse_uint(&p,&desired)||idx>UINT32_MAX||kind>UINT8_MAX||original>1||desired>1) return -1;

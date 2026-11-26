@@ -7,10 +7,6 @@ struct nf_process_scope {
     struct nf_wal_scope network;
     uint64_t pidns_dev, pidns_ino;
 };
-struct nf_child_identity {
-    uint32_t pid;
-    uint64_t start_ticks, exe_dev, exe_ino;
-};
 enum nf_child_status {
     NF_CHILD_UNKNOWN=-1,
     NF_CHILD_ABSENT=0,
