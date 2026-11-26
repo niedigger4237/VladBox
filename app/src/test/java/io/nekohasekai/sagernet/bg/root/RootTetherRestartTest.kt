@@ -33,7 +33,7 @@ class RootTetherRestartTest {
     @Test fun hotRefreshOnlyForExactInterfaceChangesWithUnchangedPolicy() {
         val added = initial.copy(names = listOf("ap0", "rndis0"))
         val removed = initial.copy(names = emptyList(), identity = emptyList())
-        for (mode in listOf(RootDaemon.Mode.TPROXY, RootDaemon.Mode.TUN2SOCKS)) {
+        for (mode in daemonModes) {
             assertTrue(initial.canRefreshNames(mode, added))
             assertTrue(initial.canRefreshNames(mode, removed))
             assertFalse(initial.canRefreshNames(mode, initial))
@@ -41,7 +41,16 @@ class RootTetherRestartTest {
             assertFalse(initial.copy(blockIpv6 = true).canRefreshNames(mode, added.copy(blockIpv6 = true)))
         }
         assertFalse(initial.canRefreshNames(RootDaemon.Mode.TUN, added))
-        assertFalse(initial.canRefreshNames(RootDaemon.Mode.BPF2SOCKS, added))
+    }
+
+    @Test fun bpfHotRefreshCanAddRemoveAndSwitchDownstreamsWithoutPolicyChanges() {
+        val off = initial.copy(names = emptyList(), identity = emptyList(), ipv6Prefixes = emptyList(), ipv6Enabled = false, serviceIpv6 = false)
+        val wifi = off.copy(names = listOf("ap0"), identity = listOf("15:ap0:"))
+        val usb = off.copy(names = listOf("rndis0"), identity = listOf("22:rndis0:"))
+        assertTrue(off.canRefreshNames(RootDaemon.Mode.BPF2SOCKS, wifi))
+        assertTrue(wifi.canRefreshNames(RootDaemon.Mode.BPF2SOCKS, usb))
+        assertTrue(usb.canRefreshNames(RootDaemon.Mode.BPF2SOCKS, off))
+        assertFalse(wifi.canRefreshNames(RootDaemon.Mode.BPF2SOCKS, wifi.copy(identity = listOf("19:ap0:"))))
     }
 
     @Test fun actualPublishedConfigChangesRequireRestartInEveryMode() {

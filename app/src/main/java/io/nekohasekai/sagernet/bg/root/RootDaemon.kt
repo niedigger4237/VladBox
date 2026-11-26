@@ -160,7 +160,7 @@ object RootDaemon {
          * retain its interface identity (ifindex) and canonical IPv4 subnets.
          */
         fun canRefreshNames(mode: Mode, observed: DownstreamSnapshot): Boolean =
-            mode in listOf(Mode.TPROXY, Mode.TUN2SOCKS) && !blockIpv6 &&
+            mode in listOf(Mode.TPROXY, Mode.TUN2SOCKS, Mode.BPF2SOCKS) && !blockIpv6 &&
                 names != observed.names &&
                 copy(names = emptyList(), identity = emptyList()) ==
                     observed.copy(names = emptyList(), identity = emptyList())
@@ -829,7 +829,7 @@ object RootDaemon {
                         Logs.i("ROOT boot: managed TUN starts phone-only; autonomous templates=${templateCore != null}")
                 }
                 hotTetherEnabled = managed && daemonDownstreams != null &&
-                    mode in listOf(Mode.TPROXY, Mode.TUN2SOCKS) &&
+                    mode in listOf(Mode.TPROXY, Mode.TUN2SOCKS, Mode.BPF2SOCKS) &&
                     serviceControl.get("enabled")?.asBoolean != true
                 appliedDownstreams = dynamicDownstreams
                 startedWaiting = waiting

@@ -99,10 +99,23 @@ diff --git a/supervisor/supervisor.h b/supervisor/supervisor.h
  int asteriskd_supervisor_create_private_group(struct asteriskd_system_supervisor *system,
      const struct asteriskd_private_chain_group *group);
  int asteriskd_supervisor_verify_private_group_contents(
+@@ -446,6 +450,12 @@
+     struct asteriskd_system_supervisor *system);
+ int asteriskd_supervisor_reconcile_hotspot_tc(struct asteriskd_system_supervisor *system);
+ 
++/* Refresh exact BPF2SOCKS downstreams while retaining helper and pins. */
++int niefiger_supervisor_refresh_bpf_tether(struct asteriskd_system_supervisor *system,
++    char previous[][ASTERISKD_MAX_INTERFACE_NAME], size_t previous_count);
++int niefiger_supervisor_rtnl_remove_bpf_filter(struct asteriskd_system_supervisor *system,
++    const struct asteriskd_tc_filter_resource *resource);
++
+ /* supervisor/supervisor_reconcile.c */
+ uint32_t asteriskd_supervisor_rule_categories(const struct asteriskd_config *config);
+ void asteriskd_supervisor_reconcile_error(
 diff --git a/supervisor/supervisor.c b/supervisor/supervisor.c
 --- a/supervisor/supervisor.c
 +++ b/supervisor/supervisor.c
-@@ -541,6 +541,174 @@
+@@ -541,6 +541,179 @@
      }
  }
  
@@ -117,7 +130,9 @@ diff --git a/supervisor/supervisor.c b/supervisor/supervisor.c
 +static bool system_nf_tether_allowed(struct asteriskd_system_supervisor *system) {
 +    const struct asteriskd_config *c = &system->loaded_config.config;
 +    if (c->owner != ASTERISKD_OWNER_BOX ||
-+        (c->mode != ASTERISKD_MODE_TPROXY && c->mode != ASTERISKD_MODE_TUN2SOCKS) ||
++        (c->mode != ASTERISKD_MODE_TPROXY && c->mode != ASTERISKD_MODE_TUN2SOCKS &&
++         c->mode != ASTERISKD_MODE_BPF2SOCKS) ||
++        (c->mode == ASTERISKD_MODE_BPF2SOCKS && (!system->b2s_verified || system->helper_reaped)) ||
 +        c->service_control.enabled || c->dns_enhancement || c->disable_system_ipv6 ||
 +        !system->runtime->supervising || system->state.phase != ASTERISKD_PHASE_RUNNING ||
 +        !system->rules_verified || system->rules_reconciling || system->cleanup_in_progress ||
@@ -255,16 +270,19 @@ diff --git a/supervisor/supervisor.c b/supervisor/supervisor.c
 +    system->rules_reconciling = true;
 +    memcpy(c->hotspot_interfaces, r.names, sizeof(r.names));
 +    c->hotspot_interface_count = r.count;
-+    int rc = system_nf_tether_replace(system);
++    bool bpf = c->mode == ASTERISKD_MODE_BPF2SOCKS;
++    int rc = bpf ? niefiger_supervisor_refresh_bpf_tether(system, previous, previous_count)
++                 : system_nf_tether_replace(system);
 +    if (rc == 0 && system_nf_tether_links_current(&r) &&
-+        asteriskd_supervisor_reconcile_hotspot_tc(system) == 0) {
++        (bpf || asteriskd_supervisor_reconcile_hotspot_tc(system) == 0)) {
 +        system->rules_reconciling = false;
 +        system_nf_tether_ack(system, &r, "applied");
 +        return 0;
 +    }
 +    memcpy(c->hotspot_interfaces, previous, sizeof(previous));
 +    c->hotspot_interface_count = previous_count;
-+    rc = system_nf_tether_replace(system);
++    rc = bpf ? niefiger_supervisor_refresh_bpf_tether(system, r.names, r.count)
++             : system_nf_tether_replace(system);
 +    system->rules_reconciling = false;
 +    if (rc != 0) {
 +        system->rules_verified = false;
@@ -277,7 +295,7 @@ diff --git a/supervisor/supervisor.c b/supervisor/supervisor.c
  static int system_runtime_dispatch(void *opaque, const struct asteriskd_poll_source *source,
      short ready, struct asteriskd_runtime_delta *delta) {
      struct asteriskd_system_supervisor *system = opaque;
-@@ -622,6 +790,9 @@
+@@ -622,6 +795,9 @@
                  "WiFi event dispatch failed");
          }
      }
@@ -287,7 +305,7 @@ diff --git a/supervisor/supervisor.c b/supervisor/supervisor.c
      system_service_take_actions(system, delta);
      if (system->stop_requested &&
          (delta->flags & ASTERISKD_DELTA_STOP_REQUESTED) == 0U) {
-@@ -1187,7 +1358,8 @@
+@@ -1187,7 +1363,8 @@
          }
          return -1;
      }
@@ -297,6 +315,128 @@ diff --git a/supervisor/supervisor.c b/supervisor/supervisor.c
      if (asteriskd_mode_core_managed(system->loaded_config.config.mode)) {
          *active = false;
          *generation = 0U;
+diff --git a/supervisor/supervisor_rtnl.c b/supervisor/supervisor_rtnl.c
+--- a/supervisor/supervisor_rtnl.c
++++ b/supervisor/supervisor_rtnl.c
+@@ -861,4 +861,35 @@
+     return result == 0 ? 0 : -1;
+ }
+ 
++/* Delete only the previously verified BPF filter at an exact ifindex. */
++int niefiger_supervisor_rtnl_remove_bpf_filter(struct asteriskd_system_supervisor *system,
++    const struct asteriskd_tc_filter_resource *resource) {
++    if (system == NULL || resource == NULL || resource->interface_index == 0U ||
++        asteriskd_supervisor_interface_state(resource->interface_name,
++            resource->interface_index) != 0) return -1;
++    uint32_t parent = resource->direction == ASTERISKD_TC_DIRECTION_INGRESS
++        ? ASTERISKD_TC_PARENT_CLSACT_INGRESS
++        : resource->direction == ASTERISKD_TC_DIRECTION_EGRESS
++            ? ASTERISKD_TC_PARENT_CLSACT_EGRESS : 0U;
++    if (parent == 0U) return -1;
++    struct rtnl_request request;
++    memset(&request, 0, sizeof(request));
++    request.header.nlmsg_len = NLMSG_LENGTH(sizeof(struct tcmsg));
++    request.header.nlmsg_type = RTM_DELTFILTER;
++    request.header.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
++    request.body.filter.tcm_family = AF_UNSPEC;
++    request.body.filter.tcm_ifindex = (int)resource->interface_index;
++    request.body.filter.tcm_parent = parent;
++    request.body.filter.tcm_info = TC_H_MAKE(ASTERISKD_HOTSPOT_TC_PRIORITY << 16U,
++        htons((uint16_t)ASTERISKD_ETH_PROTOCOL_ALL));
++    request.body.filter.tcm_handle = ASTERISKD_HOTSPOT_TC_HANDLE;
++    if (rtnl_attribute_add(&request, TCA_KIND, "bpf", sizeof("bpf")) != 0) return -1;
++    int fd = rtnl_open();
++    if (fd < 0) return -1;
++    int rc = rtnl_transact(fd, &request.header, NULL, NULL);
++    (void)close(fd);
++    if (rc > 0) rtnl_record_error(system, rc);
++    return rc == 0 ? 0 : -1;
++}
++
+ #endif
+diff --git a/supervisor/supervisor_network.c b/supervisor/supervisor_network.c
+--- a/supervisor/supervisor_network.c
++++ b/supervisor/supervisor_network.c
+@@ -573,4 +573,79 @@
+     return result;
+ }
+ 
++/* Never delete the shared clsact or a foreign filter. Use the live helper's
++ * verified pin identities and verify detachment after the kernel ACK. */
++static int system_nf_detach_bpf_interface(struct asteriskd_system_supervisor *system,
++    const char *name, uint32_t index) {
++    for (unsigned i = 0; i < 2U; ++i) {
++        bool ingress = i == 0U;
++        struct asteriskd_tc_filter_resource f = {0};
++        f.interface_index = index;
++        f.direction = ingress ? ASTERISKD_TC_DIRECTION_INGRESS : ASTERISKD_TC_DIRECTION_EGRESS;
++        f.filter_id = ingress ? ASTERISKD_FILTER_HOTSPOT_INGRESS : ASTERISKD_FILTER_HOTSPOT_EGRESS;
++        f.program_id = ingress ? ASTERISKD_PROGRAM_BPF2SOCKS_INGRESS : ASTERISKD_PROGRAM_BPF2SOCKS_EGRESS;
++        (void)snprintf(f.interface_name, sizeof(f.interface_name), "%s", name);
++        enum asteriskd_pin_id pin = ingress ? ASTERISKD_PIN_BPF2SOCKS_TC_INGRESS
++                                           : ASTERISKD_PIN_BPF2SOCKS_TC_EGRESS;
++        if (asteriskd_supervisor_verified_pin_id(system, pin) == 0U) return -1;
++        int link = asteriskd_supervisor_interface_state(name, index);
++        if (link == 1) return 0;
++        if (link != 0) return -1;
++        enum asteriskd_rules_slot_state state = ASTERISKD_RULES_SLOT_FOREIGN;
++        if (asteriskd_supervisor_tc_probe_filter(system, &f, &state) != 0) {
++            if (asteriskd_supervisor_interface_state(name, index) == 1) return 0;
++            return -1;
++        }
++        if (state != ASTERISKD_RULES_SLOT_OWNED) continue;
++        int removed = niefiger_supervisor_rtnl_remove_bpf_filter(system, &f);
++        link = asteriskd_supervisor_interface_state(name, index);
++        if (link == 1) return 0;
++        if (link != 0 || removed != 0 ||
++            asteriskd_supervisor_tc_probe_filter(system, &f, &state) != 0 ||
++            state == ASTERISKD_RULES_SLOT_OWNED) return -1;
++    }
++    return 0;
++}
++
++int niefiger_supervisor_refresh_bpf_tether(struct asteriskd_system_supervisor *system,
++    char previous[][ASTERISKD_MAX_INTERFACE_NAME], size_t previous_count) {
++    if (system == NULL || !system->b2s_verified || system->helper_reaped ||
++        system->loaded_config.config.mode != ASTERISKD_MODE_BPF2SOCKS ||
++        previous_count > ASTERISKD_MAX_INTERFACES) return -1;
++    const struct asteriskd_config *c = &system->loaded_config.config;
++    for (size_t i = 0; i < previous_count; ++i) {
++        if (system_hotspot_interface_selected(c, previous[i])) continue;
++        uint32_t index = 0U;
++        int found = system_interface_index(previous[i], &index);
++        if (found == 1) continue;
++        if (found != 0 || system_nf_detach_bpf_interface(system, previous[i], index) != 0)
++            return -1;
++    }
++    /* Restore only recorded route_localnet values for deselected links.
++     * The journal distinguishes removed/replaced ifindices. */
++    struct asteriskd_effect_journal *journal = &system->volatile_effects;
++    struct asteriskd_effect_backend backend = asteriskd_supervisor_effect_backend(system);
++    for (size_t i = journal->count; i > 0U; --i) {
++        struct asteriskd_effect e = journal->entries[i - 1U];
++        if (e.kind != ASTERISKD_EFFECT_SYSCTL ||
++            e.resource.sysctl.sysctl_id != ASTERISKD_SYSCTL_ROUTE_LOCALNET ||
++            e.resource.sysctl.interface_index == 0U ||
++            system_hotspot_interface_selected(c, e.resource.sysctl.interface_name)) continue;
++        char error[128U];
++        if (asteriskd_effect_journal_restore(journal, &e, &backend, error, sizeof(error)) != 0)
++            return -1;
++    }
++    if (asteriskd_supervisor_reconcile_b2s_local_maps(system) != 0 ||
++        asteriskd_supervisor_reconcile_hotspot_tc(system) != 0) return -1;
++    /* Explicitly probe selected links, even if absent from getifaddrs. */
++    for (size_t i = 0; i < c->hotspot_interface_count; ++i) {
++        uint32_t index = 0U;
++        int found = system_interface_index(c->hotspot_interfaces[i], &index);
++        if (found == 1) continue; /* Rollback can include a vanished old link. */
++        if (found != 0 || system_reconcile_hotspot_tc_interface(system,
++                c->hotspot_interfaces[i], index) != 0) return -1;
++    }
++    return 0;
++}
++
+ #endif
 NIEFIGER_ASTERISKD_PATCH
 if git -C "$SRC" apply --reverse --check "$ASTERISKD_PATCH" >/dev/null 2>&1; then
   echo "asteriskd tether staging patch already applied"
