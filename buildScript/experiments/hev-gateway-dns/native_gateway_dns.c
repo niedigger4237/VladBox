@@ -115,6 +115,36 @@ int nf_gateway_populate(struct asteriskd_system_supervisor *s,
     return 0;
 }
 
+/* Check a normalized native -S listing against the queued population lines.
+ * The upstream verifier counts exact matches but does not enforce their
+ * order. This extra check rejects a DROP preceding its intended ACCEPT. */
+bool nf_gateway_verify_order(const struct asteriskd_private_chain_group *g,
+    const struct asteriskd_byte_buffer *expected, const char *actual, size_t length) {
+    if (!g || !expected || !actual || !length || actual[length - 1] != '\n' ||
+        g->chain_id != ASTERISKD_CHAIN_DNS || g->name_count != 1U ||
+        (expected->length && (!expected->bytes || expected->bytes[expected->length - 1] != '\n'))) return false;
+    char prefix[ASTERISKD_MAX_CHAIN_NAME + 5U];
+    int n = snprintf(prefix, sizeof(prefix), "-A %s ", g->names[0]);
+    if (n <= 0 || (size_t)n >= sizeof(prefix)) return false;
+    size_t declarations = 0, rules = 0;
+    if (asteriskd_xtables_private_chain_counts(actual, length, g->names[0], &declarations, &rules) != 0 || declarations != 1U) return false;
+    size_t cursor = 0, found = 0;
+    for (size_t offset = 0; offset < length;) {
+        const char *line = actual + offset;
+        const char *newline = memchr(line, '\n', length - offset);
+        if (!newline) return false;
+        size_t size = (size_t)(newline - line) + 1U;
+        offset += size;
+        if (size <= (size_t)n || memcmp(line, prefix, (size_t)n)) continue;
+        if (cursor >= expected->length) return false;
+        const unsigned char *want = expected->bytes + cursor;
+        const unsigned char *end = memchr(want, '\n', expected->length - cursor);
+        if (!end || (size_t)(end - want) + 1U != size || memcmp(line, want, size)) return false;
+        cursor += size; ++found;
+    }
+    return cursor == expected->length && found == rules;
+}
+
 #ifdef NF_GATEWAY_HOST_TEST
 static unsigned checks;
 #define CHECK(expr) do { if (!(expr)) { fprintf(stderr, "FAIL line %d\n", __LINE__); exit(1); } ++checks; } while (0)
@@ -150,6 +180,27 @@ int main(void) {
         CHECK(queued(s, i, ASTERISKD_IP_TABLE_NAT, "--dst-type LOCAL --limit-iface-in -j REDIRECT --to-ports 15353"));
         CHECK(!queued(s, i, ASTERISKD_IP_TABLE_NAT, "-j MARK"));
     }
+    const struct asteriskd_byte_buffer *expected = &s->rule_commands.xtables[0][ASTERISKD_IP_FAMILY_IPV4][ASTERISKD_IP_TABLE_FILTER];
+    const char *decl = "-N NF_HEV_DNS4_IN\n";
+    struct asteriskd_byte_buffer listing = {0};
+    CHECK(asteriskd_byte_buffer_append(&listing, decl, strlen(decl)) == 0);
+    CHECK(asteriskd_byte_buffer_append(&listing, expected->bytes, expected->length) == 0);
+    CHECK(nf_gateway_verify_order(&guard.private_groups[0], expected, (const char *)listing.bytes, listing.length));
+    const unsigned char *newline = memchr(expected->bytes, '\n', expected->length);
+    CHECK(newline != NULL);
+    size_t first = (size_t)(newline - expected->bytes) + 1U;
+    asteriskd_byte_buffer_destroy(&listing);
+    CHECK(asteriskd_byte_buffer_append(&listing, decl, strlen(decl)) == 0);
+    CHECK(asteriskd_byte_buffer_append(&listing, expected->bytes + first, expected->length - first) == 0);
+    CHECK(asteriskd_byte_buffer_append(&listing, expected->bytes, first) == 0);
+    CHECK(!nf_gateway_verify_order(&guard.private_groups[0], expected, (const char *)listing.bytes, listing.length));
+    asteriskd_byte_buffer_destroy(&listing);
+    CHECK(!nf_gateway_verify_order(&guard.private_groups[0], expected, (const char *)expected->bytes, expected->length));
+    CHECK(asteriskd_byte_buffer_append(&listing, decl, strlen(decl)) == 0);
+    CHECK(asteriskd_byte_buffer_append(&listing, expected->bytes, expected->length) == 0);
+    CHECK(asteriskd_byte_buffer_append(&listing, expected->bytes, first) == 0);
+    CHECK(!nf_gateway_verify_order(&guard.private_groups[0], expected, (const char *)listing.bytes, listing.length));
+    asteriskd_byte_buffer_destroy(&listing);
     asteriskd_supervisor_rule_batch_destroy(&s->rule_commands);
     c->enable_ipv6 = false;
     CHECK(nf_gateway_plan(c, 15353, true, &guard) == 0 && guard.private_group_count == 2);
