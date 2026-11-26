@@ -221,6 +221,8 @@ fun buildConfig(
 
         val directDnsStrategy = autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("dns-direct"))
         val remoteDnsStrategy = autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("dns-remote"))
+        val dnsMainDirect = forTest || DataStore.dnsMain == "direct"
+        val defaultDnsStrategy = if (dnsMainDirect) directDnsStrategy else remoteDnsStrategy
 
         inbounds = mutableListOf()
 
@@ -619,14 +621,14 @@ fun buildConfig(
                     -1L -> {
                         userDNSRuleList += makeDnsRuleObj().apply {
                             server = "dns-direct"
-                            strategy = directDnsStrategy
+                            strategy = DnsRuleStrategy.overrideOrNull(directDnsStrategy, defaultDnsStrategy)
                         }
                     }
 
                     0L -> {
                         if (useFakeDns) userDNSRuleList += makeDnsRuleObj().apply {
                             server = "dns-fake"
-                            strategy = "ipv4_only"
+                            strategy = DnsRuleStrategy.overrideOrNull("ipv4_only", defaultDnsStrategy)
                             inbound = listOf("tun-in")
                         }
                         userDNSRuleList += makeDnsRuleObj().apply {
@@ -752,10 +754,9 @@ fun buildConfig(
             )
         }
 
-        val dnsMainDirect = forTest || DataStore.dnsMain == "direct"
         dns.final_ = if (dnsMainDirect) "dns-direct" else "dns-remote"
-        // default strategy (the former per-server `strategy`)
-        dns.strategy = if (dnsMainDirect) directDnsStrategy else remoteDnsStrategy
+        // Keep the global DNS strategy; matching rules need no duplicate override.
+        dns.strategy = defaultDnsStrategy
 
         // dns object user rules
         if (enableDnsRouting) {
@@ -826,7 +827,7 @@ fun buildConfig(
                 dns.rules.add(DNSRule_DefaultOptions().apply {
                     inbound = listOf("tun-in")
                     server = "dns-fake"
-                    strategy = "ipv4_only"
+                    strategy = DnsRuleStrategy.overrideOrNull("ipv4_only", defaultDnsStrategy)
                     disable_cache = true
                 })
             }
@@ -837,7 +838,7 @@ fun buildConfig(
                 dns.rules.add(0, DNSRule_DefaultOptions().apply {
                     makeSingBoxRule(domainListDNSDirectForce.toHashSet().toList())
                     server = "dns-direct"
-                    strategy = directDnsStrategy
+                    strategy = DnsRuleStrategy.overrideOrNull(directDnsStrategy, defaultDnsStrategy)
                 })
             }
         }

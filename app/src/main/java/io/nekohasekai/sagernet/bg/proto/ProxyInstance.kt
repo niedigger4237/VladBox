@@ -1,6 +1,5 @@
 package io.nekohasekai.sagernet.bg.proto
 
-import io.nekohasekai.sagernet.BuildConfig
 import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.ServiceNotification
 import io.nekohasekai.sagernet.database.ProxyEntity
@@ -8,7 +7,6 @@ import io.nekohasekai.sagernet.fmt.buildConfig
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
 import kotlinx.coroutines.runBlocking
-import moe.matsuri.nb4a.utils.JavaUtil
 
 open class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = null) :
     BoxInstance(profile) {
@@ -24,9 +22,9 @@ open class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interfac
     override fun buildConfig() {
         if (notTmp) super.buildConfig() else config = buildConfig(profile, forSelectorCheck = true)
         lastSelectorGroupId = super.config.selectorGroupId
-        //
-        if (notTmp) Logs.d(config.config)
-        if (notTmp && BuildConfig.DEBUG) Logs.d(JavaUtil.gson.toJson(config.trafficMap))
+        // Config JSON and trafficMap contain credential-bearing beans.
+        // Never dump either, including in debug builds.
+        if (notTmp) Logs.d("Core configuration generated")
     }
 
     // only use this in temporary instance
@@ -37,10 +35,7 @@ open class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interfac
 
     override suspend fun init() {
         super.init()
-        pluginConfigs.forEach { (_, plugin) ->
-            val (_, content) = plugin
-            Logs.d(content)
-        }
+        if (pluginConfigs.isNotEmpty()) Logs.d("External plugin configurations prepared: ${pluginConfigs.size}")
     }
 
     override suspend fun loadConfig() {
