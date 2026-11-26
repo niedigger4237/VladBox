@@ -3,6 +3,7 @@ package io.nekohasekai.sagernet.fmt
 import android.widget.Toast
 import io.nekohasekai.sagernet.*
 import io.nekohasekai.sagernet.bg.VpnService
+import io.nekohasekai.sagernet.bg.TunAddressPlan
 import io.nekohasekai.sagernet.Key
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
@@ -56,6 +57,7 @@ class ConfigBuildResult(
     var trafficMap: Map<String, List<ProxyEntity>>,
     var profileTagMap: Map<Long, String>,
     val selectorGroupId: Long,
+    val tunAddressPlan: TunAddressPlan? = null,
 ) {
     data class IndexEntity(var chain: LinkedHashMap<Int, ProxyEntity>)
 }
@@ -63,7 +65,7 @@ class ConfigBuildResult(
 const val TAG_SOCKS_HELPER = "socks-in"
 
 fun buildConfig(
-    proxy: ProxyEntity, forTest: Boolean = false, forExport: Boolean = false
+    proxy: ProxyEntity, forTest: Boolean = false, forExport: Boolean = false, forSelectorCheck: Boolean = false
 ): ConfigBuildResult {
 
     if (proxy.type == TYPE_CONFIG) {
@@ -155,6 +157,15 @@ fun buildConfig(
     val needSniffOverride = DataStore.trafficSniffing == 2
     val externalIndexMap = ArrayList<IndexEntity>()
     val ipv6Mode = if (forTest) IPv6Mode.ENABLE else DataStore.ipv6Mode
+    // Managed ordinary VPN only. Raw configs, exports and the separate ROOT engines keep their existing semantics.
+    val tunPlan = if (isVPN && !forTest && !forExport && !forSelectorCheck && ipv6Mode != IPv6Mode.ONLY) {
+        val includeIpv6 = ipv6Mode != IPv6Mode.DISABLE
+        when (DataStore.tunAddressMode) {
+            "automatic" -> TunAddressPlan.select(includeIpv6)
+            "manual" -> TunAddressPlan.manual(DataStore.tunIpv4Subnet, DataStore.tunIpv6Subnet, includeIpv6)
+            else -> error("Unknown TUN address mode")
+        }
+    } else null
 
     fun genDomainStrategy(noAsIs: Boolean): String {
         return when {
@@ -255,11 +266,11 @@ fun buildConfig(
                 mtu = DataStore.mtu
                 // sniff / domain_strategy moved to route rule actions (sing-box >= 1.13)
                 address = when (ipv6Mode) {
-                    IPv6Mode.DISABLE -> listOf(VpnService.PRIVATE_VLAN4_CLIENT + "/28")
+                    IPv6Mode.DISABLE -> listOf(tunPlan?.cidr4 ?: (VpnService.PRIVATE_VLAN4_CLIENT + "/28"))
                     IPv6Mode.ONLY -> listOf(VpnService.PRIVATE_VLAN6_CLIENT + "/126")
                     else -> listOf(
-                        VpnService.PRIVATE_VLAN4_CLIENT + "/28",
-                        VpnService.PRIVATE_VLAN6_CLIENT + "/126"
+                        tunPlan?.cidr4 ?: (VpnService.PRIVATE_VLAN4_CLIENT + "/28"),
+                        tunPlan?.cidr6 ?: (VpnService.PRIVATE_VLAN6_CLIENT + "/126")
                     )
                 }
             })
@@ -835,13 +846,27 @@ fun buildConfig(
     }.let {
         val configMap = it.asMap()
         Util.mergeJSON(configMap, proxy.requireBean().customConfigJson)
+        val json = gson.toJson(configMap)
+        if (tunPlan != null) {
+            // A custom JSON override must not silently leave Android and the core on different subnets.
+            val expected = if (ipv6Mode == IPv6Mode.DISABLE) listOf(tunPlan.cidr4)
+                else listOf(tunPlan.cidr4, tunPlan.cidr6)
+            val tun = com.google.gson.JsonParser.parseString(json).asJsonObject.getAsJsonArray("inbounds")
+                ?.firstOrNull { it.isJsonObject && it.asJsonObject.get("tag")?.asString == "tun-in" }
+                ?.asJsonObject
+            val actual = tun?.get("address")
+            require(actual?.isJsonArray == true && actual.asJsonArray.map { it.asString } == expected) {
+                "Custom TUN address override conflicts with the managed VPN address plan; remove the override or use a raw config"
+            }
+        }
         ConfigBuildResult(
-            gson.toJson(configMap),
+            json,
             externalIndexMap,
             proxy.id,
             trafficMap,
             tagMap,
-            if (buildSelector) group.id else -1L
+            if (buildSelector) group.id else -1L,
+            tunPlan
         )
     }
 

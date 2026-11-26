@@ -43,6 +43,28 @@ object RootShell {
         }
     }
 
+    enum class Access { GRANTED, UNAVAILABLE, UNKNOWN }
+
+    /** Distinguish confirmed lack of usable su from a delayed root-manager prompt or transient I/O error. */
+    fun probeAccess(): Access {
+        val result = run("id -u", timeoutMs = 30000)
+        if (result.ok && result.out.trim() == "0") return Access.GRANTED
+        if (result.ok && result.out.trim().toIntOrNull() != null) return Access.UNAVAILABLE
+        val diagnostic = (result.err + "\n" + result.out).lowercase(java.util.Locale.ROOT)
+        if (result.code == -1) {
+            // ProcessBuilder reports ENOENT when su is not accessible in this app's namespace.
+            if ("error=2," in diagnostic || "enoent" in diagnostic || "error=13," in diagnostic)
+                return Access.UNAVAILABLE
+            return Access.UNKNOWN
+        }
+        if (result.code == 126 || result.code == 127 ||
+            listOf("permission denied", "access denied", "root access denied", "not allowed",
+                "not authorized", "su: denied", "request rejected").any { it in diagnostic })
+            return Access.UNAVAILABLE
+        // A silent nonzero exit may be an authorization rejection, but not proof.
+        return Access.UNKNOWN
+    }
+
     fun isAvailable(): Boolean = run("id -u").let { it.ok && it.out.trim() == "0" }
 
     /** Single-quote a value for a shell command. */

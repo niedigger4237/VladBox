@@ -65,6 +65,12 @@ class TileService : BaseTileService(), SagerConnection.Callback {
                     state = Tile.STATE_ACTIVE
                 }
 
+                BaseService.State.Waiting -> {
+                    icon = iconBusy
+                    label = getString(R.string.sc_waiting)
+                    state = Tile.STATE_ACTIVE
+                }
+
                 BaseService.State.Stopping -> {
                     icon = iconBusy
                     state = Tile.STATE_UNAVAILABLE

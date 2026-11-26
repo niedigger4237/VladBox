@@ -4,6 +4,7 @@ import io.nekohasekai.sagernet.BuildConfig
 import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.ServiceNotification
 import io.nekohasekai.sagernet.database.ProxyEntity
+import io.nekohasekai.sagernet.fmt.buildConfig
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
 import kotlinx.coroutines.runBlocking
@@ -21,7 +22,7 @@ open class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interfac
     var looper: TrafficLooper? = null
 
     override fun buildConfig() {
-        super.buildConfig()
+        if (notTmp) super.buildConfig() else config = buildConfig(profile, forSelectorCheck = true)
         lastSelectorGroupId = super.config.selectorGroupId
         //
         if (notTmp) Logs.d(config.config)

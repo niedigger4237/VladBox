@@ -14,6 +14,9 @@ if [ -z "$GOPATH" ]; then
   GOPATH=$(go env GOPATH)
 fi
 
+# Validate after sync_gomod.sh and immediately before gomobile bind.
+bash ./verify_utls.sh "$PWD" || exit 1
+
 export GOBIND=gobind-matsuri
 SB_VERSION="${SING_BOX_TAG:-v1.14.3-extended-2.7.3}"
 SB_VERSION="${SB_VERSION#v}"

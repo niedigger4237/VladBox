@@ -12,6 +12,8 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.atomic.AtomicReference
+import android.os.SystemClock
 
 /**
  * Root-режимы запускают ядро отдельным процессом, поэтому счётчики и проверку связи
@@ -84,46 +86,98 @@ object RootClashApi {
     }
 
     /** Поток {"up":N,"down":M} раз в секунду (байт/с); [onSample] вызывается на каждую строку. */
-    fun streamTraffic(onSample: (up: Long, down: Long) -> Unit) {
+    internal class TrafficStream {
+        private val connection = AtomicReference<HttpURLConnection?>()
+        private val process = AtomicReference<Process?>()
+        @Volatile private var stopped = false
+
+        fun checkActive() {
+            if (stopped) throw CancellationException("ROOT traffic stream closed")
+        }
+
+        fun attach(c: HttpURLConnection) {
+            connection.set(c)
+            if (stopped) {
+                connection.compareAndSet(c, null)
+                c.disconnect()
+                checkActive()
+            }
+        }
+
+        fun attach(p: Process) {
+            process.set(p)
+            if (stopped) {
+                process.compareAndSet(p, null)
+                p.destroyForcibly()
+                checkActive()
+            }
+        }
+
+        fun detach(c: HttpURLConnection) { connection.compareAndSet(c, null) }
+        fun detach(p: Process) { process.compareAndSet(p, null) }
+
+        fun close() {
+            stopped = true
+            process.getAndSet(null)?.destroyForcibly()
+            // HttpURLConnection.disconnect may block on a concurrent read.
+            // Never run it on the Android UI thread.
+            connection.getAndSet(null)?.let { c ->
+                Thread({ runCatching { c.disconnect() } }, "root-traffic-close").apply { isDaemon = true }.start()
+            }
+        }
+    }
+
+    internal fun streamTraffic(handle: TrafficStream, onSample: (up: Long, down: Long) -> Unit) {
+        handle.checkActive()
         if (!viaRoot) {
             try {
-                streamTrafficDirect(onSample)
+                streamTrafficDirect(handle, onSample)
                 return
             } catch (e: java.io.IOException) {
+                handle.checkActive()
                 if (e is java.net.SocketTimeoutException && !e.message.orEmpty().contains("connect")) throw e
                 viaRoot = true
             }
         }
+        handle.checkActive()
         val p = ProcessBuilder("su", "-c", rootScript("/traffic", 3600)).redirectErrorStream(true).start()
         try {
+            handle.attach(p)
             p.inputStream.bufferedReader().use { r ->
                 while (true) {
+                    handle.checkActive()
                     val line = r.readLine() ?: break
+                    handle.checkActive()
                     if (!line.startsWith("{")) continue
                     val j = JSONObject(line)
                     onSample(j.optLong("up"), j.optLong("down"))
                 }
             }
         } finally {
+            handle.detach(p)
             p.destroyForcibly()
         }
     }
 
-    private fun streamTrafficDirect(onSample: (up: Long, down: Long) -> Unit) {
+    private fun streamTrafficDirect(handle: TrafficStream, onSample: (up: Long, down: Long) -> Unit) {
         val c = URL("$BASE/traffic").openConnection(java.net.Proxy.NO_PROXY) as HttpURLConnection
         try {
+            handle.attach(c)
             c.instanceFollowRedirects = false
             c.setRequestProperty("Authorization", "Bearer " + ClashApiSecret.value)
             c.connectTimeout = 2000
             c.readTimeout = 15000
             c.inputStream.bufferedReader().use { r ->
                 while (true) {
+                    handle.checkActive()
                     val line = r.readLine() ?: break
+                    handle.checkActive()
                     val j = JSONObject(line)
                     onSample(j.optLong("up"), j.optLong("down"))
                 }
             }
         } finally {
+            handle.detach(c)
             c.disconnect()
         }
     }
@@ -131,28 +185,48 @@ object RootClashApi {
 
 class RootTrafficLooper(private val data: BaseService.Data, private val sc: CoroutineScope) {
     private var job: Job? = null
+    @Volatile private var stream: RootClashApi.TrafficStream? = null
 
+    @Synchronized
     fun start() {
+        stop()
         RootClashApi.viaRoot = false
-        job = sc.launch(Dispatchers.IO) { loop() }
+        val handle = RootClashApi.TrafficStream()
+        stream = handle
+        job = sc.launch(Dispatchers.IO) {
+            try { loop(handle) } finally { handle.close() }
+        }
     }
 
+    @Synchronized
     fun stop() {
         job?.cancel()
+        job = null
+        stream?.close()
+        stream = null
     }
 
-    private suspend fun loop() {
+    private suspend fun loop(handle: RootClashApi.TrafficStream) {
         val interval = DataStore.speedInterval
         Logs.d("ROOT traffic: interval=${interval}ms")
         if (interval <= 0) return
         var txTotal = 0L
         var rxTotal = 0L
-        while (sc.isActive) {
+        val context = currentCoroutineContext()
+        var retryMs = 1000L
+        var nextPost = 0L
+        while (context.isActive) {
             try {
-                RootClashApi.streamTraffic { up, down ->
+                RootClashApi.streamTraffic(handle) { up, down ->
+                    context.ensureActive()
+                    retryMs = 1000L
                     txTotal += up
                     rxTotal += down
-                    post(SpeedDisplayData(up, down, 0L, 0L, txTotal, rxTotal))
+                    val now = SystemClock.elapsedRealtime()
+                    if (now >= nextPost) {
+                        nextPost = now + interval.toLong()
+                        post(handle, SpeedDisplayData(up, down, 0L, 0L, txTotal, rxTotal))
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -160,15 +234,17 @@ class RootTrafficLooper(private val data: BaseService.Data, private val sc: Coro
                 // ядро ещё стартует или соединение оборвалось — повторяем
                 Logs.d("root traffic: ${e.message}")
             }
-            delay(1000)
+            delay(retryMs)
+            retryMs = (retryMs * 2).coerceAtMost(15000L)
         }
     }
 
-    private fun post(speed: SpeedDisplayData) {
-        sc.launch {
-            if (data.state == BaseService.State.Connected
-                && data.binder.callbackIdMap.containsValue(SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND)
-            ) {
+    private fun post(handle: RootClashApi.TrafficStream, speed: SpeedDisplayData) {
+        sc.launch(Dispatchers.Main.immediate) {
+            // Samples queued before a policy pause must not overwrite the
+            // waiting notification or statistics from a resumed session.
+            if (stream !== handle || data.state != BaseService.State.Connected) return@launch
+            if (data.binder.callbackIdMap.containsValue(SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND)) {
                 data.binder.broadcast { b ->
                     if (data.binder.callbackIdMap[b] == SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND) {
                         b.cbSpeedUpdate(speed)

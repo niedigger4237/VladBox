@@ -61,7 +61,8 @@
     <string name="root_core_update">Update sing-box core (root)</string>
     <string name="root_core_import">Import sing-box core file (root)</string>
     <string name="root_core_rollback">Roll back to the previous core</string>
-    <string name="root_core_summary">Active core: %1$s</string>
+    <string name="root_core_summary">Selected core (next connection): %1$s</string>
+    <string name="root_core_bundled">Use bundled (patched) core</string>
     <string name="service_mode_proxy">Proxy only</string>
     <string name="service_mode_root_tun">Root: TUN (tun2socks-style, no VpnService)</string>
     <string name="service_mode_root_tproxy">Root: TPROXY (iptables)</string>
@@ -656,7 +657,10 @@
     <string name="socks_port">SOCKS5 port (tun2socks / bpf2socks)</string>
     <string name="socks_port_sum">Dedicated SOCKS5 inbound used by the root helpers</string>
     <string name="bpf_bridge_port">BPF2SOCKS bridge port</string>
-    <string name="cat_tethering">Tethering (root)</string>
+    <string name="cat_tethering">Tethering (Root)</string>
+    <string name="vpn_tether_ipv4_warning">Root-assisted VPN tethering: IPv6 requires a suitable client prefix and NAT66 support. If unavailable, IPv6 forwarding is blocked on detected tethering interfaces. Verify leak protection on your device.</string>
+    <string name="root_access_checking">Checking root access…</string>
+    <string name="root_access_unknown">Root access not verified. Reopen settings to retry.</string>
     <string name="tether_wifi">Wi-Fi hotspot</string>
     <string name="tether_bluetooth">Bluetooth tethering</string>
     <string name="tether_usb">USB tethering</string>
@@ -666,7 +670,7 @@
     <string name="service_control">Service control</string>
     <string name="service_control_sum">Start / stop automatically by Wi-Fi, schedule or lock screen (root)</string>
     <string name="start_on_boot">Start on boot</string>
-    <string name="start_on_boot_sum">Installs a service.d script that starts the root service at boot</string>
+    <string name="start_on_boot_sum">Installs a service.d script for ROOT startup. Reconnect once after enabling to save a verified boot configuration.</string>
     <string name="sc_enable">Enable service control</string>
     <string name="sc_enable_sum">Master switch. The supervisor keeps running in the background and applies the rules below</string>
     <string name="sc_schedule">Schedule</string>
@@ -714,4 +718,20 @@
     <string name="root_flow_metadata_sum">Preserve original source addresses and available app UIDs in bundled ROOT helper modes.</string>
     <string name="root_ebpf_matcher">eBPF matcher</string>
     <string name="root_ebpf_matcher_sum">Use kernel-level app filtering when supported, otherwise use iptables.</string>
+    <string name="tun_address_mode">TUN address mode</string>
+    <string name="tun_address_automatic">Automatic</string>
+    <string name="tun_address_manual">Manual</string>
+    <string name="tun_ipv4_subnet">TUN IPv4 subnet</string>
+    <string name="tun_ipv6_subnet">TUN IPv6 subnet</string>
+    <string name="tun_ipv4_subnet_hint">Private network CIDR (/24–/30), e.g. 172.19.0.0/28. TUN and DNS use the first two host addresses.</string>
+    <string name="tun_ipv6_subnet_hint">Local IPv6 network CIDR (fd00::/8, /64–/126), e.g. fdfe:dcba:9876::/126.</string>
+    <string name="tun_subnet_invalid">Enter a valid private network CIDR with all host bits zero.</string>
+    <string name="sc_any_wifi">Any Wi-Fi network</string>
+    <string name="sc_any_wifi_sum">Match all networks; ignore SSID and BSSID filters for this rule</string>
+    <string name="sc_invalid_cron">Invalid cron expression. Use five numeric fields: minute, hour, day, month, weekday.</string>
+    <string name="sc_invalid_ssid">SSID must be 1–32 UTF-8 bytes. Maximum 64 entries.</string>
+    <string name="sc_invalid_bssid">Invalid BSSID. Enter up to 64 MAC addresses.</string>
+    <string name="sc_waiting">Waiting for conditions</string>
+    <string name="sc_monitor_only">Wait for a start condition</string>
+    <string name="sc_monitor_only_sum">Arm ROOT without connecting on manual start. Requires at least one valid start rule. The power button disarms the monitor. Tethering IPv6 protection stays active if configured.</string>
 </resources>

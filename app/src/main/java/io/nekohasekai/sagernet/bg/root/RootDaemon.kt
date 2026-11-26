@@ -145,25 +145,47 @@ object RootDaemon {
         return interfaceItems(value)
     }
 
-    // Android reports the active downstreams explicitly; never guess from all wlan* devices.
-    private fun resolveTunDownstreams(): List<String> {
-        val manual = configuredTunInterfaces()
+    internal data class DownstreamSnapshot(
+        val names: List<String>,
+        val identity: List<String>,
+        val ipv6Enabled: Boolean = false,
+        val ipv6Prefixes: List<TetherIpv6.Down> = emptyList(),
+        val blockIpv6: Boolean = false,
+        val serviceIpv6: Boolean = ipv6Enabled,
+    )
+
+    // Android reports active downstreams explicitly; never guess from all wlan* devices.
+    internal fun resolveDownstreams(mode: Mode, requireReliable: Boolean = false, ipv6: Boolean = false): DownstreamSnapshot? {
+        // Boot-owned native sessions retain their selector-based configuration;
+        // a saved global prefix must not bypass traffic after reboot/renumbering.
+        val trackV6 = ipv6 && (mode == Mode.TUN || (mode in listOf(Mode.TUN2SOCKS, Mode.TPROXY, Mode.BPF2SOCKS) &&
+            !DataStore.configurationStore.getBoolean("startOnBoot", false)))
+        val blockV6 = !ipv6 && DataStore.rootDisableSystemIpv6
+        fun emptySnapshot() = DownstreamSnapshot(emptyList(), emptyList(), trackV6, blockIpv6 = blockV6, serviceIpv6 = ipv6)
+        val manual = if (mode == Mode.TUN) configuredTunInterfaces() else emptyList()
         val selectors = tetherSelectors().toMutableList()
         if (DataStore.tetherWifi) selectors += listOf("swlan+", "wifi+")
         val ignored = ignoredInterfaces()
         fun matches(name: String, selector: String): Boolean =
             if (selector.endsWith("+")) name.startsWith(selector.dropLast(1)) else name == selector
-        if (manual.isEmpty() && selectors.isEmpty()) return emptyList()
+        if (manual.isEmpty() && selectors.isEmpty()) return emptySnapshot()
         val shortDump = RootShell.run("dumpsys tethering --short", timeoutMs = 5000)
         val dump = if (shortDump.ok && shortDump.out.contains("TetheredState")) shortDump
             else RootShell.run("dumpsys tethering", timeoutMs = 5000)
         // Both families must succeed; a partial route dump cannot prove that an interface is not WAN.
         val routes = RootShell.run("ip -4 route show table all && ip -6 route show table all", timeoutMs = 5000)
         if (!routes.ok) {
-            Logs.w("ROOT TUN: cannot verify upstream interfaces; skipping all downstreams for this start")
-            return emptyList()
+            Logs.w("ROOT ${mode.wire}: cannot verify upstream interfaces; skipping unverified downstreams")
+            return if (requireReliable) null else emptySnapshot()
         }
         val state = Regex("""^\s*([A-Za-z0-9_.-]{1,15})\s+-\s+TetheredState\s+-\s+lastError\s*=\s*0\s*$""")
+        if (requireReliable) {
+            if (!dump.ok) return null
+            val recognizable = Regex("""(?:TetheredState|AvailableState|UnavailableState|LocalHotspotState|Tether state:)""", RegexOption.IGNORE_CASE)
+            if (!recognizable.containsMatchIn(dump.out)) return null
+            // Never mistake an unsupported active-interface line for a disconnect.
+            if (dump.out.lineSequence().any { " - TetheredState" in it && !state.matches(it) }) return null
+        }
         val active = if (dump.ok) dump.out.lineSequence()
             .mapNotNull { state.matchEntire(it)?.groupValues?.get(1) }.distinct().toList() else emptyList()
         val upstream = routes.out.lineSequence().filter { it.trimStart().startsWith("default ") }
@@ -173,19 +195,79 @@ object RootDaemon {
         val result = (manual + auto).distinct().filter { name ->
             name !in internalInterfaces && name !in upstream && ignored.none { matches(name, it) }
         }
-        Logs.i("ROOT TUN downstream: active=$active selected=$result upstream=$upstream dumpOk=${dump.ok} routesOk=${routes.ok}")
-        if (!dump.ok) Logs.w("ROOT TUN: Android tethering state unavailable; only verified manual downstreams can be used")
-        if (selectors.isNotEmpty() && result.isEmpty()) Logs.w("ROOT TUN: no matching active downstream; enable tethering before connecting or enter an exact interface name")
-        return result
+        if (!requireReliable) Logs.i("ROOT ${mode.wire} downstream: active=$active selected=$result upstream=$upstream dumpOk=${dump.ok} routesOk=${routes.ok}")
+        if (!dump.ok) Logs.w("ROOT ${mode.wire}: Android tethering state unavailable; only verified manual downstreams can be used")
+        if (!requireReliable && selectors.isNotEmpty() && result.isEmpty()) Logs.i("ROOT ${mode.wire}: no matching active downstream at startup")
+        val names = result.sorted()
+        if (names.isEmpty()) return emptySnapshot()
+        val links = RootShell.run("ip -o link show && ip -4 -o addr show", timeoutMs = 5000)
+        if (!links.ok) return if (requireReliable) null else DownstreamSnapshot(names, emptyList(), trackV6, blockIpv6 = blockV6, serviceIpv6 = ipv6)
+        // Include the ifindex and IPv4 gateway/prefix: Android may recreate ap0 using the same name.
+        val identity = RootTetherIdentity.parse(names, links.out)
+        if (requireReliable && (names - manual.toSet()).any { name -> identity.none { it.substringAfter(':').substringBefore(':') == name } }) return null
+        val prefixes = if (trackV6) TetherIpv6.discover(names.toSet())?.filter {
+            // Only on-link subnets, never a broad upstream/global aggregate.
+            it.subnet.substringAfterLast('/').toIntOrNull()?.let { bits -> bits in 64..128 } == true
+        } else emptyList()
+        if (prefixes == null && requireReliable) return null
+        if (prefixes == null) Logs.w("ROOT ${mode.wire}: cannot discover downstream IPv6 prefixes")
+        return DownstreamSnapshot(names, identity, trackV6, prefixes.orEmpty(), blockV6, ipv6)
     }
 
-    private fun withTunDownstreams(json: String): String {
-        val root = com.google.gson.JsonParser.parseString(json).asJsonObject
-        val inbound = root.getAsJsonArray("inbounds")?.firstOrNull {
+    @Volatile internal var appliedDownstreams: DownstreamSnapshot? = null
+        private set
+    @Volatile internal var startedWaiting = false
+        private set
+
+    internal fun isRunning(): Boolean = health() == RootHealth.RUNNING
+
+    // Never treat an inaccessible control socket, su timeout, or malformed
+    // response as a confirmed crash. Paused service-control sessions are not failures.
+    internal fun health(): RootHealth = RootHealth.parse(control("status", 5000), OWNER)
+
+    // Use the same lock as shutdown so a late watchdog cannot reinstall rules
+    // after the session has been invalidated. Identity distinguishes restarts
+    // whose downstream names and addresses happen to be unchanged.
+    @Synchronized
+    internal fun reconcileTetherRules(mode: Mode, applied: DownstreamSnapshot, observed: DownstreamSnapshot?) {
+        val repairForward = mode == Mode.TUN && observed == applied && applied.names.isNotEmpty()
+        if (!applied.blockIpv6 && !repairForward) return
+        // One fresh health check under the shutdown lock, not a cached result.
+        if (appliedDownstreams !== applied || health() != RootHealth.RUNNING) return
+        if (applied.blockIpv6) {
+            val names = (applied.names + observed?.names.orEmpty()).distinct()
+            if (!RootTetherIpv6Guard.ensure(names)) Logs.w("ROOT tether IPv6 guard: reconciliation failed")
+        }
+        if (repairForward && !RootTunForwarding.ensure(applied.names, applied.ipv6Enabled))
+            Logs.w("ROOT TUN forwarding: reconciliation pending")
+    }
+
+    private fun managedTunInbound(root: JsonObject): JsonObject? = root.getAsJsonArray("inbounds")?.firstOrNull {
             it.isJsonObject && it.asJsonObject.get("type")?.asString == "tun" &&
                 it.asJsonObject.get("interface_name")?.asString == TUN_DEVICE
-        }?.asJsonObject ?: return json
-        inbound.add("include_interface", strings(listOf("lo") + resolveTunDownstreams()))
+        }?.asJsonObject
+
+    private fun withTunDownstreams(json: String, snapshot: DownstreamSnapshot?): String {
+        val root = com.google.gson.JsonParser.parseString(json).asJsonObject
+        val inbound = managedTunInbound(root) ?: return json
+        val names = snapshot?.names.orEmpty()
+        inbound.add("include_interface", strings(listOf("lo") + names))
+        if (names.isNotEmpty()) {
+            // Keep DHCP broadcast and the actual local downstream subnet out of the
+            // native TUN route table. Do not bypass all private ranges or replace SRS.
+            val existing = inbound.get("route_exclude_address")?.let { field ->
+                if (field.isJsonArray) field.asJsonArray.map { it.asString } else listOf(field.asString)
+            }.orEmpty()
+            val local = snapshot?.identity.orEmpty().mapNotNull {
+                RootTetherIdentity.ipv4Network(it.substringAfter(':').substringAfter(':'))
+            }
+            val ipv6 = inbound.getAsJsonArray("address")?.any { ':' in it.asString } == true
+            val added = listOf("255.255.255.255/32", "169.254.0.0/16", "224.0.0.0/24") +
+                local + if (ipv6) listOf("fe80::/10", "ff02::/16") +
+                    snapshot?.ipv6Prefixes.orEmpty().map { it.subnet } else emptyList()
+            inbound.add("route_exclude_address", strings((existing + added).distinct()))
+            Logs.i("ROOT TUN: local tether route exclusions=${added.distinct()}")
+        }
         return gson.toJson(root)
     }
 
@@ -209,7 +291,7 @@ object RootDaemon {
         return names.filter { exactInterface.matches(it) && it !in internalInterfaces }.distinct()
     }
 
-    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String, flowToken: String? = null, matcher: Boolean = false): String {
+    fun buildConfig(mode: Mode, corePath: String, tproxyPort: Int, ipv6: Boolean, singBoxConfig: String, flowToken: String? = null, matcher: Boolean = false, downstreams: List<String>? = null, downstreamIpv6: List<String> = emptyList(), serviceControl: JsonObject = ServiceControl.toJson()): String {
         val root = JsonObject()
         root.addProperty("schemaVersion", SCHEMA)
         root.addProperty("owner", OWNER)
@@ -238,12 +320,16 @@ object RootDaemon {
             val ignored = if (mode == Mode.TUN) emptyList() else ignoredInterfaces()
             add("ignoredInterfaces", strings(ignored))
             add("virtualInterfaces", strings(if (mode == Mode.TUN2SOCKS) listOf(HEV_TUN_DEVICE) else emptyList()))
-            val shared = if (mode == Mode.TUN) tunInterfacesFromConfig(singBoxConfig) else tetherSelectors()
+            val shared = if (mode == Mode.TUN) tunInterfacesFromConfig(singBoxConfig) else downstreams ?: tetherSelectors()
             add("hotspotInterfaces", strings(shared.also { Logs.i("hotspotInterfaces: $it") }))
             add("proxyPrivateCidrs", strings(emptyList()))
             // as in AsteriskBOX: private/local ranges are never captured, otherwise hotspot clients lose DHCP/gateway
             // traffic (their Wi-Fi drops); TUN mode leaves it to sing-box auto_route
-            add("bypassPrivateCidrs", strings(if (mode == Mode.TUN) emptyList() else DEFAULT_BYPASS_CIDRS.filter { ipv6 || ':' !in it }))
+            val localTetherV6 = if (mode in listOf(Mode.TUN2SOCKS, Mode.TPROXY, Mode.BPF2SOCKS) && ipv6 && downstreams != null)
+                downstreamIpv6 else emptyList()
+            if (localTetherV6.isNotEmpty()) Logs.i("ROOT ${mode.wire}: local tether IPv6 exclusions=$localTetherV6")
+            add("bypassPrivateCidrs", strings(if (mode == Mode.TUN) emptyList() else
+                (DEFAULT_BYPASS_CIDRS.filter { ipv6 || ':' !in it } + localTetherV6).distinct()))
             add("appPolicy", JsonObject().apply {
                 addProperty(
                     "mode",
@@ -303,7 +389,7 @@ object RootDaemon {
             else -> JsonNull.INSTANCE
         })
 
-        root.add("serviceControl", ServiceControl.toJson())
+        root.add("serviceControl", serviceControl.deepCopy())
         root.add("dnsEnhancement", JsonNull.INSTANCE)
         root.add("runtimeEventReceiver", JsonNull.INSTANCE)
         return gson.toJson(root) + "\n"
@@ -321,47 +407,167 @@ object RootDaemon {
     } catch (e: Exception) { json }
 
     @Volatile private var tailer: Thread? = null
+    @Volatile private var tunDiagnostics: Thread? = null
+
+    // Read-only, bounded snapshots; no probes are transmitted and no firewall is modified.
+    // Never log the full core config: it contains credentials.
+    private fun startTunDiagnostics(snapshot: DownstreamSnapshot, ipv6: Boolean) {
+        stopTunDiagnostics()
+        val names = snapshot.names.filter { exactInterface.matches(it) && it !in internalInterfaces }
+        tunDiagnostics = Thread({
+            val self = Thread.currentThread()
+            fun active() = !self.isInterrupted && tunDiagnostics === self
+            fun capture(label: String, command: String) {
+                if (!active()) return
+                // Each command has its own bound and reports failure separately.
+                val result = RootShell.run(command, timeoutMs = 4000L)
+                if (!active()) return
+                Logs.i("ROOT TUN diagnostic [$label] rc=${result.code}")
+                result.out.lineSequence().take(180).forEach { line ->
+                    if (active() && line.isNotBlank()) Logs.i("ROOT TUN diagnostic [$label] ${line.take(1000)}")
+                }
+                if (result.out.lineSequence().count() > 180) Logs.i("ROOT TUN diagnostic [$label] output truncated")
+                if (result.err.isNotBlank()) Logs.w("ROOT TUN diagnostic [$label] ${result.err.take(500)}")
+            }
+            try {
+                if (!active()) return@Thread
+                Logs.i("ROOT TUN diagnostic: begin downstream=$names")
+                fun hotspotState(label: String) {
+                    capture("$label links", "ip -o link show | sed -E 's/([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}/[MAC]/g'")
+                    capture("$label addresses", "ip -4 -o addr show")
+                    capture("$label tether", "dumpsys tethering | grep -iE 'TetheredState|AvailableState|UnavailableState|LocalHotspotState|Tether state:|offload.*(started|stopped|enabled|disabled)' | head -n 60")
+                    capture("$label Wi-Fi events", "logcat -d -t 1500 -v brief -s SoftApManager WifiNative IpServer DhcpServer DhcpClient 2>/dev/null | grep -iE 'state|fail|disconnect|connect|DHCP|interface|lease' | sed -E 's/([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}/[MAC]/g' | grep -ivE 'ssid|password|passphrase|credential|preSharedKey' | tail -n 40")
+                }
+                hotspotState("initial")
+                capture("forwarding", "echo ip_forward; cat /proc/sys/net/ipv4/ip_forward; echo rp_filter; cat /proc/sys/net/ipv4/conf/all/rp_filter; echo tether_offload_disabled; settings get global tether_offload_disabled")
+                capture("IPv4 rules", "ip -4 rule show")
+                capture("IPv4 routes", "ip -4 route show table all")
+                if (ipv6) {
+                    capture("IPv6 rules", "ip -6 rule show")
+                    capture("IPv6 routes", "ip -6 route show table all")
+                }
+                capture("filter", "iptables -w 1 -t filter -L -n -v -x")
+                capture("nat", "iptables -w 1 -t nat -L -n -v -x")
+                capture("mangle", "iptables -w 1 -t mangle -L -n -v -x")
+                capture("offload", "dumpsys tethering | grep -iE 'offload|TetheredState|LocalHotspotState|current upstream' | head -n 80")
+                for (name in names) {
+                    val dev = RootShell.q(name)
+                    capture("$name TC ingress", "tc -s filter show dev $dev ingress")
+                    capture("$name TC egress", "tc -s filter show dev $dev egress")
+                    capture("$name client routes", "ip -4 neigh show dev $dev | awk '/lladdr/ {print \$1}' | head -n 8 | while read -r client; do echo client=\$client; ip -4 route get 1.1.1.1 from \"\$client\" iif $dev; ip -4 route get \"\$client\"; done")
+                }
+                val devices = names + TUN_DEVICE
+                repeat(2) { index ->
+                    if (!active()) return@Thread
+                    for (name in devices) {
+                        val dev = RootShell.q(name)
+                        capture("counters ${index + 1} $name", "ip -s link show dev $dev | sed '/link\\//d'")
+                    }
+                    if (index == 0) Thread.sleep(5000L)
+                }
+                hotspotState("after traffic")
+                if (active()) Logs.i("ROOT TUN diagnostic: complete")
+            } catch (_: InterruptedException) {
+                // Normal service shutdown.
+            } catch (e: Exception) {
+                if (active()) Logs.w("ROOT TUN diagnostic failed: ${e.javaClass.simpleName}")
+            }
+        }, "root-tun-diagnostics").apply { isDaemon = true }
+        tunDiagnostics?.start()
+    }
+
+    private fun stopTunDiagnostics() {
+        val old = tunDiagnostics
+        tunDiagnostics = null
+        old?.interrupt()
+    }
 
     /** forwards core/daemon log lines into the in-app log (Logs -> neko.log) while the service runs */
-    fun startLogForward() {
+    fun startLogForward(mode: Mode? = null) {
         stopLogForward()
         tailer = Thread({
             val offsets = HashMap<String, Long>()
-            val files = listOf(coreLogPath, logPath, "$logDir/error.log")
+            val identities = HashMap<String, String>()
+            val redactors = HashMap<String, io.nekohasekai.sagernet.ktx.LogRedactor.Stream>()
+            val files = listOf(coreLogPath, logPath, "$logDir/error.log") +
+                if (mode == Mode.TUN2SOCKS) listOf("$logDir/tun2socks.log") else emptyList()
             try {
                 val self = Thread.currentThread()
                 val pending = HashMap<String, ByteArray>()
+                val discard = HashSet<String>()
+                var idlePolls = 0
                 fun active() = !self.isInterrupted && tailer === self
                 while (active()) {
-                    for (f in files) {
-                        if (!active()) break
+                    // One su transaction for all files; frame the binary chunks
+                    // with their index, inode and starting byte offset.
+                    val commands = mutableListOf<String>()
+                    for ((index, f) in files.withIndex()) {
                         val off = offsets[f] ?: 0L
-                        // Base64 preserves exact byte offsets despite RootShell's text/trim API.
-                        val r = RootShell.run(
-                            "[ -f ${RootShell.q(f)} ] && tail -c +${off + 1} ${RootShell.q(f)} | head -c 65536 | base64",
-                            timeoutMs = 4_000
-                        )
+                        val inode = identities[f].orEmpty()
+                        commands += """
+                            if [ -f ${RootShell.q(f)} ]; then
+                                meta=${'$'}(stat -c '%i %s' ${RootShell.q(f)} 2>/dev/null) || meta=''
+                                if [ -n "${'$'}meta" ]; then
+                                    set -- ${'$'}meta
+                                    ino=${'$'}1; size=${'$'}2; start=$off
+                                    if [ "${'$'}ino" != ${RootShell.q(inode)} ] || [ "${'$'}size" -lt "${'$'}start" ]; then start=0; fi
+                                    if [ "${'$'}size" -gt "${'$'}start" ] || [ "${'$'}ino" != ${RootShell.q(inode)} ] || [ "${'$'}start" != "$off" ]; then
+                                        printf '%s %s %s ' $index "${'$'}ino" "${'$'}start"
+                                        tail -c +${'$'}((start+1)) ${RootShell.q(f)} | head -c 65536 | base64 | tr -d '\r\n'
+                                        printf '\n'
+                                    fi
+                                fi
+                            fi
+                        """.trimIndent()
+                    }
+                    val result = RootShell.run(*commands.toTypedArray(), timeoutMs = 8000)
+                    if (!active()) break
+                    var received = false
+                    if (result.ok) for (line in result.out.lineSequence()) {
                         if (!active()) break
-                        if (!r.ok || r.out.isBlank()) continue
+                        val parts = line.split(' ', limit = 4)
+                        if (parts.size < 3) continue
+                        val f = files.getOrNull(parts[0].toIntOrNull() ?: -1) ?: continue
+                        val inode = parts[1]
+                        val start = parts[2].toLongOrNull()?.takeIf { it >= 0 } ?: continue
+                        if (inode != identities[f] || start != (offsets[f] ?: 0L)) {
+                            pending.remove(f)
+                            discard.remove(f)
+                            redactors.remove(f)
+                        }
+                        identities[f] = inode
                         val chunk = runCatching {
-                            android.util.Base64.decode(r.out, android.util.Base64.DEFAULT)
+                            android.util.Base64.decode(parts.getOrElse(3) { "" }, android.util.Base64.DEFAULT)
                         }.getOrNull() ?: continue
-                        offsets[f] = off + chunk.size
-                        val data = (pending.remove(f) ?: ByteArray(0)) + chunk
+                        offsets[f] = start + chunk.size
+                        if (chunk.isEmpty()) continue
+                        received = true
+                        var data = (pending.remove(f) ?: ByteArray(0)) + chunk
+                        if (f in discard) {
+                            val firstEnd = data.indexOf(10.toByte())
+                            if (firstEnd < 0) continue
+                            discard.remove(f)
+                            data = data.copyOfRange(firstEnd + 1, data.size)
+                        }
                         val end = data.indexOfLast { it == 10.toByte() } + 1
                         if (end > 0) {
-                            String(data, 0, end, Charsets.UTF_8).lineSequence()
-                                .filter { it.isNotBlank() }.forEach {
-                                    if (active()) Libcore.nekoLogPrintln(it)
-                                }
+                            val redactor = redactors.getOrPut(f) { io.nekohasekai.sagernet.ktx.LogRedactor.Stream() }
+                            String(data, 0, end, Charsets.UTF_8).lineSequence().forEach {
+                                // Feed even filtered lines into the stateful redactor.
+                                val safe = redactor.redact(it)
+                                if (active() && it.isNotBlank() && (!f.endsWith("/tun2socks.log") || "flow metadata" in it))
+                                    Libcore.nekoLogPrintln(safe)
+                            }
                         }
-                        // A log line may span chunks (including UTF-8 characters).
-                        // Bound memory for malformed/very large lines.
                         val remainder = data.copyOfRange(end, data.size)
                         if (remainder.size <= 65536) pending[f] = remainder
-                        else if (active()) Libcore.nekoLogPrintln(String(remainder, Charsets.UTF_8))
+                        else {
+                            discard += f
+                            if (active()) Libcore.nekoLogPrintln("[oversized native diagnostic omitted]")
+                        }
                     }
-                    Thread.sleep(1500)
+                    idlePolls = if (received) 0 else (idlePolls + 1).coerceAtMost(3)
+                    Thread.sleep(1500L * (idlePolls + 1))
                 }
             } catch (_: InterruptedException) {
             } catch (e: Exception) {
@@ -381,7 +587,11 @@ object RootDaemon {
      * Writes the configs, starts asteriskd and waits until the core is up.
      * @return null on success, otherwise a readable error
      */
-    fun start(mode: Mode, core: RootCore.Active, singBoxConfig: String, tproxyPort: Int, ipv6: Boolean, managed: Boolean = false): String? {
+    fun start(mode: Mode, core: RootCore.Active, singBoxConfig: String, tproxyPort: Int, ipv6: Boolean, managed: Boolean = false,
+              serviceControl: JsonObject = ServiceControl.toJson(), monitorOnly: Boolean = false): String? {
+        if (monitorOnly && !ServiceControl.hasStartRule(serviceControl))
+            return "Service Control requires at least one valid start condition"
+        startedWaiting = false
         val startedAt = SystemClock.elapsedRealtime()
         var lastMark = startedAt
         fun mark(stage: String) {
@@ -394,30 +604,47 @@ object RootDaemon {
         if (mode == Mode.TUN2SOCKS && !File(libDir, "libhevtun.so").isFile) return "libhevtun.so (hev-socks5-tunnel) is not part of this build"
         if (mode == Mode.BPF2SOCKS && !File(libDir, "libbpf2socks.so").isFile) return "libbpf2socks.so is not part of this build"
 
+        if (!RootBoot.quiesceMonitor()) return "Autonomous ROOT monitor did not release ownership"
+        if (!TetherVpn.prepareForRoot()) return "Previous VPN tether recovery is not confirmed"
         RootBoot.stage()?.let { return it }
         mark("boot staging")
+        // Never replace a live supervisor's configuration or truncate its logs.
+        if (!shutdownVerified()) return "Previous ROOT supervisor did not shut down cleanly"
+        mark("cleanup previous daemon")
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
-        val useFlow = managed && core.bundled && DataStore.rootFlowMetadata &&
+        val useFlow = managed && core.patched && DataStore.rootFlowMetadata &&
             mode in listOf(Mode.TUN2SOCKS, Mode.BPF2SOCKS)
         val flowToken = if (useFlow) newFlowToken() else null
+        val dynamicDownstreams = if (managed && (mode != Mode.TUN ||
+            managedTunInbound(com.google.gson.JsonParser.parseString(singBoxConfig).asJsonObject) != null))
+            resolveDownstreams(mode, ipv6 = ipv6) else null
         val effectiveConfig = when {
-            managed && mode == Mode.TUN -> withTunDownstreams(singBoxConfig)
+            managed && mode == Mode.TUN -> withTunDownstreams(singBoxConfig, dynamicDownstreams)
             flowToken != null -> withFlowMetadata(singBoxConfig, flowToken)
             else -> singBoxConfig
         }
         if (useFlow) Logs.i("ROOT flow metadata: enabled")
         val useMatcher = matcherAvailable(mode, ipv6)
+        if (managed && mode == Mode.TUN) {
+            val tun = managedTunInbound(com.google.gson.JsonParser.parseString(effectiveConfig).asJsonObject)
+            if (tun != null) Logs.i("ROOT TUN effective config: include_interface=${tun.get("include_interface")} stack=${tun.get("stack")} mtu=${tun.get("mtu")} auto_route=${tun.get("auto_route")} auto_redirect=${tun.get("auto_redirect")}")
+        }
         val cfg = File(stage, "config.json").apply { writeText(withLogFile(effectiveConfig)) }
+        // A boot-started native daemon has no Android app monitor. Keep its native prefix
+        // selectors for daemon-managed modes when start-on-boot is enabled.
+        val daemonDownstreams = if (mode != Mode.TUN &&
+            DataStore.configurationStore.getBoolean("startOnBoot", false)) null else dynamicDownstreams?.names
         val dcfg = File(stage, "asteriskd.json").apply {
-            writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher))
+            writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, daemonDownstreams,
+                dynamicDownstreams?.ipv6Prefixes.orEmpty().map { it.subnet }, serviceControl))
         }
         mark("generate configs")
         try {
             val prep = RootShell.run(
                 "set -e",
                 "umask 077",
-                "mkdir -p ${RootShell.q(logDir)}",
-                "rm -f ${RootShell.q(coreLogPath)} ${RootShell.q(logPath)} ${RootShell.q("$logDir/error.log")}",
+                "mkdir -p ${RootShell.q(logDir)} && chmod 700 ${RootShell.q(logDir)}",
+                "rm -f ${RootShell.q(coreLogPath)} ${RootShell.q(logPath)} ${RootShell.q("$logDir/error.log")} ${RootShell.q("$logDir/tun2socks.log")}",
                 "rm -f ${RootShell.q(runDir)}/geoip.db ${RootShell.q(runDir)}/geosite.db",
                 "cp -f ${RootShell.q(cfg)} ${RootShell.q("$configPath.new")} && chmod 600 ${RootShell.q("$configPath.new")} && mv -f ${RootShell.q("$configPath.new")} ${RootShell.q(configPath)} || exit 1",
                 "cp -f ${RootShell.q(dcfg)} ${RootShell.q("$daemonConfigPath.new")} && chmod 600 ${RootShell.q("$daemonConfigPath.new")} && mv -f ${RootShell.q("$daemonConfigPath.new")} ${RootShell.q(daemonConfigPath)} || exit 1",
@@ -438,14 +665,22 @@ object RootDaemon {
         RootCore.check(core.path, File(configPath))?.let { return "sing-box check: $it" }
         mark("validate config")
 
-        // a leftover supervisor of ours must be gone first
-        shutdown()
-        mark("cleanup previous daemon")
+        // Protect selected downstreams before the daemon starts. This filter is
+        // independent of its routing and does not change Android IPv6 sysctls.
+        if (dynamicDownstreams?.blockIpv6 == true && !RootTetherIpv6Guard.ensure(dynamicDownstreams.names)) {
+            RootTetherIpv6Guard.clear()
+            return "ROOT tether: cannot install IPv6 forwarding guard"
+        }
+        // Publication happened only after the previous control socket disappeared.
+        val command = if (monitorOnly) "monitor" else "start"
         val r = RootShell.run(
-            "nohup ${RootShell.q(binary)} start --config ${RootShell.q(daemonConfigPath)} </dev/null >${RootShell.q("$logDir/asteriskd.out")} 2>&1 &",
+            "nohup ${RootShell.q(binary)} $command --config ${RootShell.q(daemonConfigPath)} </dev/null >${RootShell.q("$logDir/asteriskd.out")} 2>&1 &",
             timeoutMs = 10_000,
         )
-        if (!r.ok) return r.err.ifBlank { "failed to launch asteriskd" }
+        if (!r.ok) {
+            shutdown()
+            return r.err.ifBlank { "failed to launch asteriskd" }
+        }
 
         mark("spawn daemon")
         // Keep log-forward SU processes out of the readiness critical path.
@@ -458,9 +693,72 @@ object RootDaemon {
             val st = status()
             last = st
             val phase = PHASE.find(st)?.groupValues?.get(1)
-            if (phase == "running") {
+            val nativeHealth = RootHealth.parse(runCatching {
+                com.google.gson.JsonParser.parseString(st).asJsonObject.getAsJsonObject("result")
+            }.getOrNull(), OWNER)
+            val waiting = monitorOnly && nativeHealth == RootHealth.INACTIVE
+            if (nativeHealth == RootHealth.RUNNING || waiting) {
                 mark("wait for readiness")
-                startLogForward()
+                if (!waiting && mode == Mode.TUN && managed && dynamicDownstreams != null &&
+                    !RootTunForwarding.ensure(dynamicDownstreams.names, dynamicDownstreams.ipv6Enabled)) {
+                    shutdown()
+                    return "ROOT TUN: cannot install Android hotspot forwarding exceptions"
+                }
+                if (dynamicDownstreams?.blockIpv6 == true && !RootTetherIpv6Guard.ensure(dynamicDownstreams.names)) {
+                    shutdown()
+                    return "ROOT tether: cannot verify IPv6 forwarding guard"
+                }
+                if (DataStore.configurationStore.getBoolean("startOnBoot", false)) {
+                    // Keep boot files independent of the live JSON. A managed ROOT TUN
+                    // boots with lo only until native downstream reconciliation is available.
+                    val bootCore = if (managed && mode == Mode.TUN)
+                        withTunDownstreams(singBoxConfig, null) else effectiveConfig
+                    val bootDaemon = com.google.gson.JsonParser.parseString(
+                        buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort,
+                            ipv6, bootCore, flowToken, useMatcher, serviceControl = serviceControl)
+                    ).asJsonObject.apply {
+                        addProperty("coreConfigPath", RootBoot.bootCoreConfigPath)
+                    }
+                    val bootPolicy = if (managed) buildString {
+                        appendLine("mode ${mode.wire}")
+                        appendLine("ipv6 ${if (ipv6) 1 else 0}")
+                        appendLine("block6 ${if (!ipv6 && DataStore.rootDisableSystemIpv6) 1 else 0}")
+                        val selectors = tetherSelectors() + if (DataStore.tetherWifi) listOf("swlan+", "wifi+") else emptyList()
+                        (selectors + if (mode == Mode.TUN) configuredTunInterfaces() else emptyList())
+                            .filter { interfaceSelector.matches(it) && it.removeSuffix("+") !in internalInterfaces }
+                            .distinct().forEach { appendLine("select $it") }
+                        ignoredInterfaces().forEach { appendLine("ignore $it") }
+                    } else null
+                    // Marker strings are inserted structurally and replaced only by
+                    // validated kernel-derived values by the boot monitor.
+                    val templateCore = if (managed && mode == Mode.TUN && core.bundled) {
+                        val json = com.google.gson.JsonParser.parseString(withLogFile(bootCore)).asJsonObject
+                        managedTunInbound(json)?.let { inbound ->
+                            inbound.add("include_interface", strings(listOf("lo", "__NF_BOOT_IFACES__")))
+                            val old = inbound.get("route_exclude_address")?.let {
+                                if (it.isJsonArray) it.asJsonArray.map { item -> item.asString } else listOf(it.asString)
+                            }.orEmpty()
+                            inbound.add("route_exclude_address", strings(old + "__NF_BOOT_LOCAL__"))
+                            gson.toJson(json)
+                        }
+                    } else null
+                    val templateDaemon = if (templateCore != null) bootDaemon.deepCopy().apply {
+                        addProperty("coreConfigPath", RootBoot.runtimeBootCorePath)
+                        getAsJsonObject("network").add("hotspotInterfaces", strings(listOf("__NF_BOOT_IFACES__")))
+                    } else null
+                    val bootError = runCatching {
+                        RootBoot.publish(withLogFile(bootCore), gson.toJson(bootDaemon), bootPolicy,
+                            templateCore, templateDaemon?.let { gson.toJson(it) })
+                    }
+                        .getOrElse { it.message ?: "boot snapshot write failed" }
+                    bootError?.let { Logs.w("ROOT boot: snapshot not published: $it") }
+                    if (managed && mode == Mode.TUN)
+                        Logs.i("ROOT boot: managed TUN starts phone-only; autonomous templates=${templateCore != null}")
+                }
+                appliedDownstreams = dynamicDownstreams
+                startedWaiting = waiting
+                startLogForward(mode)
+                if (!waiting && mode == Mode.TUN && managed) startTunDiagnostics(dynamicDownstreams ?: DownstreamSnapshot(emptyList(), emptyList()), ipv6)
                 return null
             }
             if (phase == "failed") break
@@ -493,17 +791,77 @@ object RootDaemon {
 
     fun status(): String = RootShell.run("${RootShell.q(binary)} status 2>&1", timeoutMs = 5_000).out.trim()
 
-    /** Actual traffic lifecycle, independent of the Android foreground service. */
-    fun phase(): String? = PHASE.find(status())?.groupValues?.get(1)
+    fun phase(): String? = runCatching {
+        val result = control("status", 5000) ?: return null
+        if (result.get("code")?.asString != "ok") return null
+        val snapshot = result.getAsJsonObject("snapshot") ?: return null
+        if (snapshot.get("owner")?.asString != OWNER ||
+            (snapshot.get("supervisorPid")?.asInt ?: 0) <= 0) return null
+        snapshot.get("phase")?.asString
+    }.getOrNull()
 
     private fun alive(): Boolean =
         RootShell.run("pgrep -x libasteriskd.so >/dev/null", timeoutMs = 3_000).ok
 
+    private fun control(command: String, timeout: Long): JsonObject? {
+        val response = RootShell.run("${RootShell.q(binary)} $command", timeoutMs = timeout)
+        return runCatching {
+            if (response.code !in listOf(0, 3)) return null
+            com.google.gson.JsonParser.parseString(response.out).asJsonObject.getAsJsonObject("result")
+        }.getOrNull()
+    }
+
+    /**
+     * Wait for the native cleanup acknowledgement and disappearance of the control socket.
+     * Do not kill an arbitrary asteriskd by process name: that skips cleanup and can strand
+     * TC/BPF hooks or Android offload settings.
+     */
+    @Synchronized
+    private fun shutdownVerified(): Boolean {
+        if (!RootBoot.quiesceMonitor()) return false
+        appliedDownstreams = null
+        stopTunDiagnostics()
+        stopLogForward()
+        val before = control("status", 5000) ?: return false
+        if (before.get("code")?.asString == "not_running") {
+            val forwardingClean = RootTunForwarding.clear()
+            val guardClean = RootTetherIpv6Guard.clear()
+            return forwardingClean && guardClean
+        }
+        val snapshot = before.get("snapshot")?.takeIf { it.isJsonObject }?.asJsonObject ?: return false
+        val pid = snapshot.get("supervisorPid")?.asInt ?: return false
+        if (snapshot.get("owner")?.asString != OWNER || pid <= 0) {
+            Logs.w("ROOT supervisor: refusing to stop a foreign owner")
+            return false
+        }
+        val owned = RootShell.run(
+            "tr '\\000' '\\n' </proc/$pid/cmdline | grep -Fx -e ${RootShell.q(daemonConfigPath)} -e ${RootShell.q(RootBoot.bootConfigPath)} -e ${RootShell.q(RootBoot.runtimeBootConfigPath)} >/dev/null",
+            timeoutMs = 3000
+        )
+        if (!owned.ok) {
+            Logs.w("ROOT supervisor: cannot verify previous process ownership")
+            return false
+        }
+        // Remove only our tagged exceptions before the native TUN is torn down.
+        val forwardingClean = RootTunForwarding.clear()
+        val result = control("shutdown", 30000) ?: return false
+        val code = result.get("code")?.asString
+        if (code != "ok" && code != "not_running") return false
+        if (code == "ok" && result.get("snapshot")?.takeIf { it.isJsonObject }?.asJsonObject
+                ?.get("phase")?.asString != "stopped") return false
+        repeat(6) {
+            if (control("status", 5000)?.get("code")?.asString == "not_running") {
+                Logs.i("ROOT supervisor: previous session cleaned and stopped")
+                val guardClean = RootTetherIpv6Guard.clear()
+                return (forwardingClean || RootTunForwarding.clear()) && guardClean
+            }
+            Thread.sleep(250)
+        }
+        return false
+    }
+
     /** Ends the cycle and the supervisor; it removes its own rules/routes/devices first. */
     fun shutdown() {
-        stopLogForward()
-        RootShell.run("${RootShell.q(binary)} shutdown >/dev/null 2>&1; true", timeoutMs = 20_000)
-        // belt and braces: a wedged supervisor must not keep the rules
-        RootShell.run("pkill -x libasteriskd.so 2>/dev/null; true", timeoutMs = 3_000)
+        if (!shutdownVerified()) Logs.w("ROOT supervisor: cleanup not confirmed; no forced kill")
     }
 }

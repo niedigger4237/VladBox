@@ -13,51 +13,35 @@
 #define FLOW_METADATA_MAX_HEADER 92
 #define FLOW_METADATA_UNKNOWN_UID UINT32_MAX
 
+/* Explicit endpoint representation avoids aliasing sockaddr_storage through
+ * unrelated structure types under optimized Android clang builds. */
+typedef struct {
+    uint8_t address[16];
+    uint16_t port; /* network byte order */
+    uint8_t width; /* 4 or 16 */
+} FlowMetadataEndpoint;
+
+static inline void flow_metadata_normalize(FlowMetadataEndpoint *a) {
+    static const uint8_t mapped[12] = {0,0,0,0,0,0,0,0,0,0,0xff,0xff};
+    if (a->width == 16 && !memcmp(a->address, mapped, sizeof(mapped))) {
+        memmove(a->address, a->address + 12, 4);
+        a->width = 4;
+    }
+}
+
 /* PROXY v2, custom TLV 0xe0: version 1, 32-byte credential, uint32 UID. */
-static inline size_t flow_metadata_encode(uint8_t *out, size_t cap, const struct sockaddr *source,
-    const struct sockaddr *destination, int udp, uint32_t uid, const char *token) {
+static inline size_t flow_metadata_encode_endpoints(uint8_t *out, size_t cap,
+    FlowMetadataEndpoint source, FlowMetadataEndpoint destination, int udp, uint32_t uid, const char *token) {
     static const uint8_t signature[12] = {
         '\r', '\n', '\r', '\n', 0, '\r', '\n', 'Q', 'U', 'I', 'T', '\n'};
-    struct sockaddr_in mapped_source, mapped_destination;
-    if (source && source->sa_family == AF_INET6 &&
-        IN6_IS_ADDR_V4MAPPED(&((const struct sockaddr_in6 *)source)->sin6_addr)) {
-        const struct sockaddr_in6 *v = (const void *)source;
-        memset(&mapped_source, 0, sizeof(mapped_source));
-        mapped_source.sin_family = AF_INET;
-        mapped_source.sin_port = v->sin6_port;
-        memcpy(&mapped_source.sin_addr, &v->sin6_addr.s6_addr[12], 4);
-        source = (const void *)&mapped_source;
-    }
-    if (destination && destination->sa_family == AF_INET6 &&
-        IN6_IS_ADDR_V4MAPPED(&((const struct sockaddr_in6 *)destination)->sin6_addr)) {
-        const struct sockaddr_in6 *v = (const void *)destination;
-        memset(&mapped_destination, 0, sizeof(mapped_destination));
-        mapped_destination.sin_family = AF_INET;
-        mapped_destination.sin_port = v->sin6_port;
-        memcpy(&mapped_destination.sin_addr, &v->sin6_addr.s6_addr[12], 4);
-        destination = (const void *)&mapped_destination;
-    }
-    size_t width, n;
-    const void *src, *dst, *sp, *dp;
-    if (!source || !destination || !token || strlen(token) != 32 ||
-        source->sa_family != destination->sa_family)
+    flow_metadata_normalize(&source);
+    flow_metadata_normalize(&destination);
+    size_t width = source.width, n;
+    if (!out || !token || strlen(token) != 32 || !source.port || !destination.port ||
+        (width != 4 && width != 16) || width != destination.width)
         return 0;
-    if (source->sa_family == AF_INET) {
-        const struct sockaddr_in *s = (const void *)source, *d = (const void *)destination;
-        width = 4;
-        src = &s->sin_addr;
-        dst = &d->sin_addr;
-        sp = &s->sin_port;
-        dp = &d->sin_port;
-    } else if (source->sa_family == AF_INET6) {
-        const struct sockaddr_in6 *s = (const void *)source, *d = (const void *)destination;
-        width = 16;
-        src = &s->sin6_addr;
-        dst = &d->sin6_addr;
-        sp = &s->sin6_port;
-        dp = &d->sin6_port;
-    } else
-        return 0;
+    const void *src = source.address, *dst = destination.address;
+    const void *sp = &source.port, *dp = &destination.port;
     n = 2 * width + 4;
     if (cap < 16 + n + 40) return 0;
     memcpy(out, signature, 12);
@@ -87,7 +71,8 @@ static inline size_t flow_metadata_decode(const uint8_t *data, size_t len,
     static const uint8_t signature[12] = {
         '\r', '\n', '\r', '\n', 0, '\r', '\n', 'Q', 'U', 'I', 'T', '\n'};
     size_t width, n;
-    if (len < 16 || memcmp(data, signature, 12) || data[12] != 0x21 || data[14] != 0 || !token ||
+    if (!data || !source || !destination || len < 16 || memcmp(data, signature, 12) ||
+        data[12] != 0x21 || data[14] != 0 || !token ||
         strlen(token) != 32)
         return 0;
     if (data[13] == 0x12)
@@ -99,6 +84,10 @@ static inline size_t flow_metadata_decode(const uint8_t *data, size_t len,
     n = width * 2 + 4;
     if (data[15] != n + 40 || len < 16 + n + 40 || data[16 + n] != 0xe0 || data[17 + n] ||
         data[18 + n] != 37 || data[19 + n] != 1 || memcmp(data + 20 + n, token, 32))
+        return 0;
+    /* Port zero is invalid for these authenticated transport tuples. */
+    if (!(data[16 + 2 * width] | data[17 + 2 * width]) ||
+        !(data[18 + 2 * width] | data[19 + 2 * width]))
         return 0;
     memset(source, 0, sizeof(*source));
     memset(destination, 0, sizeof(*destination));

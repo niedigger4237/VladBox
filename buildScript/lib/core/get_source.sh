@@ -31,14 +31,15 @@ popd
 
 ####  uTLS Firefox 148 (sing-box-lx SPEC 086)
 # Keep the metacubex module path and pin the reviewed fork revision.
-UTLS_COMMIT=6b7f051602cf724395f6c5aea055e951c37853a4
 if [ ! -d "utls-lx/.git" ]; then
-  git clone --no-checkout https://github.com/Leadaxe/utls-lx.git utls-lx
+  git clone --no-checkout "$UTLS_REPO" utls-lx
 fi
 git -C utls-lx checkout --detach "$UTLS_COMMIT"
 [ "$(git -C utls-lx rev-parse HEAD)" = "$UTLS_COMMIT" ]
 # libcore sync sets its own relative replacement path.
 (cd sing-box && go mod edit -replace=github.com/metacubex/utls=../utls-lx)
+# Verify the production fingerprint resolver during ROOT validation.
+cp "$ROOT/libcore/testdata/firefox_mapping_test.go" sing-box/common/tls/niefigger_firefox_mapping_test.go
 
 ####  libneko
 

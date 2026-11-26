@@ -21,6 +21,15 @@ diff --git a/src/hev-socks5-session.c b/src/hev-socks5-session.c
  
      srv = hev_config_get_socks5_server ();
  
+@@ -39,7 +45,7 @@
+     if (srv->user && srv->pass) {
+         hev_socks5_client_set_auth (HEV_SOCKS5_CLIENT (self), srv->user,
+                                     srv->pass);
+-        LOG_D ("%p socks5 client auth %s:%s", self, srv->user, srv->pass);
++        LOG_D ("%p socks5 client auth configured", self);
+     }
+ 
+     res = hev_socks5_client_handshake (HEV_SOCKS5_CLIENT (self), srv->pipeline);
 diff --git a/src/hev-socks5-session-udp.c b/src/hev-socks5-session-udp.c
 --- a/src/hev-socks5-session-udp.c
 +++ b/src/hev-socks5-session-udp.c
@@ -42,7 +51,7 @@ diff --git a/src/hev-socks5-session-udp.c b/src/hev-socks5-session-udp.c
      if (self->type == HEV_SOCKS5_TYPE_UDP_IN_UDP) {
          ssize_t res;
          char buf;
-@@ -99,7 +103,10 @@
+@@ -100,7 +104,10 @@
              msgv[i].addr = &frame->addr;
          }
  
@@ -54,7 +63,7 @@ diff --git a/src/hev-socks5-session-udp.c b/src/hev-socks5-session-udp.c
          if (res <= 0) {
              LOG_D ("%p socks5 session udp fwd f send", self);
              return -1;
-@@ -190,7 +197,10 @@
+@@ -191,7 +198,10 @@
          msgv[i].len = size;
      }
  
@@ -66,3 +75,33 @@ diff --git a/src/hev-socks5-session-udp.c b/src/hev-socks5-session-udp.c
      if (res <= 0) {
          if (res == -1 && errno == EAGAIN)
              return 0;
+@@ -271,7 +281,7 @@
+         return;
+     }
+ 
+-    if (self->frames > UDP_POOL_SIZE) {
++    if (self->frames >= UDP_POOL_SIZE) {
+         pbuf_free (p);
+         return;
+     }
+diff --git a/src/hev-config.c b/src/hev-config.c
+--- a/src/hev-config.c
++++ b/src/hev-config.c
+@@ -493,6 +493,17 @@
+             return -1;
+     }
+ 
++    /* Bound experimental bridge resources; leave standard SOCKS5 unchanged. */
++    if (srv.user && srv.pass && !strcmp (srv.user, "__asterisk_flow_v1") &&
++        strlen (srv.pass) == 32) {
++        if (max_session_count <= 0 || max_session_count > 512)
++            max_session_count = 512;
++        if (udp_copy_buffer_nums < 1 || udp_copy_buffer_nums > 16)
++            udp_copy_buffer_nums = 10;
++        if (udp_recv_buffer_size > 524288)
++            udp_recv_buffer_size = 524288;
++    }
++
+     if (tcp_buffer_size > TCP_SND_BUF)
+         tcp_buffer_size = TCP_SND_BUF;
+ 

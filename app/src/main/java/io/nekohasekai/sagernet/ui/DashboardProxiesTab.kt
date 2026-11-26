@@ -130,11 +130,20 @@ internal fun DashboardLiveProxies(connected: Boolean) {
     var error by remember(connected) { mutableStateOf<String?>(null) }
     var busy by remember(connected) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val refreshLock = remember { kotlinx.coroutines.sync.Mutex() }
+    var cachedProfileId by remember(connected) { mutableStateOf(Long.MIN_VALUE) }
+    var cachedProfile by remember(connected) { mutableStateOf<io.nekohasekai.sagernet.database.ProxyEntity?>(null) }
     suspend fun refresh() {
-        val profile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val id = io.nekohasekai.sagernet.database.DataStore.currentProfile
-            if (id > 0) io.nekohasekai.sagernet.database.SagerDatabase.proxyDao.getById(id) else null
+        refreshLock.lock()
+        try {
+        val id = io.nekohasekai.sagernet.database.DataStore.currentProfile
+        if (cachedProfileId != id) {
+            cachedProfile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                if (id > 0) io.nekohasekai.sagernet.database.SagerDatabase.proxyDao.getById(id) else null
+            }
+            cachedProfileId = id
         }
+        val profile = cachedProfile
         val proxies = dashboardGet("proxies").getJSONObject("proxies")
         groups = proxies.keys().asSequence().mapNotNull { name ->
             val item = proxies.optJSONObject(name) ?: return@mapNotNull null
@@ -153,16 +162,18 @@ internal fun DashboardLiveProxies(connected: Boolean) {
             }
             DashboardProxyGroup(name, item.optString("type"), item.optString("now"), nodes)
         }.toList()
+        } finally { refreshLock.unlock() }
     }
     LaunchedEffect(connected) {
         if (!connected) return@LaunchedEffect
+        var retryMs = 5000L
         while (true) {
             if (!busy) {
-                try { refresh(); error = null }
+                try { refresh(); error = null; retryMs = 5000L }
                 catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                catch (e: Exception) { groups = emptyList(); error = "Local API unavailable" }
+                catch (e: Exception) { error = "Local API unavailable; refresh failed"; retryMs = (retryMs * 2).coerceAtMost(30000L) }
             }
-            kotlinx.coroutines.delay(5000)
+            kotlinx.coroutines.delay(retryMs)
         }
     }
     fun action(refreshAfter: Boolean = true, block: suspend () -> Unit) {

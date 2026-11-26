@@ -4,6 +4,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.*
 import android.widget.Toast
 import io.nekohasekai.sagernet.Action
@@ -40,6 +42,8 @@ class BaseService {
          * Idle state is only used by UI and will never be returned by BaseService.
          */
         Idle, Connecting(true, true, false), Connected(true, true, true), Stopping, Stopped,
+        // Append: existing AIDL state ordinals stay stable.
+        Waiting(true, true, false),
     }
 
     interface ExpectedException
@@ -83,6 +87,10 @@ class BaseService {
 
         val binder = Binder(this)
         var connectingJob: Job? = null
+        var networkListenerKey: Any? = null
+        var networkReconnectJob: Job? = null
+        @Volatile var restartAfterStop = false
+        var nextRootStartWaiting: Boolean? = null
 
         fun changeState(s: State, msg: String? = null) {
             if (state == s && msg == null) return
@@ -212,6 +220,11 @@ class BaseService {
                 return
             }
             val s = data.state
+            if (s == State.Waiting && !io.nekohasekai.sagernet.bg.root.ServiceControl.hasStartRule(
+                    io.nekohasekai.sagernet.bg.root.ServiceControl.toJson())) {
+                stopRunner(false)
+                return
+            }
             when {
                 s == State.Stopped -> startRunner()
                 s.canStop -> stopRunner(true)
@@ -245,19 +258,38 @@ class BaseService {
             else startService(Intent(this, javaClass))
         }
 
+        suspend fun beforeStopProcesses() {}
+
         fun killProcesses() {
+            data.networkReconnectJob?.cancel()
+            data.networkReconnectJob = null
+            val listener = data.networkListenerKey
+            data.networkListenerKey = null
+            if (listener != null) runOnDefaultDispatcher {
+                DefaultNetworkListener.stop(listener)
+            }
             data.proxy?.close()
             wakeLock?.apply {
                 release()
                 wakeLock = null
             }
-            runOnDefaultDispatcher {
-                DefaultNetworkListener.stop(this)
-            }
         }
 
         fun stopRunner(restart: Boolean = false, msg: String? = null) {
-            if (data.state == State.Stopping) return
+            if (data.state == State.Stopping) {
+                // A user stop or permission revocation must win over a pending reconnect.
+                if (!restart && msg == null) {
+                    data.restartAfterStop = false
+                    data.nextRootStartWaiting = null
+                }
+                return
+            }
+            data.restartAfterStop = restart
+            data.nextRootStartWaiting = if (restart && data.proxy is io.nekohasekai.sagernet.bg.proto.RootProxyInstance)
+                data.state == State.Waiting else null
+            if (this is VpnService) Logs.i("VPN service stop: state=${data.state}, restart=$restart, error=${msg != null}")
+            data.networkReconnectJob?.cancel()
+            data.networkReconnectJob = null
             if (DataStore.baseService === this) DataStore.baseService = null
             if (DataStore.vpnService === this) DataStore.vpnService = null
             this as Service
@@ -266,8 +298,12 @@ class BaseService {
 
             runOnMainDispatcher {
                 try {
-                    data.connectingJob?.cancelAndJoin()
-                    killProcesses()
+                    try {
+                        data.connectingJob?.cancelAndJoin()
+                        beforeStopProcesses()
+                    } finally {
+                        killProcesses()
+                    }
                 } catch (e: Exception) {
                     Logs.w(e)
                 } finally {
@@ -275,7 +311,9 @@ class BaseService {
                     data.proxy = null
                     removeServiceNotification()
                     data.changeState(State.Stopped, msg)
-                    if (restart) startRunner() else stopSelf()
+                    val resume = data.restartAfterStop
+                    data.restartAfterStop = false
+                    if (resume) startRunner() else stopSelf()
                 }
             }
         }
@@ -295,6 +333,9 @@ class BaseService {
         }
 
         fun cleanupOnDestroy() {
+            data.restartAfterStop = false
+            data.networkReconnectJob?.cancel()
+            data.networkReconnectJob = null
             data.connectingJob?.cancel()
             removeServiceNotification()
             releaseServiceReceiver()
@@ -316,19 +357,66 @@ class BaseService {
         var upstreamInterfaceName: String?
 
         suspend fun preInit() {
-            DefaultNetworkListener.start(this) {
-                SagerNet.connectivity.getLinkProperties(it)?.also { link ->
-                    SagerNet.underlyingNetwork = it
-                    DataStore.vpnService?.updateUnderlyingNetwork()
-                    //
-                    val oldName = upstreamInterfaceName
-                    if (oldName != link.interfaceName) {
-                        upstreamInterfaceName = link.interfaceName
+            val owner = data.proxy ?: return
+            val key = Any()
+            data.networkListenerKey = key
+            upstreamInterfaceName = null
+            // Ordinary VPN reconnect is independent of root and tethering. Keep other modes' reset behavior.
+            val ordinaryVpn = this is VpnService
+            var previous: Network? = null
+            var lost = false
+            val main = Handler(Looper.getMainLooper())
+            DefaultNetworkListener.start(key) { network ->
+                val link = network?.let { SagerNet.connectivity.getLinkProperties(it) }
+                val isVpn = network?.let {
+                    SagerNet.connectivity.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                } == true
+                main.post {
+                    if (data.networkListenerKey !== key || data.proxy !== owner || !data.state.canStop || (ordinaryVpn && isVpn)) return@post
+                    if (network == null) {
+                        if (ordinaryVpn) {
+                            SagerNet.underlyingNetwork = null
+                            if (data.state == State.Connected) DataStore.vpnService?.updateUnderlyingNetwork()
+                            if (previous != null) {
+                                lost = true
+                                Logs.i("VPN reconnect: upstream lost ($previous); waiting for network")
+                            }
+                            data.networkReconnectJob?.cancel()
+                            data.networkReconnectJob = null
+                        }
+                        return@post
                     }
-                    if (oldName != null && upstreamInterfaceName != null && oldName != upstreamInterfaceName) {
-                        Logs.d("Network changed: $oldName -> $upstreamInterfaceName")
-                        if (DataStore.networkChangeResetConnections) {
+                    val name = link?.interfaceName ?: return@post
+                    SagerNet.underlyingNetwork = network
+                    if (ordinaryVpn && data.state == State.Connected) DataStore.vpnService?.updateUnderlyingNetwork()
+                    val oldName = upstreamInterfaceName
+                    val oldNetwork = previous
+                    val restored = lost
+                    upstreamInterfaceName = name
+                    previous = network
+                    lost = false
+                    if (!ordinaryVpn) {
+                        if (oldName != null && oldName != name && DataStore.networkChangeResetConnections) {
+                            Logs.d("Network changed: $oldName -> $name")
                             io.nekohasekai.sagernet.bg.core.resetCoreConnections()
+                        }
+                        return@post
+                    }
+                    if (oldNetwork == null || (!restored && oldNetwork == network && oldName == name)) return@post
+                    Logs.i("VPN reconnect: $oldName ($oldNetwork) -> $name ($network), restored=$restored")
+                    data.networkReconnectJob?.cancel()
+                    if (!DataStore.networkChangeResetConnections) return@post
+                    data.networkReconnectJob = data.binder.launch {
+                        // Coalesce handovers, then allow a startup already in progress to finish.
+                        delay(900)
+                        while (data.proxy === owner && data.networkListenerKey === key &&
+                            data.state == State.Connecting) delay(250)
+                        if (data.proxy === owner && data.networkListenerKey === key &&
+                            data.state == State.Connected && !lost && previous == network &&
+                            DataStore.networkChangeResetConnections && DataStore.serviceMode == Key.MODE_VPN) {
+                            data.networkReconnectJob = null
+                            Logs.i("VPN reconnect: restarting active session on $name ($network)")
+                            stopRunner(restart = true)
                         }
                     }
                 }
@@ -353,10 +441,10 @@ class BaseService {
         }
 
         fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-            DataStore.baseService = this
-
             val data = data
             if (data.state != State.Stopped) return Service.START_NOT_STICKY
+            DataStore.baseService = this
+            data.restartAfterStop = false
             val profile = SagerDatabase.proxyDao.getById(DataStore.selectedProxy)
             this as Context
             if (profile == null) { // gracefully shutdown: https://stackoverflow.com/q/47337857/2245107
@@ -366,6 +454,9 @@ class BaseService {
             }
 
             val proxy = newProxyInstance(profile)
+            if (proxy is io.nekohasekai.sagernet.bg.proto.RootProxyInstance)
+                proxy.startWaitingOverride = data.nextRootStartWaiting
+            data.nextRootStartWaiting = null
             data.proxy = proxy
             BootReceiver.enabled = DataStore.persistAcrossReboot
             if (!data.closeReceiverRegistered) {
@@ -427,8 +518,10 @@ class BaseService {
 
                     startProcesses()
                     markRootStartup("start processes")
-                    data.changeState(State.Connected)
-                    markRootStartup("connected")
+                    val waiting = (proxy as? io.nekohasekai.sagernet.bg.proto.RootProxyInstance)?.waitingAtStart == true
+                    data.changeState(if (waiting) State.Waiting else State.Connected)
+                    if (waiting) data.notification?.postServiceControlWaiting(true)
+                    markRootStartup(if (waiting) "waiting for conditions" else "connected")
 
                     lateInit()
                 } catch (_: CancellationException) { // if the job was cancelled, it is canceller's responsibility to call stopRunner

@@ -63,9 +63,13 @@ internal fun DashboardLiveTab(tab: Int, connected: Boolean, searching: Boolean =
     var query by remember(tab) { mutableStateOf("") }
     LaunchedEffect(tab, connected) {
         if (!connected) return@LaunchedEffect
+        val normalMs = if (tab == 1) 2000L else 5000L
+        var retryMs = normalMs
         while (true) {
             try {
-                entries = dashboardEntries(tab, dashboardGet(listOf("", "connections", "proxies", "rules")[tab]))
+                val response = dashboardGet(listOf("", "connections", "proxies", "rules")[tab])
+                entries = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { dashboardEntries(tab, response) }
+                retryMs = normalMs
                 error = null
                 loaded = true
             } catch (e: CancellationException) {
@@ -73,8 +77,9 @@ internal fun DashboardLiveTab(tab: Int, connected: Boolean, searching: Boolean =
             } catch (e: Exception) {
                 entries = emptyList()
                 error = "Local API unavailable"
+                retryMs = (retryMs * 2).coerceAtMost(30000L)
             }
-            delay(if (tab == 1) 2000 else 5000)
+            delay(retryMs)
         }
     }
     var selected by remember(tab) { mutableStateOf<DashboardEntry?>(null) }

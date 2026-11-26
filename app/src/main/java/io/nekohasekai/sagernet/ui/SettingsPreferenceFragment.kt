@@ -49,7 +49,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
 
     private fun refreshRootCoreSummary() = runOnDefaultDispatcher {
         val label = if (io.nekohasekai.sagernet.bg.root.RootShell.isAvailable())
-            io.nekohasekai.sagernet.bg.root.RootCore.activeLabel() ?: "bundled" else "-"
+            io.nekohasekai.sagernet.bg.root.RootCore.selectedLabel() else "-"
         runOnMainDispatcher {
             findPreference<Preference>("rootCoreUpdate")?.summary =
                 getString(R.string.root_core_summary, label)
@@ -59,15 +59,35 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
     private fun setupRootCore() {
         refreshRootCoreSummary()
         findPreference<Preference>("rootCoreUpdate")!!.setOnPreferenceClickListener {
-            runOnDefaultDispatcher {
-                val rel = io.nekohasekai.sagernet.bg.root.RootCore.fetchLatest()
-                    .getOrElse { e -> rootCoreResult(Result.failure(e)); return@runOnDefaultDispatcher }
-                rootCoreResult(io.nekohasekai.sagernet.bg.root.RootCore.downloadAndInstall(rel))
-            }
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle("ROOT core update channel")
+                .setItems(arrayOf("Patched (recommended)", "Upstream (without app patches)")) { _, choice ->
+                    val channel = if (choice == 0) io.nekohasekai.sagernet.bg.root.RootCore.Channel.PATCHED
+                        else io.nekohasekai.sagernet.bg.root.RootCore.Channel.UPSTREAM
+                    fun update() = runOnDefaultDispatcher {
+                        val rel = io.nekohasekai.sagernet.bg.root.RootCore.fetchLatest(channel)
+                            .getOrElse { e -> rootCoreResult(Result.failure(e)); return@runOnDefaultDispatcher }
+                        rootCoreResult(io.nekohasekai.sagernet.bg.root.RootCore.downloadAndInstall(rel))
+                    }
+                    if (choice == 0) update()
+                    else MaterialAlertDialogBuilder(requireContext())
+                        .setTitle("Use upstream core?")
+                        .setMessage("Upstream does not guarantee Firefox 148 uTLS, Flow Metadata or other NieFigger patches. Reconnect to apply.")
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(android.R.string.ok) { _, _ -> update() }
+                        .show()
+                }.show()
             true
         }
         findPreference<Preference>("rootCoreImport")!!.setOnPreferenceClickListener {
             importCore.launch("*/*")
+            true
+        }
+        findPreference<Preference>("rootCoreBundled")?.setOnPreferenceClickListener {
+            runOnDefaultDispatcher {
+                val ok = io.nekohasekai.sagernet.bg.root.RootCore.useBundled()
+                rootCoreResult(if (ok) Result.success("Bundled (patched) — reconnect to apply") else Result.failure(IllegalStateException("Cannot reset core selection")))
+            }
             true
         }
         findPreference<Preference>("rootCoreRollback")!!.setOnPreferenceClickListener {

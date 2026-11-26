@@ -21,6 +21,14 @@ B2S="$ROOT/../bpf2socks-src"
 MATCHER="$ROOT/../bpfmatcher-src"
 HEV_PATCHES="$ROOT/buildScript/lib/core/hev-patches"
 
+# Fail before native compilation if Android-independent recovery fixtures fail.
+for script in "$ROOT"/app/src/main/assets/root/*.sh; do
+  sh -n "$script"
+done
+bash "$ROOT/buildScript/test/boot_tether_parser.sh"
+bash "$ROOT/buildScript/test/tether_crash_recovery.sh"
+bash "$ROOT/buildScript/test/hev_flow_bounds.sh"
+
 if [ ! -d "$HEV/.git" ]; then
   git clone -q --depth 1 --branch "$HEV_TAG" --recurse-submodules --shallow-submodules \
     https://github.com/heiher/hev-socks5-tunnel "$HEV"
@@ -37,8 +45,8 @@ if [ ! -d "$MATCHER/.git" ]; then
 fi
 [ "$(git -C "$MATCHER" rev-parse HEAD)" = "$MATCHER_COMMIT" ] || { echo "bpfmatcher tag moved"; exit 1; }
 
-# Restore the two upstream files on repeated local builds before applying the pinned overlay.
-git -C "$HEV" restore -- src/hev-socks5-session.c src/hev-socks5-session-udp.c
+# Restore the upstream files on repeated local builds before applying the pinned overlay.
+git -C "$HEV" restore -- src/hev-socks5-session.c src/hev-socks5-session-udp.c src/hev-config.c
 cp "$HEV_PATCHES/src/"* "$HEV/src/"
 git -C "$HEV" apply --check "$HEV_PATCHES/0001-flow-metadata.patch"
 git -C "$HEV" apply "$HEV_PATCHES/0001-flow-metadata.patch"

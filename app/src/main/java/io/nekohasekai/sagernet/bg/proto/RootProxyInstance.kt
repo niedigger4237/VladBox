@@ -4,6 +4,14 @@ import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.root.RootCore
 import io.nekohasekai.sagernet.bg.root.RootDaemon
 import io.nekohasekai.sagernet.bg.root.RootShell
+import io.nekohasekai.sagernet.bg.root.RootHealth
+import io.nekohasekai.sagernet.bg.root.RootHealthConfirmation
+import io.nekohasekai.sagernet.bg.root.ServiceControl
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
+import io.nekohasekai.sagernet.bg.root.RootTunNetworkMonitor
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.Key
@@ -19,7 +27,12 @@ import io.nekohasekai.sagernet.ktx.Logs
 class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
     ProxyInstance(profile, service) {
 
-    private var started = false
+    @Volatile private var started = false
+    internal var startWaitingOverride: Boolean? = null
+    internal var waitingAtStart = false
+        private set
+    private var serviceControlArmed = false
+    private var tunNetworkMonitor: RootTunNetworkMonitor? = null
 
     override suspend fun loadConfig() {
         // no in-process core: `box` stays uninitialised
@@ -38,7 +51,7 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         mark("su access")
         val core = RootCore.resolve() ?: throw IllegalStateException("No sing-box core for root mode")
         mark("resolve core")
-        Logs.i("root core: ${core.label} (${core.path}); source=${if (core.bundled) "bundled" else "external"}; sha256=${RootCore.fingerprint(core.path)}")
+        Logs.i("root core: ${core.label} (${core.path}); source=${if (core.bundled) "bundled" else if (core.patched) "patched" else "external"}; sha256=${RootCore.fingerprint(core.path)}")
 
         mark("core fingerprint")
 
@@ -50,16 +63,22 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         }
         val ipv6 = DataStore.ipv6Mode != io.nekohasekai.sagernet.IPv6Mode.DISABLE
         val managed = !profile.isRawCoreConfig()
-        var err = RootDaemon.start(mode, core, config.config, DataStore.rootTproxyPort, ipv6, managed)
+        val policy = ServiceControl.toJson()
+        val monitorOnly = startWaitingOverride ?: ServiceControl.monitorRequested()
+        if (monitorOnly && !ServiceControl.hasStartRule(policy))
+            throw IllegalStateException("Service Control requires at least one valid start condition")
+        serviceControlArmed = policy.get("enabled").asBoolean
+        var err = RootDaemon.start(mode, core, config.config, DataStore.rootTproxyPort, ipv6, managed, policy, monitorOnly)
         if (err != null && !core.bundled && RootCore.bundled.exists()) {
             // an installed (unpatched / incompatible) core must not leave the user without root mode
             Logs.w("core ${core.label} failed: $err\nretrying with the bundled core")
             err = RootDaemon.start(
                 mode, RootCore.Active(RootCore.bundled.absolutePath, "bundled", true),
-                config.config, DataStore.rootTproxyPort, ipv6, managed
+                config.config, DataStore.rootTproxyPort, ipv6, managed, policy, monitorOnly
             )
         }
         if (err != null) throw IllegalStateException(err)
+        waitingAtStart = RootDaemon.startedWaiting
         started = true
         mark("daemon ready")
     }
@@ -72,12 +91,76 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
         rootScope = scope
         rootLooper = service?.let { RootTrafficLooper(it.data, scope) }
-        rootLooper?.start()
+        if (!waitingAtStart) rootLooper?.start()
+        if (started) scope.launch { monitorHealth() }
+        val initial = RootDaemon.appliedDownstreams
+        val activeMode = DataStore.serviceMode
+        val mode = when (activeMode) {
+            Key.MODE_ROOT_TUN -> RootDaemon.Mode.TUN
+            Key.MODE_ROOT_TPROXY -> RootDaemon.Mode.TPROXY
+            Key.MODE_ROOT_TUN2SOCKS -> RootDaemon.Mode.TUN2SOCKS
+            Key.MODE_ROOT_BPF2SOCKS -> RootDaemon.Mode.BPF2SOCKS
+            else -> null
+        }
+        if (started && initial != null && mode != null) {
+            tunNetworkMonitor = RootTunNetworkMonitor(mode, initial) {
+                val owner = service
+                if (owner != null && owner.data.proxy === this && started &&
+                    owner.data.state == BaseService.State.Connected &&
+                    DataStore.serviceMode == activeMode) {
+                    // Preserve the normal cleanup/startup ordering, including the external daemon.
+                    owner.stopRunner(restart = true)
+                    true
+                } else false
+            }.also { it.start() }
+        }
+    }
+
+    private suspend fun monitorHealth() {
+        val confirmation = RootHealthConfirmation()
+        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+            delay(if (serviceControlArmed) 2000L else 10000L)
+            val state = RootDaemon.health()
+            if (serviceControlArmed && state in listOf(RootHealth.RUNNING, RootHealth.INACTIVE)) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    val owner = service
+                    if (owner != null && owner.data.proxy === this@RootProxyInstance && started) {
+                        if (state == RootHealth.INACTIVE && owner.data.state == BaseService.State.Connected) {
+                            rootLooper?.stop()
+                            owner.data.changeState(BaseService.State.Waiting)
+                            owner.data.notification?.postServiceControlWaiting(true)
+                            Logs.i("Service Control: waiting for next start condition")
+                        } else if (state == RootHealth.RUNNING && owner.data.state == BaseService.State.Waiting) {
+                            owner.data.changeState(BaseService.State.Connected)
+                            owner.data.notification?.postServiceControlWaiting(false)
+                            rootLooper?.start()
+                            Logs.i("Service Control: service resumed")
+                        }
+                    }
+                }
+            }
+            if (!confirmation.observe(state)) continue
+            // Never automatically resurrect a crashing core/helper, including
+            // an experimental Flow Metadata session.
+            val stopped = withContext(kotlinx.coroutines.Dispatchers.Main) {
+                val owner = service
+                if (owner != null && owner.data.proxy === this@RootProxyInstance &&
+                    started && owner.data.state in listOf(BaseService.State.Connected, BaseService.State.Waiting)) {
+                    Logs.w("ROOT supervisor health: confirmed terminal state $state")
+                    owner.stopRunner(restart = false, msg = "ROOT supervisor stopped or failed")
+                    true
+                } else false
+            }
+            if (stopped) return
+            confirmation.reset()
+        }
     }
 
     fun urlTest(url: String, timeoutMs: Int): Int = RootClashApi.urlTest(url, timeoutMs)
 
     override fun close() {
+        tunNetworkMonitor?.close()
+        tunNetworkMonitor = null
         rootLooper?.stop()
         rootLooper = null
         rootScope?.coroutineContext?.get(kotlinx.coroutines.Job)?.cancel()

@@ -1,0 +1,283 @@
+diff --git a/common/androidcli/flowmeta/relay.go b/common/androidcli/flowmeta/relay.go
+new file mode 100644
+--- /dev/null
++++ b/common/androidcli/flowmeta/relay.go
+@@ -0,0 +1,112 @@
++// Copyright 2026, Asterisk4Magisk contributors
++// SPDX-License-Identifier: LGPL-3.0
++
++package flowmeta
++
++import (
++	"container/list"
++	"encoding/binary"
++	"net/netip"
++	"sync"
++	"time"
++)
++
++// RelaySession binds one local UDP relay generation to an original socket.
++// Key is an internal cache ID, not a routable or exposed client address.
++type RelaySession struct {
++	Key, Relay, Original netip.AddrPort
++	UID uint32
++}
++
++type relayEntry struct {
++	session *RelaySession
++	last time.Time
++}
++
++// RelayTable bounds the number of associations and assigns non-reused keys
++// even if a local UDP port is recycled. Full-cone traffic may vary destination.
++type RelayTable struct {
++	mu sync.Mutex
++	capacity int
++	idle time.Duration
++	next uint64
++	entries map[netip.AddrPort]*list.Element
++	lru list.List
++}
++
++func NewRelayTable(capacity int, idle time.Duration) *RelayTable {
++	if capacity <= 0 || idle <= 0 {
++		panic("invalid relay table limits")
++	}
++	return &RelayTable{capacity: capacity, idle: idle, entries: make(map[netip.AddrPort]*list.Element)}
++}
++
++func (t *RelayTable) remove(element *list.Element) {
++	delete(t.entries, element.Value.(*relayEntry).session.Relay)
++	t.lru.Remove(element)
++}
++
++func (t *RelayTable) Get(relay, original netip.AddrPort, uid uint32, now time.Time) *RelaySession {
++	if !relay.IsValid() || !relay.Addr().IsLoopback() || relay.Port() == 0 || !original.IsValid() || original.Port() == 0 {
++		return nil
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if element := t.entries[relay]; element != nil {
++		entry := element.Value.(*relayEntry)
++		if now.Sub(entry.last) < t.idle && entry.session.Original == original && entry.session.UID == uid {
++			entry.last = now
++			t.lru.MoveToFront(element)
++			return entry.session
++		}
++		t.remove(element)
++	}
++	for element := t.lru.Back(); element != nil; element = t.lru.Back() {
++		if len(t.entries) < t.capacity && now.Sub(element.Value.(*relayEntry).last) < t.idle {
++			break
++		}
++		t.remove(element)
++	}
++	t.next++
++	var key [16]byte
++	key[0] = 0xfd
++	binary.BigEndian.PutUint64(key[8:], t.next)
++	session := &RelaySession{Key: netip.AddrPortFrom(netip.AddrFrom16(key), 1), Relay: relay, Original: original, UID: uid}
++	t.entries[relay] = t.lru.PushFront(&relayEntry{session: session, last: now})
++	return session
++}
++
++func (t *RelayTable) Valid(session *RelaySession, now time.Time) bool {
++	if session == nil {
++		return false
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	element := t.entries[session.Relay]
++	if element == nil {
++		return false
++	}
++	entry := element.Value.(*relayEntry)
++	return entry.session == session && now.Sub(entry.last) < t.idle
++}
++
++// PurgeExpired releases idle entries even if no more datagrams arrive.
++// The generation counter remains monotonic and live sessions are untouched.
++func (t *RelayTable) PurgeExpired(now time.Time) {
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	for element := t.lru.Back(); element != nil; element = t.lru.Back() {
++		if now.Sub(element.Value.(*relayEntry).last) < t.idle {
++			break
++		}
++		t.remove(element)
++	}
++}
++
++func (t *RelayTable) Clear() {
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	clear(t.entries)
++	t.lru.Init()
++	// Do not reset the generation counter: in-flight NAT entries may still close.
++}
+
+diff --git a/common/androidcli/flowmeta/relay_test.go b/common/androidcli/flowmeta/relay_test.go
+new file mode 100644
+--- /dev/null
++++ b/common/androidcli/flowmeta/relay_test.go
+@@ -0,0 +1,88 @@
++package flowmeta
++
++import (
++	"net/netip"
++	"sync"
++	"testing"
++	"time"
++)
++
++func TestRelayRebind(t *testing.T) {
++	now := time.Now()
++	table := NewRelayTable(4, time.Minute)
++	src := netip.MustParseAddrPort("10.0.0.2:5000")
++	a := netip.MustParseAddrPort("127.0.0.1:30001")
++	b := netip.MustParseAddrPort("127.0.0.1:30002")
++	first := table.Get(a, src, 10001, now)
++	if table.Get(a, src, 10001, now) != first {
++		t.Fatal("stable relay must reuse association")
++	}
++	second := table.Get(b, src, 10001, now)
++	if second.Key == first.Key {
++		t.Fatal("different relay inherited previous NAT key")
++	}
++	reused := table.Get(a, src, 10002, now)
++	if reused.Key == first.Key || table.Valid(first, now) || !table.Valid(reused, now) {
++		t.Fatal("recycled relay inherited old UID")
++	}
++	table.Clear()
++	if table.Valid(reused, now) || table.Get(a, src, 10002, now).Key == reused.Key {
++		t.Fatal("reset reused previous generation")
++	}
++}
++
++func TestRelayCapacityAndExpiration(t *testing.T) {
++	now := time.Now()
++	table := NewRelayTable(32, time.Minute)
++	src := netip.MustParseAddrPort("[fd00::2]:5000")
++	var first *RelaySession
++	for n := 1; n <= 20000; n++ {
++		session := table.Get(netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(n)), src, 10001, now)
++		if n == 1 { first = session }
++		if len(table.entries) > 32 { t.Fatal("capacity exceeded") }
++	}
++	if table.Valid(first, now) { t.Fatal("evicted generation still valid") }
++	last := table.Get(netip.MustParseAddrPort("127.0.0.1:20000"), src, 10001, now)
++	if table.Valid(last, now.Add(time.Minute)) { t.Fatal("expired generation still valid") }
++	if table.Get(last.Relay, src, 10001, now.Add(time.Minute)).Key == last.Key { t.Fatal("expired key reused") }
++}
++
++func TestRelayIdlePurge(t *testing.T) {
++	now := time.Now()
++	table := NewRelayTable(8, time.Minute)
++	src := netip.MustParseAddrPort("10.0.0.2:5000")
++	a := netip.MustParseAddrPort("127.0.0.1:30001")
++	b := netip.MustParseAddrPort("127.0.0.1:30002")
++	old := table.Get(a, src, 10001, now)
++	live := table.Get(b, src, 10001, now.Add(30*time.Second))
++	table.PurgeExpired(now.Add(time.Minute))
++	if len(table.entries) != 1 || table.Valid(old, now.Add(time.Minute)) || !table.Valid(live, now.Add(time.Minute)) {
++		t.Fatal("purge removed a live relay or retained an expired relay")
++	}
++	table.PurgeExpired(now.Add(90*time.Second))
++	if len(table.entries) != 0 || table.lru.Len() != 0 {
++		t.Fatal("idle table was not cleared")
++	}
++	if table.Get(a, src, 10001, now.Add(91*time.Second)).Key == old.Key {
++		t.Fatal("purge reused previous generation")
++	}
++}
++
++func TestRelayConcurrent(t *testing.T) {
++	table := NewRelayTable(64, time.Minute)
++	var wg sync.WaitGroup
++	for n := 1; n <= 8; n++ {
++		wg.Add(1)
++		go func(n int) {
++			defer wg.Done()
++			for k := 0; k < 1000; k++ {
++				addr := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(n*1000+k))
++				now := time.Now()
++				session := table.Get(addr, addr, 10001, now)
++				table.Valid(session, now)
++			}
++		}(n)
++	}
++	wg.Wait()
++	if len(table.entries) > 64 { t.Fatal("capacity exceeded") }
++}
+
+diff --git a/common/androidcli/flowmeta/relay_socket_test.go b/common/androidcli/flowmeta/relay_socket_test.go
+new file mode 100644
+--- /dev/null
++++ b/common/androidcli/flowmeta/relay_socket_test.go
+@@ -0,0 +1,66 @@
++package flowmeta
++
++import (
++	"net"
++	"net/netip"
++	"os"
++	"runtime"
++	"testing"
++	"time"
++)
++
++// A host loopback stress test of the metadata codec and relay table. This
++// does not execute Android HEV, lwIP, eBPF, or the sing-box router.
++func TestRelayLoopbackChurn(t *testing.T) {
++	server, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
++	if err != nil { t.Fatal(err) }
++	defer server.Close()
++	table := NewRelayTable(128, time.Minute)
++	fdCount := func() int {
++		entries, err := os.ReadDir("/proc/self/fd")
++		if err != nil { return -1 }
++		return len(entries)
++	}
++	runtime.GC()
++	var before, after runtime.MemStats
++	runtime.ReadMemStats(&before)
++	fdsBefore := fdCount()
++	header := Header{Source: netip.MustParseAddrPort("10.0.0.2:5000"), Destination: netip.MustParseAddrPort("192.0.2.10:53"), UDP: true, UID: 10001}
++	for n := 0; n < 512; n++ {
++		func() {
++			client, err := net.DialUDP("udp4", nil, server.LocalAddr().(*net.UDPAddr))
++			if err != nil { t.Fatal(err) }
++			defer client.Close()
++			deadline := time.Now().Add(2*time.Second)
++			if err := client.SetDeadline(deadline); err != nil { t.Fatal(err) }
++			if err := server.SetDeadline(deadline); err != nil { t.Fatal(err) }
++			wire, err := header.Marshal(testToken)
++			if err != nil { t.Fatal(err) }
++			if _, err := client.Write(append(wire, 42)); err != nil { t.Fatal(err) }
++			var buffer [128]byte
++			size, relay, err := server.ReadFromUDPAddrPort(buffer[:])
++			if err != nil { t.Fatal(err) }
++			got, offset, err := Parse(buffer[:size], testToken, true)
++			if err != nil || got != header || size-offset != 1 || buffer[offset] != 42 {
++				t.Fatalf("request roundtrip: %v %v", got, err)
++			}
++			session := table.Get(relay, got.Source, got.UID, time.Now())
++			if session == nil || !table.Valid(session, time.Now()) { t.Fatal("missing relay session") }
++			reply, err := got.Reverse(got.Destination).Marshal(testToken)
++			if err != nil { t.Fatal(err) }
++			if _, err := server.WriteToUDPAddrPort(append(reply, 43), relay); err != nil { t.Fatal(err) }
++			size, err = client.Read(buffer[:])
++			if err != nil { t.Fatal(err) }
++			got, offset, err = Parse(buffer[:size], testToken, true)
++			if err != nil || got.Source != header.Destination || got.Destination != header.Source || size-offset != 1 || buffer[offset] != 43 {
++				t.Fatalf("response roundtrip: %v %v", got, err)
++			}
++		}()
++	}
++	table.Clear()
++	runtime.GC()
++	runtime.ReadMemStats(&after)
++	fdsAfter := fdCount()
++	t.Logf("512 loopback sessions: open fds %d -> %d; live Go heap %d -> %d bytes", fdsBefore, fdsAfter, before.HeapAlloc, after.HeapAlloc)
++	if fdsBefore >= 0 && fdsAfter > fdsBefore+3 { t.Fatal("possible socket descriptor leak") }
++}

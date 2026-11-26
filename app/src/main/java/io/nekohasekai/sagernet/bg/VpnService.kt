@@ -6,6 +6,7 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ProxyInfo
+import android.net.Network
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
@@ -32,6 +33,7 @@ class VpnService : BaseVpnService(),
     }
 
     var conn: ParcelFileDescriptor? = null
+    private var tetherSession: Long? = null
 
     private var metered = false
 
@@ -50,12 +52,24 @@ class VpnService : BaseVpnService(),
             .apply { acquire() }
     }
 
+    override suspend fun beforeStopProcesses() {
+        val token = tetherSession ?: return
+        Logs.i("VPN tether: restoring Android forwarding before closing TUN")
+        if (!io.nekohasekai.sagernet.bg.root.TetherVpn.stopAndAwait(token)) {
+            Logs.w("VPN tether: cleanup pending; worker will continue after TUN closes")
+        }
+    }
+
     @Suppress("EXPERIMENTAL_API_USAGE")
     override fun killProcesses() {
-        conn?.close()
-        conn = null
-        Thread({ io.nekohasekai.sagernet.bg.root.TetherVpn.clear() }, "tether-vpn-clear").start()
-        super.killProcesses()
+        tetherSession?.let { io.nekohasekai.sagernet.bg.root.TetherVpn.stop(it) }
+        tetherSession = null
+        try {
+            conn?.close()
+        } finally {
+            conn = null
+            super.killProcesses()
+        }
     }
 
     override fun onBind(intent: Intent) = when (intent.action) {
@@ -96,14 +110,16 @@ class VpnService : BaseVpnService(),
         val builder = Builder().setConfigureIntent(SagerNet.configureIntent(this))
             .setSession(getString(R.string.app_name))
             .setMtu(DataStore.mtu)
-        val ipv6Mode = DataStore.ipv6Mode
 
-        // address
-        builder.addAddress(PRIVATE_VLAN4_CLIENT, 30)
-        if (ipv6Mode != IPv6Mode.DISABLE) {
-            builder.addAddress(PRIVATE_VLAN6_CLIENT, 126)
+        // Use the exact immutable plan from the core config for this VPN session.
+        val plan = data.proxy!!.config.tunAddressPlan ?: TunAddressPlan.legacy()
+        val ipv6Enabled = plan.ipv6Enabled ?: (DataStore.ipv6Mode != IPv6Mode.DISABLE)
+        Logs.i("VPN TUN address: ${plan.cidr4}, IPv6=${if (ipv6Enabled) plan.cidr6 else "disabled"}")
+        builder.addAddress(plan.ipv4, plan.ipv4Prefix)
+        if (ipv6Enabled) {
+            builder.addAddress(plan.ipv6, plan.ipv6Prefix)
         }
-        builder.addDnsServer(PRIVATE_VLAN4_ROUTER)
+        builder.addDnsServer(plan.dns4)
 
         // route
         if (DataStore.bypassLan) {
@@ -111,15 +127,15 @@ class VpnService : BaseVpnService(),
                 val subnet = Subnet.fromString(it)!!
                 builder.addRoute(subnet.address.hostAddress!!, subnet.prefixSize)
             }
-            builder.addRoute(PRIVATE_VLAN4_ROUTER, 32)
+            builder.addRoute(plan.dns4, 32)
             builder.addRoute(FAKEDNS_VLAN4_CLIENT, 15)
             // https://issuetracker.google.com/issues/149636790
-            if (ipv6Mode != IPv6Mode.DISABLE) {
+            if (ipv6Enabled) {
                 builder.addRoute("2000::", 3)
             }
         } else {
             builder.addRoute("0.0.0.0", 0)
-            if (ipv6Mode != IPv6Mode.DISABLE) {
+            if (ipv6Enabled) {
                 builder.addRoute("::", 0)
             }
         }
@@ -200,16 +216,23 @@ class VpnService : BaseVpnService(),
         if (Build.VERSION.SDK_INT >= 29) builder.setMetered(metered)
         conn = builder.establish() ?: throw NullConnectionException()
         // hotspot / USB / Bluetooth tethering through the VPN (root)
-        io.nekohasekai.sagernet.bg.root.TetherVpn.start()
+        tetherSession = io.nekohasekai.sagernet.bg.root.TetherVpn.start(
+            plan, ipv6Enabled && data.proxy!!.config.tunAddressPlan != null
+        )
 
         return conn!!.fd
     }
 
     fun updateUnderlyingNetwork(builder: Builder? = null) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-            SagerNet.underlyingNetwork?.let {
-                builder?.setUnderlyingNetworks(arrayOf(SagerNet.underlyingNetwork))
-                    ?: setUnderlyingNetworks(arrayOf(SagerNet.underlyingNetwork))
+            val network = SagerNet.underlyingNetwork
+            if (builder != null) {
+                // Before discovery, leave the builder's default underlying-network policy intact.
+                if (network != null) builder.setUnderlyingNetworks(arrayOf(network))
+            } else {
+                // An empty list explicitly means no underlying network, not the previously lost one.
+                val networks = if (network == null) emptyArray<Network>() else arrayOf(network)
+                if (!setUnderlyingNetworks(networks)) Logs.d("VPN reconnect: underlying network update not applied")
             }
         }
     }

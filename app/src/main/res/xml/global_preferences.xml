@@ -62,6 +62,7 @@
         <Preference app:icon="@drawable/ic_baseline_update_24" app:key="rootCoreUpdate" app:title="@string/root_core_update" />
         <Preference app:icon="@drawable/ic_baseline_update_24" app:key="rootCoreImport" app:title="@string/root_core_import" />
         <Preference app:icon="@drawable/ic_baseline_update_24" app:key="rootCoreRollback" app:title="@string/root_core_rollback" />
+        <Preference app:icon="@drawable/ic_baseline_update_24" app:key="rootCoreBundled" app:title="@string/root_core_bundled" />
     </PreferenceCategory>
     <PreferenceCategory app:title="@string/cat_security">
         <moe.matsuri.nb4a.ui.UrlTestPreference app:defaultValue="http://cp.cloudflare.com/" app:icon="@drawable/ic_baseline_cast_connected_24" app:key="connectionTestURL" app:title="@string/connection_test_url" app:useSimpleSummaryProvider="true" />

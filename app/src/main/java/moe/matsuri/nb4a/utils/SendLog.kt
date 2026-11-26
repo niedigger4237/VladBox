@@ -8,11 +8,10 @@ import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.app
-import io.nekohasekai.sagernet.ktx.use
+import io.nekohasekai.sagernet.ktx.LogRedactor
 import io.nekohasekai.sagernet.utils.CrashHandler
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.IOException
 
 object SendLog {
@@ -30,11 +29,17 @@ object SendLog {
         logFile.writeText(report)
 
         try {
-            Runtime.getRuntime().exec(arrayOf("logcat", "-d")).inputStream.use(
-                FileOutputStream(
-                    logFile, true
-                )
-            )
+            // Restrict the exported logcat to this app UID. Never fall back to raw system logs.
+            val process = ProcessBuilder("logcat", "-d", "--uid=${android.os.Process.myUid()}")
+                .redirectErrorStream(true).start()
+            try {
+                val redactor = LogRedactor.Stream()
+                java.io.FileOutputStream(logFile, true).bufferedWriter(Charsets.UTF_8).use { output ->
+                    process.inputStream.bufferedReader(Charsets.UTF_8).useLines { lines ->
+                        lines.take(20000).forEach { output.appendLine(redactor.redact(it)) }
+                    }
+                }
+            } finally { process.destroy() }
             logFile.appendText("\n")
         } catch (e: IOException) {
             Logs.w(e)
@@ -74,9 +79,9 @@ object SendLog {
             if (max in 1 until len) {
                 stream.skip(len - max) // TODO string?
             }
-            stream.use { it.readBytes() }
+            stream.use { LogRedactor.text(it.bufferedReader(Charsets.UTF_8).readText()).toByteArray(Charsets.UTF_8) }
         } catch (e: Exception) {
-            e.stackTraceToString().toByteArray()
+            LogRedactor.text(e.stackTraceToString()).toByteArray(Charsets.UTF_8)
         }
     }
 }

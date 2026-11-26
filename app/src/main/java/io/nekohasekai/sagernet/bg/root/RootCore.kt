@@ -27,16 +27,63 @@ object RootCore {
     private const val CORES = "$BASE/cores"
     private const val CURRENT = "$BASE/current"
     private const val PREVIOUS = "$BASE/previous"
-    private const val EXTERNAL_OPT_IN = "$BASE/external-opt-in-v1"
+    private const val LEGACY_EXTERNAL_OPT_IN = "$BASE/external-opt-in-v1"
     private const val KEEP = 3
+    private val labelPattern = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+    private fun validLabel(label: String) = labelPattern.matches(label)
+
+    // This file belongs to the current installation, is shared by app
+    // processes and is excluded from Android Auto Backup. Never migrate
+    // consent from /data/adb: that directory survives uninstall/clear data.
+    private val externalSelection: File
+        get() = File(SagerNet.application.noBackupFilesDir, "root-external-selection-v2")
+
+    private fun selectedExternalLabel(): String? = runCatching {
+        val file = externalSelection
+        if (!file.isFile || file.length() !in 1L..128L) return null
+        file.readText(Charsets.UTF_8).takeIf(::validLabel)
+    }.getOrNull()
+
+    private fun authorizeExternal(label: String): Boolean = runCatching {
+        require(validLabel(label))
+        val target = externalSelection
+        val temp = File.createTempFile("root-selection-", ".tmp", target.parentFile)
+        try {
+            temp.writeText(label, Charsets.UTF_8)
+            check(temp.renameTo(target))
+        } finally {
+            temp.delete()
+        }
+        true
+    }.getOrDefault(false)
 
     private const val REPO = "shtorm-7/sing-box-extended"
+    private const val PATCHED_REPO = "niedigger4237/NieFigger-Core"
+    // Bump when core/helper/config or Flow Metadata compatibility changes.
+    private const val PATCHED_PREFIX = "core-v1-"
+    private val patchedTag = Regex("core-v1-[0-9a-f]{40}")
+    private const val MAX_CORE_BYTES = 128L * 1024 * 1024
+
+    enum class Channel { PATCHED, UPSTREAM }
+
+    private fun patchedReceipt(label: String) =
+        File(SagerNet.application.noBackupFilesDir, "verified-$label.sha256")
+
+    private fun verifiedPatched(label: String, path: String): Boolean {
+        if (!patchedTag.matches(label)) return false
+        val expected = runCatching {
+            val file = patchedReceipt(label)
+            if (file.length() != 64L) return false
+            file.readText()
+        }.getOrNull() ?: return false
+        return validFingerprint.matches(expected) && fingerprint(path).equals(expected, ignoreCase = true)
+    }
 
     /** sing-box shipped inside the apk (jniLibs/<abi>/libsingbox.so), may be missing */
     val bundled: File
         get() = File(SagerNet.application.applicationInfo.nativeLibraryDir, "libsingbox.so")
 
-    data class Active(val path: String, val label: String, val bundled: Boolean)
+    data class Active(val path: String, val label: String, val bundled: Boolean, val patched: Boolean = bundled)
 
     private fun abiToken(): List<String> {
         val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"
@@ -50,10 +97,10 @@ object RootCore {
 
     fun activeLabel(): String? {
         val r = RootShell.run("cat $CURRENT 2>/dev/null")
-        return r.out.trim().takeIf { r.ok && it.isNotEmpty() }
+        return r.out.trim().takeIf { r.ok && validLabel(it) }
     }
 
-    fun selectedLabel(): String = resolve()?.let { if (it.bundled) "Bundled (patched)" else "External: ${it.label}" } ?: "Unavailable"
+    fun selectedLabel(): String = resolve()?.let { if (it.bundled) "Bundled (patched)" else if (it.patched) "Patched: ${it.label}" else "External: ${it.label}" } ?: "Unavailable"
 
     private data class BundledIdentity(
         val path: String,
@@ -169,12 +216,18 @@ object RootCore {
 
     /** Resolves the binary to run, falling back to the bundled one when the active core is unusable. */
     fun resolve(): Active? {
-        // Resolve the opt-in and label in one SU invocation; no need to read a disabled external core.
-        val external = RootShell.run("if [ -f $EXTERNAL_OPT_IN ]; then cat $CURRENT 2>/dev/null; fi")
-        external.out.trim().takeIf { external.ok && it.isNotEmpty() }?.let { label ->
-            val path = "$CORES/$label/sing-box"
-            if (versionOf(path) != null) return Active(path, label, false)
-            Logs.w("active core $label is broken, falling back to the bundled core")
+        // No consent in this installation => bundled, even if a legacy
+        // root marker and downloaded core still exist after reinstall.
+        selectedExternalLabel()?.let { label ->
+            if (activeLabel() == label) {
+                val path = "$CORES/$label/sing-box"
+                val patched = verifiedPatched(label, path)
+                // Never run an alleged patched release whose receipt is absent
+                // or whose executable was changed after download.
+                if ((!label.startsWith(PATCHED_PREFIX) || patched) && versionOf(path) != null)
+                    return Active(path, label, false, patched)
+                Logs.w("active core $label is broken, falling back to the bundled core")
+            }
         }
         val b = bundled
         if (b.exists()) return Active(b.absolutePath, "bundled", true)
@@ -192,21 +245,31 @@ object RootCore {
      * @param binary local file (any readable path), already a plain executable
      * @return the installed version string
      */
-    fun install(binary: File, label: String): Result<String> {
+    @Synchronized
+    fun install(binary: File, label: String): Result<String> = installVerified(binary, label, null)
+
+    @Synchronized
+    private fun installVerified(binary: File, label: String, expectedHash: String?): Result<String> {
         val safe = label.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        if (!validLabel(safe) || (safe.startsWith(PATCHED_PREFIX) &&
+                (!patchedTag.matches(safe) || expectedHash == null || !validFingerprint.matches(expectedHash))))
+            return Result.failure(IllegalArgumentException("Invalid or unverified core label"))
         val stage = "$CORES/.$safe.tmp"
         val final = "$CORES/$safe"
         val prev = activeLabel()
         val r = RootShell.run(
+            "set -e",
             "mkdir -p $CORES",
             "rm -rf $stage && mkdir -p $stage",
             "cp ${RootShell.q(binary)} $stage/sing-box && chmod 755 $stage/sing-box",
+            // Validate the root-owned staged copy, not only the downloaded file.
+            if (expectedHash != null) "test \"\$(sha256sum $stage/sing-box | cut -d ' ' -f 1)\" = ${RootShell.q(expectedHash)}" else "true",
             // verify before it becomes visible
             "$stage/sing-box version >/dev/null || { rm -rf $stage; exit 9; }",
             "rm -rf $final && mv $stage $final",
             // atomic switch: rename(2) over a regular file
             "echo ${RootShell.q(safe)} > $CURRENT.tmp && mv -f $CURRENT.tmp $CURRENT",
-            "touch $EXTERNAL_OPT_IN",
+            "rm -f $LEGACY_EXTERNAL_OPT_IN",
             if (prev != null && prev != safe) "echo ${RootShell.q(prev)} > $PREVIOUS.tmp && mv -f $PREVIOUS.tmp $PREVIOUS" else "true",
             timeoutMs = 60_000
         )
@@ -217,23 +280,45 @@ object RootCore {
                 )
             )
         }
+        if (expectedHash != null) {
+            val target = patchedReceipt(safe)
+            val written = runCatching {
+                val temp = File.createTempFile("core-receipt-", ".tmp", target.parentFile)
+                try {
+                    temp.writeText(expectedHash)
+                    check(temp.renameTo(target))
+                } finally { temp.delete() }
+            }.isSuccess
+            if (!written) return Result.failure(IllegalStateException("Cannot store patched core verification receipt"))
+        }
+        if (!authorizeExternal(safe)) return Result.failure(IllegalStateException("Cannot authorize external core for this installation"))
         prune(keep = setOf(safe, prev ?: ""))
         return Result.success(versionOf("$final/sing-box") ?: safe)
     }
 
+    @Synchronized
     fun rollback(): Boolean {
         val prev = RootShell.run("cat $PREVIOUS 2>/dev/null").out.trim()
-        if (prev.isEmpty() || versionOf("$CORES/$prev/sing-box") == null) return false
+        if (!validLabel(prev) || (prev.startsWith(PATCHED_PREFIX) && !verifiedPatched(prev, "$CORES/$prev/sing-box")) ||
+            versionOf("$CORES/$prev/sing-box") == null) return false
         val cur = activeLabel()
         return RootShell.run(
+            "set -e",
             "echo ${RootShell.q(prev)} > $CURRENT.tmp && mv -f $CURRENT.tmp $CURRENT",
-            "touch $EXTERNAL_OPT_IN",
+            "rm -f $LEGACY_EXTERNAL_OPT_IN",
             if (cur != null) "echo ${RootShell.q(cur)} > $PREVIOUS.tmp && mv -f $PREVIOUS.tmp $PREVIOUS" else "true"
-        ).ok
+        ).ok && authorizeExternal(prev)
     }
 
-    /** Back to the core shipped with the app. */
-    fun useBundled() = RootShell.run("rm -f $EXTERNAL_OPT_IN").ok
+    /** Back to the core shipped with the app; downloaded files stay intact. */
+    @Synchronized
+    fun useBundled(): Boolean {
+        val file = externalSelection
+        if (file.exists() && !file.delete()) return false
+        // Older versions used this marker. It is no longer authoritative.
+        RootShell.run("rm -f $LEGACY_EXTERNAL_OPT_IN")
+        return true
+    }
 
     private fun prune(keep: Set<String>) {
         val all = installedLabels()
@@ -244,9 +329,49 @@ object RootCore {
 
     // ---- download ----
 
-    data class Release(val tag: String, val assetName: String, val url: String)
+    data class Release(val tag: String, val assetName: String, val url: String, val channel: Channel = Channel.UPSTREAM, val sha256: String? = null)
 
-    fun fetchLatest(client: OkHttpClient = OkHttpClient()): Result<Release> = runCatching {
+    fun fetchLatest(channel: Channel = Channel.PATCHED, client: OkHttpClient = OkHttpClient()): Result<Release> =
+        if (channel == Channel.PATCHED) fetchPatched(client) else fetchUpstream(client)
+
+    private fun fetchPatched(client: OkHttpClient): Result<Release> = runCatching {
+        val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: error("Unknown Android ABI")
+        require(abi in listOf("arm64-v8a", "armeabi-v7a", "x86_64")) { "Unsupported patched core ABI: $abi" }
+        val name = "niefigger-sing-box-android-$abi"
+        // Core-only releases are prereleases and never replace the APK latest release.
+        for (page in 1..3) {
+            val request = Request.Builder()
+                .url("https://api.github.com/repos/$PATCHED_REPO/releases?per_page=100&page=$page")
+                .header("Accept", "application/vnd.github+json").build()
+            val releases = client.newCall(request).execute().use { response ->
+                check(response.isSuccessful) { "Patched channel: HTTP ${response.code}" }
+                org.json.JSONArray(response.body!!.string())
+            }
+            for (i in 0 until releases.length()) {
+                val release = releases.getJSONObject(i)
+                val tag = release.optString("tag_name")
+                if (release.optBoolean("draft") || !patchedTag.matches(tag)) continue
+                val assets = release.getJSONArray("assets")
+                for (j in 0 until assets.length()) {
+                    val asset = assets.getJSONObject(j)
+                    if (asset.optString("name") != name || asset.optString("state") != "uploaded") continue
+                    val digest = asset.optString("digest")
+                    val hash = digest.removePrefix("sha256:").lowercase(java.util.Locale.ROOT)
+                    check(digest.startsWith("sha256:") && validFingerprint.matches(hash)) {
+                        "Patched release is missing a valid GitHub SHA-256 digest"
+                    }
+                    val size = asset.optLong("size")
+                    check(size in 1L..MAX_CORE_BYTES) { "Invalid patched core size" }
+                    val url = "https://github.com/$PATCHED_REPO/releases/download/$tag/$name"
+                    return@runCatching Release(tag, name, url, Channel.PATCHED, hash)
+                }
+            }
+            if (releases.length() < 100) break
+        }
+        error("No compatible Patched core release for $abi. Bundled core remains available.")
+    }
+
+    private fun fetchUpstream(client: OkHttpClient): Result<Release> = runCatching {
         val req = Request.Builder()
             .url("https://api.github.com/repos/$REPO/releases/latest")
             .header("Accept", "application/vnd.github+json")
@@ -275,7 +400,44 @@ object RootCore {
     }
 
     /** Downloads the release archive, extracts it as root and installs the binary. */
-    fun downloadAndInstall(rel: Release, client: OkHttpClient = OkHttpClient()): Result<String> = runCatching {
+    fun downloadAndInstall(rel: Release, client: OkHttpClient = OkHttpClient()): Result<String> =
+        if (rel.channel == Channel.PATCHED) downloadPatched(rel, client) else downloadUpstream(rel, client)
+
+    private fun downloadPatched(rel: Release, client: OkHttpClient): Result<String> = runCatching {
+        check(patchedTag.matches(rel.tag)) { "Invalid patched release tag" }
+        val expected = rel.sha256 ?: error("Missing patched core digest")
+        check(validFingerprint.matches(expected))
+        val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: error("Unknown ABI")
+        val name = "niefigger-sing-box-android-$abi"
+        check(rel.assetName == name && rel.url == "https://github.com/$PATCHED_REPO/releases/download/${rel.tag}/$name")
+        val tmp = File.createTempFile("patched-core-", ".bin", SagerNet.application.cacheDir)
+        try {
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            client.newCall(Request.Builder().url(rel.url).build()).execute().use { response ->
+                check(response.isSuccessful) { "Patched core download: HTTP ${response.code}" }
+                response.body!!.byteStream().use { input ->
+                    tmp.outputStream().use { output ->
+                        val buffer = ByteArray(65536)
+                        var total = 0L
+                        while (true) {
+                            val n = input.read(buffer)
+                            if (n < 0) break
+                            total += n
+                            check(total <= MAX_CORE_BYTES) { "Patched core exceeds download limit" }
+                            md.update(buffer, 0, n)
+                            output.write(buffer, 0, n)
+                        }
+                        check(total > 0) { "Empty patched core" }
+                    }
+                }
+            }
+            val actual = md.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+            check(actual.equals(expected, ignoreCase = true)) { "Patched core SHA-256 mismatch" }
+            installVerified(tmp, rel.tag, expected).getOrThrow()
+        } finally { tmp.delete() }
+    }
+
+    private fun downloadUpstream(rel: Release, client: OkHttpClient): Result<String> = runCatching {
         val dir = File(SagerNet.application.cacheDir, "rootcore").apply { deleteRecursively(); mkdirs() }
         val archive = File(dir, "core.tar.gz")
         client.newCall(Request.Builder().url(rel.url).build()).execute().use { resp ->

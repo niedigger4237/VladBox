@@ -11,6 +11,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.Key
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
+import io.nekohasekai.sagernet.bg.root.RootShell
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.preference.EditTextPreferenceModifiers
 import io.nekohasekai.sagernet.ktx.*
@@ -48,9 +49,10 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
     }
 
     private fun refreshRootCoreSummary() = runOnDefaultDispatcher {
-        val label = if (io.nekohasekai.sagernet.bg.root.RootShell.isAvailable())
-            io.nekohasekai.sagernet.bg.root.RootCore.activeLabel() ?: "bundled" else "-"
+        val label = if (model.state.value.rootAccess == RootShell.Access.GRANTED)
+            io.nekohasekai.sagernet.bg.root.RootCore.selectedLabel() else "-"
         runOnMainDispatcher {
+            if (!isAdded) return@runOnMainDispatcher
             findPreference<Preference>("rootCoreUpdate")?.summary =
                 getString(R.string.root_core_summary, label)
             model.refresh()
@@ -58,17 +60,36 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
     }
 
     private fun setupRootCore() {
-        refreshRootCoreSummary()
         findPreference<Preference>("rootCoreUpdate")!!.setOnPreferenceClickListener {
-            runOnDefaultDispatcher {
-                val rel = io.nekohasekai.sagernet.bg.root.RootCore.fetchLatest()
-                    .getOrElse { e -> rootCoreResult(Result.failure(e)); return@runOnDefaultDispatcher }
-                rootCoreResult(io.nekohasekai.sagernet.bg.root.RootCore.downloadAndInstall(rel))
-            }
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle("ROOT core update channel")
+                .setItems(arrayOf("Patched (recommended)", "Upstream (without app patches)")) { _, choice ->
+                    val channel = if (choice == 0) io.nekohasekai.sagernet.bg.root.RootCore.Channel.PATCHED
+                        else io.nekohasekai.sagernet.bg.root.RootCore.Channel.UPSTREAM
+                    fun update() = runOnDefaultDispatcher {
+                        val rel = io.nekohasekai.sagernet.bg.root.RootCore.fetchLatest(channel)
+                            .getOrElse { e -> rootCoreResult(Result.failure(e)); return@runOnDefaultDispatcher }
+                        rootCoreResult(io.nekohasekai.sagernet.bg.root.RootCore.downloadAndInstall(rel))
+                    }
+                    if (choice == 0) update()
+                    else MaterialAlertDialogBuilder(requireContext())
+                        .setTitle("Use upstream core?")
+                        .setMessage("Upstream does not guarantee Firefox 148 uTLS, Flow Metadata or other NieFigger patches. Reconnect to apply.")
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(android.R.string.ok) { _, _ -> update() }
+                        .show()
+                }.show()
             true
         }
         findPreference<Preference>("rootCoreImport")!!.setOnPreferenceClickListener {
             importCore.launch("*/*")
+            true
+        }
+        findPreference<Preference>("rootCoreBundled")?.setOnPreferenceClickListener {
+            runOnDefaultDispatcher {
+                val ok = io.nekohasekai.sagernet.bg.root.RootCore.useBundled()
+                rootCoreResult(if (ok) Result.success("Bundled (patched) — reconnect to apply") else Result.failure(IllegalStateException("Cannot reset core selection")))
+            }
             true
         }
         findPreference<Preference>("rootCoreRollback")!!.setOnPreferenceClickListener {
@@ -205,9 +226,14 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
             .setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
         setupRootCore()
 
-        serviceMode.setOnPreferenceChangeListener { _, _ ->
-            if (DataStore.serviceState.started) SagerNet.stopService()
-            true
+        serviceMode.setOnPreferenceChangeListener { _, value ->
+            if (value.toString().startsWith("root_") && model.state.value.rootAccess != RootShell.Access.GRANTED) {
+                checkRootAccess()
+                false
+            } else {
+                if (DataStore.serviceState.started) SagerNet.stopService()
+                true
+            }
         }
 
         val tunImplementation = findPreference<SimpleMenuPreference>(Key.TUN_IMPLEMENTATION)!!
@@ -263,6 +289,12 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
         }
         enableDnsRouting.onPreferenceChangeListener = reloadListener
 
+        for (key in listOf("tunAddressMode", "tunIpv4Subnet", "tunIpv6Subnet")) {
+            findPreference<Preference>(key)?.setOnPreferenceChangeListener { _, _ ->
+                needRestart()
+                true
+            }
+        }
         ipv6Mode.onPreferenceChangeListener = reloadListener
         allowAccess.onPreferenceChangeListener = reloadListener
 
@@ -277,8 +309,33 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
                 " · " + getString(if (DataStore.bypass) R.string.bypass_apps else R.string.route_proxy)
     }
 
+    private fun checkRootAccess() {
+        if (!model.beginRootCheck()) return
+        runOnDefaultDispatcher {
+            val access = try {
+                RootShell.probeAccess()
+            } catch (e: Exception) {
+                Logs.w(e)
+                RootShell.Access.UNKNOWN
+            }
+            runOnMainDispatcher {
+                model.finishRootCheck(access)
+                if (!isAdded) return@runOnMainDispatcher
+                val inactive = DataStore.serviceState == io.nekohasekai.sagernet.bg.BaseService.State.Idle ||
+                    DataStore.serviceState == io.nekohasekai.sagernet.bg.BaseService.State.Stopped
+                if (access == RootShell.Access.UNAVAILABLE && inactive && DataStore.serviceMode.startsWith("root_")) {
+                    // Recover an inactive configuration, but never stop a live session from a UI probe.
+                    findPreference<ListPreference>(Key.SERVICE_MODE)?.value = Key.MODE_VPN
+                    model.refresh()
+                }
+                if (access == RootShell.Access.GRANTED) refreshRootCoreSummary()
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
+        checkRootAccess()
         model.refresh()
 
         if (::isProxyApps.isInitialized) {

@@ -27,6 +27,10 @@ import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.bg.BaseService
 import kotlinx.coroutines.delay
 import io.nekohasekai.sagernet.bg.root.ServiceControl
+import io.nekohasekai.sagernet.bg.root.ServiceCronParseResult
+import io.nekohasekai.sagernet.bg.root.parseServiceCron
+import io.nekohasekai.sagernet.bg.root.validServiceControlSsids
+import io.nekohasekai.sagernet.bg.root.validServiceControlBssids
 import io.nekohasekai.sagernet.bg.root.RootDaemon
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -60,7 +64,7 @@ private fun ServiceControlScreen(close: () -> Unit) {
     var daemonPhase by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(rootMode, serviceState) {
         daemonPhase = null
-        if (rootMode && serviceState == BaseService.State.Connected) {
+        if (rootMode && serviceState in listOf(BaseService.State.Connected, BaseService.State.Waiting)) {
             while (true) {
                 daemonPhase = withContext(Dispatchers.IO) { RootDaemon.phase() }
                 delay(3000)
@@ -72,6 +76,7 @@ private fun ServiceControlScreen(close: () -> Unit) {
         return store.getBoolean(key, false)
     }
     val master = enabled("scEnabled")
+    val effectivePolicy = ServiceControl.toJson()
     var page by rememberSaveable { mutableStateOf("home") }
     BackHandler(enabled = page != "home") { page = "home" }
     val pageTitle = when (page) {
@@ -102,13 +107,12 @@ private fun ServiceControlScreen(close: () -> Unit) {
             if (page == "home" && rootMode && serviceState.started) ControlCard {
                 Text(stringResource(R.string.need_reload), style = MaterialTheme.typography.bodyMedium)
                 FilledTonalButton(
-                    enabled = serviceState == BaseService.State.Connected,
+                    enabled = serviceState in listOf(BaseService.State.Connected, BaseService.State.Waiting),
                     onClick = {
-                        if (DataStore.serviceState == BaseService.State.Connected &&
+                        if (DataStore.serviceState in listOf(BaseService.State.Connected, BaseService.State.Waiting) &&
                             DataStore.serviceMode in listOf(Key.MODE_ROOT_TUN, Key.MODE_ROOT_TPROXY,
                                 Key.MODE_ROOT_TUN2SOCKS, Key.MODE_ROOT_BPF2SOCKS)) {
                             SagerNet.reloadService()
-                            serviceState = BaseService.State.Connecting
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -120,11 +124,15 @@ private fun ServiceControlScreen(close: () -> Unit) {
                 ControlSwitch(stringResource(R.string.sc_enable), master, true, stringResource(R.string.sc_enable_sum)) {
                     store.putBoolean("scEnabled", it); revision++
                 }
+                val hasStart = ServiceControl.hasStartRule(ServiceControl.toJson())
+                ControlSwitch(stringResource(R.string.sc_monitor_only), enabled("scMonitorOnly"), master && (hasStart || enabled("scMonitorOnly")), stringResource(R.string.sc_monitor_only_sum)) {
+                    store.putBoolean("scMonitorOnly", it); revision++
+                }
             }
             Text(stringResource(R.string.sc_ui_automation), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            ControlDestination(Icons.Default.Schedule, stringResource(R.string.sc_schedule), stringResource(R.string.sc_ui_schedule_desc), master && enabled("scSchedule")) { page = "schedule" }
-            ControlDestination(Icons.Default.Wifi, "Wi-Fi", stringResource(R.string.sc_ui_wifi_desc), master && enabled("scWifi")) { page = "wifi" }
-            if (Build.VERSION.SDK_INT >= 33) ControlDestination(Icons.Default.Lock, stringResource(R.string.sc_keyguard), stringResource(R.string.sc_ui_keyguard_desc), master && enabled("scKeyguard")) { page = "keyguard" }
+            ControlDestination(Icons.Default.Schedule, stringResource(R.string.sc_schedule), stringResource(R.string.sc_ui_schedule_desc), effectivePolicy.getAsJsonObject("schedule").get("enabled").asBoolean) { page = "schedule" }
+            ControlDestination(Icons.Default.Wifi, "Wi-Fi", stringResource(R.string.sc_ui_wifi_desc), effectivePolicy.getAsJsonObject("wifi").get("enabled").asBoolean) { page = "wifi" }
+            if (Build.VERSION.SDK_INT >= 33) ControlDestination(Icons.Default.Lock, stringResource(R.string.sc_keyguard), stringResource(R.string.sc_ui_keyguard_desc), effectivePolicy.getAsJsonObject("keyguard").get("enabled").asBoolean) { page = "keyguard" }
             }
             if (page == "schedule") ControlCard {
                 Text(stringResource(R.string.sc_schedule), style = MaterialTheme.typography.titleLarge)
@@ -157,9 +165,14 @@ private fun ServiceControlScreen(close: () -> Unit) {
                         store.putBoolean(key, it); revision++
                     }
                     if (enabled(key)) {
+                        ControlSwitch(stringResource(R.string.sc_any_wifi), enabled("${key}_any"), active, stringResource(R.string.sc_any_wifi_sum)) {
+                            store.putBoolean("${key}_any", it); revision++
+                        }
+                        if (!enabled("${key}_any")) {
                         ControlField("${key}_ssids", "SSID", active, false) { revision++ }
                         ControlField("${key}_bssids", "BSSID", active, false) { revision++ }
                         Text(stringResource(R.string.sc_ids_hint), style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             }
@@ -215,10 +228,20 @@ private fun ControlField(key: String, title: String, enabled: Boolean, cron: Boo
         Text(if (value.isBlank()) title else "$title: $value")
     }
     if (editing) {
-        val valid = !cron || draft.isBlank() || ServiceControl.validCron(draft)
+        val valid = when {
+            cron -> draft.isBlank() || parseServiceCron(draft) is ServiceCronParseResult.Valid
+            key.endsWith("_ssids") -> validServiceControlSsids(draft)
+            key.endsWith("_bssids") -> validServiceControlBssids(draft)
+            else -> true
+        }
+        val error = when {
+            cron -> R.string.sc_invalid_cron
+            key.endsWith("_ssids") -> R.string.sc_invalid_ssid
+            else -> R.string.sc_invalid_bssid
+        }
         AlertDialog(onDismissRequest = { editing = false }, title = { Text(title) },
             text = { OutlinedTextField(value = draft, onValueChange = { draft = it }, isError = !valid,
-                singleLine = cron, supportingText = { if (!valid) Text(stringResource(R.string.sc_ui_invalid_cron)) }, modifier = Modifier.fillMaxWidth()) },
+                singleLine = cron, supportingText = { if (!valid) Text(stringResource(error)) }, modifier = Modifier.fillMaxWidth()) },
             confirmButton = { TextButton(enabled = valid, onClick = {
                 store.putString(key, draft.trim()); value = draft.trim(); editing = false; onSaved()
             }) { Text(stringResource(android.R.string.ok)) } },
