@@ -775,6 +775,9 @@ fun buildConfig(
         dns.final_ = if (dnsMainDirect) "dns-direct" else "dns-remote"
         // Keep the global DNS strategy; matching rules need no duplicate override.
         dns.strategy = defaultDnsStrategy
+        dns.optimistic = DnsOptimisticPolicy.options(
+            modernDns, forTest, DataStore.dnsOptimisticWindow
+        )
 
         // dns object user rules
         if (enableDnsRouting) {

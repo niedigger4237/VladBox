@@ -71,6 +71,18 @@ internal object ModernDnsValidation {
 
     fun check(config: JsonObject) {
         val dns = config.get("dns")?.takeIf { it.isJsonObject }?.asJsonObject ?: return
+        val optimistic = dns.get("optimistic")
+        val optimisticEnabled = optimistic?.let {
+            when {
+                it.isJsonPrimitive && it.asJsonPrimitive.isBoolean -> it.asBoolean
+                it.isJsonObject -> it.asJsonObject.enabled("enabled")
+                else -> false
+            }
+        } == true
+        if (optimisticEnabled) {
+            require(!dns.enabled("disable_cache")) { "dns.optimistic conflicts with dns.disable_cache" }
+            require(!dns.enabled("disable_expire")) { "dns.optimistic conflicts with dns.disable_expire" }
+        }
         val rules = dns.get("rules") ?: return
         require(rules.isJsonArray) { "dns.rules must be an array" }
         val fakeServers = dns.get("servers")?.takeIf { it.isJsonArray }?.asJsonArray

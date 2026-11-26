@@ -61,3 +61,17 @@ rejected with a rule path. Raw full-core configs and Legacy mode are untouched.
 The core still validates SRS metadata, available servers, full option schemas
 and conditional runtime response availability; the application check is not
 a replacement for sing-box check or device testing.
+
+## Optimistic DNS Cache
+Optional Modern setting: `dnsOptimisticWindow`. Default off; allowed windows
+30s, 5m, 1h, 24h, 72h. Emits `dns.optimistic: {"enabled":true,"timeout":"5m"}`
+when selected. The window is measured from original TTL expiration, not query
+timeout. Pinned core returns stale entries with TTL 1 and triggers its own
+refresh. No application polling, extra worker, persistent cache enablement,
+or firewall changes. Legacy, URL-test generation and raw imports do not
+receive the managed setting. Saved preference survives mode switching.
+Per-rule disable_cache remains valid (FakeIP bypasses DNS cache in the core).
+Custom JSON can override the generated option; after merging, Modern mode
+rejects enabled optimistic cache combined with global disable_cache or
+disable_expire. The core remains authoritative for option schema and timing.
+Imported/older ROOT cores must support sing-box 1.14 before enabling.

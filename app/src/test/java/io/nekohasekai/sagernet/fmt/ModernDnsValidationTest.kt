@@ -19,6 +19,27 @@ class ModernDnsValidationTest {
         }
     }
 
+    @Test fun optimisticCacheConflictsAreCheckedEvenWithoutRules() {
+        for (optimistic in listOf("true", """{"enabled":true,"timeout":"5m"}""")) {
+            for (flag in listOf("disable_cache", "disable_expire")) {
+                try {
+                    ModernDnsValidation.check(JsonParser.parseString(
+                        """{"dns":{"optimistic":$optimistic,"$flag":true}}"""
+                    ).asJsonObject)
+                    fail("Expected optimistic cache conflict")
+                } catch (e: IllegalArgumentException) {
+                    assertTrue(e.message.orEmpty().contains("dns.$flag"))
+                }
+            }
+        }
+        ModernDnsValidation.check(JsonParser.parseString(
+            """{"dns":{"optimistic":false,"disable_cache":true}}"""
+        ).asJsonObject)
+        ModernDnsValidation.check(JsonParser.parseString(
+            """{"dns":{"optimistic":{"enabled":true,"timeout":"5m"},"rules":[{"server":"dns-fake","disable_cache":true}]}}"""
+        ).asJsonObject)
+    }
+
     @Test fun generatedRulesAndTaggedResponseAccepted() {
         check("""[
             {"domain":["resolver.example"],"server":"dns-direct"},

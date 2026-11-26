@@ -306,6 +306,9 @@ public class SingBoxOptions {
 
     public static class DNSOptions extends SingBoxOption {
 
+        // sing-box >= 1.14: boolean or {enabled, timeout}.
+        public Object optimistic;
+
         public List<DNSServerOptions> servers;
 
         public List<DNSRule> rules;

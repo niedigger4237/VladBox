@@ -28,6 +28,7 @@ object Key {
     const val DNS_MAIN = "dnsMain"
     const val DNS_ENGINE_MODE = "dnsEngineMode"
     const val DNS_GLOBAL_STRATEGY = "dnsGlobalStrategy"
+    const val DNS_OPTIMISTIC_WINDOW = "dnsOptimisticWindow"
     const val ROUTE_FINAL = "routeFinal"
     const val ENABLE_DNS_ROUTING = "enableDnsRouting"
     const val ENABLE_FAKEDNS = "enableFakeDns"

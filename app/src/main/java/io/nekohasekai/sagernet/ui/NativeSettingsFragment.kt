@@ -254,7 +254,7 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
         bypassLanInCore.onPreferenceChangeListener = reloadListener
         mtu.onPreferenceChangeListener = reloadListener
 
-        for (key in listOf(Key.DNS_ENGINE_MODE, Key.DNS_GLOBAL_STRATEGY, Key.DNS_MAIN,
+        for (key in listOf(Key.DNS_ENGINE_MODE, Key.DNS_GLOBAL_STRATEGY, Key.DNS_OPTIMISTIC_WINDOW, Key.DNS_MAIN,
             "domain_strategy_for_direct", "domain_strategy_for_remote", "domain_strategy_for_server")) {
             findPreference<Preference>(key)?.onPreferenceChangeListener = reloadListener
         }

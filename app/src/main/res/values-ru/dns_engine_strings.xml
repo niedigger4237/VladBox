@@ -4,4 +4,11 @@
     <string name="dns_global_strategy">Стратегия DNS</string>
     <string name="dns_engine_legacy">Legacy (отдельные стратегии)</string>
     <string name="dns_engine_modern">Modern (общая стратегия)</string>
+    <string name="dns_optimistic_cache">Оптимистический кеш DNS</string>
+    <string name="dns_optimistic_0">Выключено</string>
+    <string name="dns_optimistic_1">30 секунд</string>
+    <string name="dns_optimistic_2">5 минут</string>
+    <string name="dns_optimistic_3">1 час</string>
+    <string name="dns_optimistic_4">24 часа</string>
+    <string name="dns_optimistic_5">3 дня</string>
 </resources>
