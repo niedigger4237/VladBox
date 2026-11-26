@@ -39,5 +39,5 @@
     <string name="dns_root_cache_clear_pending">Сброс ROOT-кеша запрошен при следующем подключении из приложения.</string>
     <string name="tether_dns_hijack">Перехват DNS при раздаче (экспериментально)</string>
     <string name="tether_dns_hijack_summary">Перехват TCP/UDP 53 на выбранных интерфейсах раздачи до обхода локальных адресов. Только встроенное ядро ROOT TPROXY, режим Port или Both, автозапуск выключен.</string>
-    <string name="tether_hev_dns_hijack_summary">Только нелокальный unicast DNS по IPv4. DNS шлюза и IPv6 без изменений. Встроенное ядро ROOT TUN2SOCKS, Port или Both, без автозапуска; требуется поддержка addrtype.</string>
+    <string name="tether_hev_dns_hijack_summary">Нелокальный DNS по IPv4 и, если включён IPv6, глобальным/ULA IPv6-адресам. DNS шлюза и link-local DNS без изменений. Встроенное ядро ROOT TUN2SOCKS, Port или Both, без автозапуска; требуется поддержка addrtype.</string>
 </resources>
