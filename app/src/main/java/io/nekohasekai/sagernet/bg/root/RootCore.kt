@@ -58,7 +58,7 @@ object RootCore {
     }.getOrDefault(false)
 
     private const val REPO = "shtorm-7/sing-box-extended"
-    private const val PATCHED_REPO = "niedigger4237/VladBox"
+    private const val PATCHED_REPO = "niedigger4237/NieFigger-Core"
     // Bump when core/helper/config or Flow Metadata compatibility changes.
     private const val PATCHED_PREFIX = "core-v1-"
     private val patchedTag = Regex("core-v1-[0-9a-f]{40}")
