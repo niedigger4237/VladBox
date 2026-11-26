@@ -965,3 +965,34 @@ gateway listener activation has occurred. The bind API is not called
 from the production supervisor lifecycle; do not grant exclusivity
 based on mask occupancy alone. Next work is actual ownership validation
 and the exact delete transport, with a device audit before live use.
+
+## Exact DELETE transport with fresh checks (not activated)
+
+The existing gateway_netlink.c now includes a per-entry DELETE transport.
+It requires independent verified ownership and a mandatory live recheck
+callback under the session lock. It issues GET for the old original tuple
+and zone, validates the fresh record with the existing exact request
+builder (ID, mark, both directions, DNAT status), rechecks ownership and
+withdrawn NAT/closed guard, then sends a single bounded unicast DELETE.
+The kernel sender, port, sequence, echoed header and ACK body are checked.
+Both a success ACK and ENOENT require a fresh GET confirming absence and
+a final ownership recheck. No blind retry, no deletion of replacement
+records, no tuple-less request or global flush. Ambiguous failures retain
+cleanup debt. Kernel tuple/ID comparison does not atomically verify the
+mark; the exclusive-writer contract remains mandatory.
+
+Executed locally against the supplied pinned source with existing local
+supervisor patches: PASS 22 simulated DELETE transport tests, PASS 64
+Netlink tests, PASS 42 exact request builder tests (128 total).
+GCC C17 -Wall -Wextra -Werror transport compile and full host supervisor
+link succeeded. The committed transport blob d8660899c81da861913658a1d5526eb77eb986c9
+matches the tested file. Live read-only GET/DUMP returned -1, no successful
+real conntrack read was established and no actual DELETE was sent.
+No full NDK/APK build or device testing was performed.
+
+The production supervisor does not call this API. The next practical
+blocker is a device-specific audit of mark writers and support for the
+proposed rules, followed by the actual exclusive ownership mechanism.
+A read-only iptables/ip6tables snapshot helps identify conflicts but
+cannot prove exclusivity against future rules, nftables, eBPF or vendor
+writers. Do not automatically approve a mask based on the snapshot.
