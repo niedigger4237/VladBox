@@ -833,3 +833,42 @@ No live delete API, mark reservation, dump completeness guarantee or runtime
 call site is enabled. A complete verified inventory and exclusive session
 ownership are still necessary before deleting entries. Gateway DNS remains
 disabled. Avoid introducing a global conntrack flush as a workaround.
+
+## Consolidated recovery: no speculative conntrack deletion
+
+Instead of allocating another conntrack mark or deleting entries by port,
+the native Netlink code now provides a bounded read-only multipart CT_GET
+dump for IPv4 and IPv6. A possible TCP/UDP reply source-port match retains
+the cleanup obligation regardless of mark or zone. The parser requires
+uninterrupted NLMSG_DONE, rejects malformed/foreign/truncated messages and
+does not consider errors absence. Each family scan is bounded by two
+seconds and 16 MiB. These are observations, not an atomic snapshot.
+
+The existing startup reconciliation now tries active-session recovery for
+a journal with verified core identity and full cleanup debt. Only if the
+old PID/group and port are absent and the old chains match does it close
+the INPUT guard, withdraw owned NAT, verify NAT absence across tables,
+observe conntrack drain twice, recheck listener absence and remove the
+owned guard. It commits a clean journal only after resource absence.
+If the port remains referenced or netlink fails, startup retains debt.
+Closing an already-owned guard no longer requires the current app's mode
+or downstream settings. There is no live DELETE or mark allocation.
+
+This conservative fallback is not a bounded-time stop/refresh solution:
+entries may persist for a long time or be refreshed, and uncertain or
+partially removed guards can still require recovery by reboot. Concurrent
+firewall writers and in-flight flows have not been validated on Android.
+Do not activate the listener solely on the basis of this fallback.
+
+Executed on the local Linux host with the pinned upstream source plus
+local prior admission/IPv6 edits: PASS 42 netlink assertions, PASS 20 active
+recovery assertions, and PASS 32 post-core, 28 pre-core, 31 reboot, 32
+recovery, 27 admission, 26 backend, 49 native planner assertions. The
+active recovery test uses simulated cleanup, not real firewall calls.
+GCC linked the native supervisor with the updated modules. All three
+modified source blobs matched the locally tested content. Real GET/DUMP
+both returned -1; no successful live conntrack inspection was established.
+No NDK/APK build or live Android firewall test was run. Gateway inbound
+and the normal runtime lifecycle are still not wired. Next priority:
+production runtime integration and actual Android build/device validation,
+not further isolated modules.
