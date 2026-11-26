@@ -18,6 +18,7 @@ struct nf_native_backend {
     // Caller must hold the WAL lock and establish boot/session identity first.
     int wal_fd;
     bool wal_ready;
+    bool precore_certified;
     struct nf_wal_record wal;
 };
 
@@ -28,7 +29,7 @@ struct nf_native_backend {
 static int nf_native_checkpoint(struct nf_native_backend *b,enum nf_step op) {
     if(!b->wal_ready || b->wal.generation==UINT64_MAX) return -1;
     uint8_t *data=calloc(1,NF_WAL_MAX);if(!data)return -1;
-    memcpy(data,"NFFW01",6);data[6]=(uint8_t)op;size_t pos=8;
+    memcpy(data,"NFFW01",6);data[6]=(uint8_t)op;data[7]=b->precore_certified?1U:0U;size_t pos=8;
     struct nf_native_slot *slots[]={&b->guard,&b->nat};
     for(size_t j=0;j<2;j++) {
         struct nf_native_slot *s=slots[j];
@@ -200,10 +201,22 @@ int nf_gateway_native_step(void *opaque,enum nf_step op,unsigned port,uint64_t e
     if(b->wal_ready && b->wal.port!=port)return -1;
     if(b->wal_ready && epoch)b->wal.epoch=epoch;
     switch(op) {
+    case NF_RESERVE: {
+        int rc=b->lifecycle_operations.step(b->lifecycle_operations.ctx,op,port,epoch);
+        if(!rc && b->wal_ready && !b->wal.debts && !b->wal.epoch &&
+           b->wal.port==port && !b->guard.owned && !b->nat.owned) b->precore_certified=true;
+        return rc;
+    }
+    case NF_START_CORE:
+        // Record possible process creation before invoking any spawn callback.
+        if(!b->wal_ready || !b->guard.owned)return -1;
+        b->precore_certified=false;b->wal.debts|=4U;
+        if(nf_native_checkpoint(b,NF_GUARD_CLOSED))return -1;
+        return b->lifecycle_operations.step(b->lifecycle_operations.ctx,op,port,epoch);
     case NF_GUARD_CLOSED: return nf_native_write(b,&b->guard,port,true,false);
-    case NF_GUARD_OPEN: return nf_native_write(b,&b->guard,port,true,true);
+    case NF_GUARD_OPEN: if(b->precore_certified || !(b->wal.debts&4U))return -1; return nf_native_write(b,&b->guard,port,true,true);
     case NF_GUARD_VERIFY: return b->guard.pending_valid?-1:nf_native_verify(b->system,&b->guard,false);
-    case NF_NAT_INSTALL: return nf_native_write(b,&b->nat,port,false,true);
+    case NF_NAT_INSTALL: if(b->precore_certified || !(b->wal.debts&4U))return -1; return nf_native_write(b,&b->nat,port,false,true);
     case NF_NAT_VERIFY: return b->nat.pending_valid?-1:nf_native_verify(b->system,&b->nat,false);
     case NF_NAT_REMOVE: return nf_native_remove(b,&b->nat);
     case NF_GUARD_REMOVE: return nf_native_remove(b,&b->guard);
