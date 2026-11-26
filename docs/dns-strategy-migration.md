@@ -1035,3 +1035,27 @@ ownership. Do not grant the callback based solely on a successful
 snapshot or an empty conntrack dump. If a trustworthy contract cannot
 be established, keep exact DELETE disabled and use the conservative
 drain path instead. Gateway hijacking itself remains inactive.
+
+## Device audit: active HEV on Android
+
+A user-provided read-only firewall audit confirms the active HEV process,
+sing-box, downstream and IPv4 eBPF matcher. The observed CONNMARK writers
+save only mask 0x000fffff and use strict bits 0x01000000/0x02000000.
+The route and bandwidth MARK operations are packet marks, not connmarks.
+0x00800000 is an observed nonconflicting connmark candidate, not an
+exclusive reservation. nft and bpftool were unavailable; vendor/eBPF
+writers and future rule changes are not excluded. Do not authorize
+targeted deletion from this snapshot alone.
+
+A concrete compatibility blocker: the legacy ip6tables NAT query
+returns "Table does not exist" on the audited device, while IPv6 filter
+and mangle are readable. The existing IPv6 tether forwarding block is
+present. IPv4 NAT is readable. The staged recovery function
+nf_live_names_absence currently insists on readable listings for every
+family/table, so this environment can reject cleanup of IPv4-only
+sessions. Before activation, add a capability-aware IPv4-only path and
+distinguish a kernel-confirmed unavailable NAT table from permission,
+command or inspection failures. Do not suppress arbitrary IPv6 errors,
+remove the IPv6 guard, or advertise IPv6 gateway capture on this device.
+No device changes, live conntrack tests or mark authorization were
+performed during this audit.
