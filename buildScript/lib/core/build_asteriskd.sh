@@ -437,6 +437,71 @@ diff --git a/supervisor/supervisor_network.c b/supervisor/supervisor_network.c
 +}
 +
  #endif
+diff --git a/runtime/lifecycle.c b/runtime/lifecycle.c
+--- a/runtime/lifecycle.c
++++ b/runtime/lifecycle.c
+@@ -147,12 +147,13 @@
+     try_inverse(lifecycle, &lifecycle->matcher, backend->stop_matcher);
+     try_inverse(lifecycle, &lifecycle->helper, backend->stop_helper);
+     try_inverse(lifecycle, &lifecycle->core, backend->stop_core);
+-    if (backend->restore_best_effort != NULL) {
+-        (void)backend->restore_best_effort(context);
+-    }
+-    try_inverse(lifecycle, &lifecycle->acquire, backend->release);
+-    lifecycle->starting = false;
+-    bool remains = lifecycle->traffic_may_be_active || lifecycle->rules.cleanup_required ||
++    /* A failed restoration is a remaining cleanup obligation. Do not
++     * advertise STOPPED or allow a service-control cycle to discard it. */
++    bool restore_failed = backend->restore_best_effort != NULL &&
++        backend->restore_best_effort(context) != 0;
++    if (!restore_failed) try_inverse(lifecycle, &lifecycle->acquire, backend->release);
++    lifecycle->starting = false;
++    bool remains = restore_failed || lifecycle->traffic_may_be_active || lifecycle->rules.cleanup_required ||
+         lifecycle->network.cleanup_required || lifecycle->matcher.cleanup_required ||
+         lifecycle->helper.cleanup_required || lifecycle->core.cleanup_required ||
+         lifecycle->acquire.cleanup_required;
+diff --git a/resources/effect_journal.c b/resources/effect_journal.c
+--- a/resources/effect_journal.c
++++ b/resources/effect_journal.c
+@@ -160,10 +160,34 @@
+             return result;
+         }
+     }
+-    result = backend->apply(backend->context, &candidate, error, error_size);
+-    if (result != 0) {
+-        return result;
+-    }
++    /* A sysctl write can change the kernel value even when the caller
++     * receives an error. Journal the original before attempting the write. */
++    if (candidate.kind == ASTERISKD_EFFECT_SYSCTL) {
++        if (existing_index == journal->count) ++journal->count;
++        journal->entries[existing_index] = candidate;
++        result = backend->apply(backend->context, &candidate, error, error_size);
++        if (result == 0) {
++            result = backend->verify_applied(backend->context, &candidate, error, error_size);
++        }
++        if (result != 0) {
++            char cleanup_error[128U] = {0};
++            /* Already restored (or old interface gone): no write needed.
++             * Otherwise try undo, but retain the entry unless verified. */
++            if (backend->verify_restored(backend->context, &candidate,
++                    cleanup_error, sizeof(cleanup_error)) == 0 ||
++                (backend->undo(backend->context, &candidate,
++                    cleanup_error, sizeof(cleanup_error)) == 0 &&
++                 backend->verify_restored(backend->context, &candidate,
++                    cleanup_error, sizeof(cleanup_error)) == 0)) {
++                effect_remove(journal, existing_index);
++            }
++        }
++        return result;
++    }
++    result = backend->apply(backend->context, &candidate, error, error_size);
++    if (result != 0) {
++        return result;
++    }
+     result = backend->verify_applied(
+         backend->context, &candidate, error, error_size);
+     if (result != 0) {
 NIEFIGER_ASTERISKD_PATCH
 if git -C "$SRC" apply --reverse --check "$ASTERISKD_PATCH" >/dev/null 2>&1; then
   echo "asteriskd tether staging patch already applied"
