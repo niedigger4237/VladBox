@@ -1,5 +1,7 @@
 package io.nekohasekai.sagernet.bg.root
 
+import com.google.gson.JsonArray
+import com.google.gson.JsonParser
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.Logs
@@ -140,6 +142,37 @@ fi
     @Synchronized
     internal fun publish(coreJson: String, daemonJson: String, tetherPolicy: String? = null, tunTemplate: String? = null, daemonTemplate: String? = null): String? {
         if (!DataStore.configurationStore.getBoolean("startOnBoot", false)) return null
+        // The gateway boot base must never retain last boot's names or
+        // indices. Only the monitor can materialize an exact live template.
+        val daemonDocument = runCatching { JsonParser.parseString(daemonJson).asJsonObject }.getOrNull()
+            ?: return "Invalid ROOT boot daemon config"
+        val gateway = daemonDocument.getAsJsonObject("network")?.has("nfHevGatewayDnsPort") == true
+        if (gateway) {
+            val valid = runCatching {
+                val network = daemonDocument.getAsJsonObject("network")
+                val port = network.get("nfHevGatewayDnsPort")
+                val policy = tetherPolicy.orEmpty().lineSequence().toList()
+                val expected = daemonDocument.deepCopy().apply {
+                    addProperty("coreConfigPath", runtimeBootCorePath)
+                    getAsJsonObject("network").add("hotspotInterfaces", JsonArray().apply {
+                        add("__NF_BOOT_IFACES__")
+                    })
+                }
+                daemonDocument.get("mode").asString == "tun2socks" &&
+                    daemonDocument.get("coreType").asString == "sing-box" &&
+                    daemonDocument.get("coreConfigPath").asString == bootCoreConfigPath &&
+                    port.isJsonPrimitive && port.asJsonPrimitive.isNumber &&
+                    (port.asString.toIntOrNull() ?: 0) in 1024..65535 &&
+                    network.get("nfTetherDnsHijack").asBoolean &&
+                    network.getAsJsonArray("hotspotInterfaces").size() == 0 &&
+                    daemonDocument.getAsJsonObject("serviceControl").get("enabled").asBoolean == false &&
+                    policy.filter { it.startsWith("mode ") } == listOf("mode tun2socks") &&
+                    policy.none { it.substringBefore(' ') == "gateway" } &&
+                    tunTemplate == null && daemonTemplate != null &&
+                    JsonParser.parseString(daemonTemplate).asJsonObject == expected
+            }.getOrDefault(false)
+            if (!valid) return "Gateway DNS boot requires an empty HEV base, exact downstream template and disabled Service Control"
+        }
         val core = File.createTempFile("boot-core-", ".json", SagerNet.application.noBackupFilesDir)
         val daemon = File.createTempFile("boot-daemon-", ".json", SagerNet.application.noBackupFilesDir)
         val policy = File.createTempFile("boot-tether-", ".txt", SagerNet.application.noBackupFilesDir)
@@ -148,7 +181,7 @@ fi
         return try {
             core.writeText(coreJson)
             daemon.writeText(daemonJson)
-            policy.writeText(tetherPolicy.orEmpty())
+            policy.writeText(if (gateway) tetherPolicy.orEmpty().trimEnd() + "\ngateway 1\n" else tetherPolicy.orEmpty())
             tun.writeText(tunTemplate.orEmpty())
             daemonTun.writeText(daemonTemplate.orEmpty())
             val policyPath = "$BOOT/tether-policy"
@@ -163,7 +196,7 @@ fi
                 "mv -f ${RootShell.q(bootCoreConfigPath + ".new")} ${RootShell.q(bootCoreConfigPath)}",
                 "mv -f ${RootShell.q(bootConfigPath + ".new")} ${RootShell.q(bootConfigPath)}",
                 "rm -f ${RootShell.q("$BOOT/downstream-status")} ${RootShell.q(policyPath)} ${RootShell.q("$BOOT/tun-template.json")} ${RootShell.q("$BOOT/daemon-template.json")}",
-                if (tunTemplate != null && daemonTemplate != null) "cp ${RootShell.q(tun)} ${RootShell.q("$BOOT/tun-template.json")} && cp ${RootShell.q(daemonTun)} ${RootShell.q("$BOOT/daemon-template.json")} && chmod 600 ${RootShell.q("$BOOT/tun-template.json")} ${RootShell.q("$BOOT/daemon-template.json")}" else "true",
+                if (gateway) "cp ${RootShell.q(daemonTun)} ${RootShell.q("$BOOT/daemon-template.json")} && chmod 600 ${RootShell.q("$BOOT/daemon-template.json")}" else if (tunTemplate != null && daemonTemplate != null) "cp ${RootShell.q(tun)} ${RootShell.q("$BOOT/tun-template.json")} && cp ${RootShell.q(daemonTun)} ${RootShell.q("$BOOT/daemon-template.json")} && chmod 600 ${RootShell.q("$BOOT/tun-template.json")} ${RootShell.q("$BOOT/daemon-template.json")}" else "true",
                 if (tetherPolicy != null) "cp ${RootShell.q(policy)} ${RootShell.q(policyPath)} && chmod 600 ${RootShell.q(policyPath)}" else "true",
                 "printf '%s\\n' ${RootShell.q(generation)} > ${RootShell.q(ready + ".new")}",
                 "mv -f ${RootShell.q(ready + ".new")} ${RootShell.q(ready)}",
