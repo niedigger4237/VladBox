@@ -1059,3 +1059,29 @@ command or inspection failures. Do not suppress arbitrary IPv6 errors,
 remove the IPv6 guard, or advertise IPv6 gateway capture on this device.
 No device changes, live conntrack tests or mark authorization were
 performed during this audit.
+
+## Device compatibility: optional legacy IPv6 NAT
+
+The staged gateway backend now checks NAT6 availability before reservation
+when IPv6 is requested. A successful complete listing is accepted; only
+the exact legacy ip6tables missing-table diagnostic with version-problem
+exit code 3, empty stdout and no additional stderr is treated as absent.
+Other command, permission, truncated-output, nft or unknown failures
+block reservation. This is a report from the same legacy firewall
+backend, not proof about unrelated nftables or eBPF resources.
+The session plan omits IPv6 NAT when unavailable while keeping both
+INPUT guards and never opening the IPv6 DNS-port guard in that case.
+The core configuration and existing tether forwarding policy are not
+changed. Recovery absence checks tolerate the same narrowly recognized
+missing legacy NAT6 table only; every other table remains mandatory.
+Recovery of a previously installed IPv6 plan still requires its
+normal ownership checks.
+
+Executed locally: 18 capability parser and command-result tests with
+mocked command execution, compiled against the actual supplied pinned
+asteriskd headers. No privileged command ran. Additional assertions for
+the IPv4-only plan and closed IPv6 guard were added to NF_BACKEND_HOST_TEST
+but not executed; the current downstream branch sources were not
+available as a local checkout. Full native link, NDK and APK builds
+for these commits remain unverified. The staged gateway path is not
+enabled in production. Device mark ownership remains unconfirmed.
