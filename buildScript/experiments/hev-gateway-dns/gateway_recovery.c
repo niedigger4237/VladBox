@@ -148,6 +148,80 @@ int nf_gateway_admission_check(int directory) {
     free(payload);close(lock);return rc;
 }
 
+/* Boot identity is kernel supplied, not the wall clock. Require a complete
+ * canonical UUID and refuse malformed/unavailable data. */
+static int nf_boot_parse(const char *s,size_t n,uint8_t out[16]) {
+    if(n!=37 || s[36]!='\n')return -1;
+    uint8_t tmp[16]={0};size_t digits=0;
+    for(size_t i=0;i<36;i++) {
+        if(i==8 || i==13 || i==18 || i==23) {if(s[i]!='-')return -1;continue;}
+        unsigned v;
+        if(s[i]>='0' && s[i]<='9')v=(unsigned)(s[i]-'0');
+        else if(s[i]>='a' && s[i]<='f')v=(unsigned)(s[i]-'a'+10);
+        else return -1;
+        tmp[digits/2]=(uint8_t)((tmp[digits/2]<<4)|v);digits++;
+    }
+    if(digits!=32 || !nf_nonzero(tmp,16))return -1;
+    memcpy(out,tmp,16);return 0;
+}
+static int nf_boot_read(uint8_t out[16]) {
+    int fd=open("/proc/sys/kernel/random/boot_id",O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
+    if(fd<0)return -1;
+    char buf[38];size_t n=0;int rc=-1;
+    while(n<sizeof(buf)) {ssize_t got=read(fd,buf+n,sizeof(buf)-n);if(got<0&&errno==EINTR)continue;if(got<0)goto done;if(!got)break;n+=(size_t)got;}
+    rc=nf_boot_parse(buf,n,out);
+ done: close(fd);return rc;
+}
+static bool nf_reboot_view_absent(const struct system_rule_view *v) {
+    if(!v || !v->present || !v->bytes ||  v->length<3 || v->bytes[v->length-1]!='\n' || memchr(v->bytes,0,v->length))return false;
+    // A complete table listing must contain at least one builtin policy.
+    if(strncmp(v->bytes,"-P ",3))return false;
+    for(size_t i=0;i<sizeof(nf_chains)/sizeof(nf_chains[0]);i++)
+        if(memmem(v->bytes,v->length,nf_chains[i].name,strlen(nf_chains[i].name)))return false;
+    return true;
+}
+static int nf_reboot_live_absence(void *ctx) {
+    struct asteriskd_system_supervisor *s=ctx;
+    if(!nf_native_available(s))return -1;
+    for(unsigned f=0;f<ASTERISKD_IP_FAMILY_COUNT;f++)for(unsigned t=0;t<ASTERISKD_IP_TABLE_COUNT;t++) {
+        struct system_rule_view v={0};
+        int rc=asteriskd_supervisor_rule_view_capture_table(s,f,t,&v);
+        bool absent=!rc && nf_reboot_view_absent(&v);
+        asteriskd_supervisor_rule_view_destroy(&v);if(!absent)return -1;
+    }
+    return 0;
+}
+/* Different kernel boot means old processes and in-memory conntrack cannot
+ * survive. Still require the old journal to decode and all fixed resources
+ * to be absent; never delete current kernel objects by stale ownership. */
+static int nf_reboot_reconcile(int directory,const uint8_t boot[16],int (*absence)(void *),void *ctx) {
+    if(!boot || !nf_nonzero(boot,16) || !absence)return -1;
+    int lock=nf_gateway_wal_lock(directory);if(lock<0)return -1;
+    struct stat st;int rc=-1;
+    struct nf_native_backend *b=calloc(1,sizeof(*b));uint8_t *payload=malloc(NF_WAL_MAX);
+    struct nf_wal_record r;
+    if(!b || !payload || fstatat(lock,NF_WAL_TEMP,&st,AT_SYMLINK_NOFOLLOW)==0 || errno!=ENOENT ||
+       nf_gateway_wal_load(lock,&r,payload,NF_WAL_MAX) || !r.debts || !memcmp(boot,r.boot,16))goto done;
+    b->wal_fd=lock;
+    if(nf_gateway_recovery_load(b,r.boot) || absence(ctx))goto done;
+    if(r.generation==UINT64_MAX)goto done;
+    // Retain old boot/session for the compare-and-swap; a subsequent clean
+    // record permits a new session identity. No kernel mutation is performed.
+    r.generation++;r.epoch=0;r.debts=0;r.payload=NULL;r.length=0;
+    rc=nf_gateway_wal_save(lock,&r,r.generation-1);
+ done:
+    if(b){nf_native_clear(&b->guard);nf_native_clear(&b->nat);free(b);}
+    free(payload);close(lock);return rc;
+}
+int nf_gateway_startup_reconcile(struct asteriskd_system_supervisor *s) {
+    if(!s)return -1;
+    int d=s->store.directory_fd;
+    if(!nf_gateway_admission_check(d))return 0;
+    uint8_t boot[16];
+    if(nf_boot_read(boot) || nf_reboot_reconcile(d,boot,nf_reboot_live_absence,s))return -1;
+    return nf_gateway_admission_check(d);
+}
+
 #ifdef NF_RECOVERY_HOST_TEST
 static unsigned checks;
 #define CHECK(x) do{if(!(x)){fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x);exit(1);}++checks;}while(0)
@@ -212,5 +286,39 @@ int main(void) {
     CHECK(nf_gateway_admission_check(d)<0);CHECK(!unlinkat(d,NF_WAL_NAME,0));
     CHECK(!nf_gateway_admission_check(d));close(d);CHECK(!rmdir(path));
     printf("PASS %u admission checks\n",checks);return 0;
+}
+#endif
+#ifdef NF_REBOOT_HOST_TEST
+static unsigned checks;
+#define CHECK(x) do {if(!(x)){fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x);exit(1);}++checks;}while(0)
+struct absence_fake {int rc;unsigned calls;};
+static int fake_absence(void *p) {struct absence_fake *f=p;f->calls++;return f->rc;}
+int main(void) {
+    uint8_t boot[16],actual[16];const char *id="12345678-90ab-cdef-1234-567890abcdef\n";
+    CHECK(!nf_boot_parse(id,strlen(id),boot) && boot[0]==0x12 && boot[15]==0xef);
+    CHECK(nf_boot_parse(id,36,actual)<0);CHECK(nf_boot_parse("00000000-0000-0000-0000-000000000000\n",37,actual)<0);
+    CHECK(nf_boot_parse("12345678-90ab-cdef-1234-567890abcdeg\n",37,actual)<0);CHECK(!nf_boot_read(actual));
+    const char *clean="-P INPUT ACCEPT\n-P FORWARD DROP\n";
+    struct system_rule_view view={.bytes=(char*)clean,.length=strlen(clean),.present=true};CHECK(nf_reboot_view_absent(&view));
+    view.bytes="-P INPUT ACCEPT\n-N NF_HEV_DNS4_IN\n";view.length=strlen(view.bytes);CHECK(!nf_reboot_view_absent(&view));
+    view.bytes="-P INPUT ACCEPT\n-A INPUT -g NF_HEV_DNS6_PRE\n";view.length=strlen(view.bytes);CHECK(!nf_reboot_view_absent(&view));
+    view.bytes="-P INPUT ACCEPT";view.length=strlen(view.bytes);CHECK(!nf_reboot_view_absent(&view));
+    view.bytes="x\n";view.length=2;CHECK(!nf_reboot_view_absent(&view));
+    char path[]="/tmp/nf-reboot-XXXXXX";CHECK(mkdtemp(path));int d=open(path,O_RDONLY|O_DIRECTORY|O_CLOEXEC);CHECK(d>=0);
+    struct asteriskd_system_supervisor *s=calloc(1,sizeof(*s));struct nf_native_backend *b=calloc(1,sizeof(*b));CHECK(s&&b);
+    struct asteriskd_config *c=&s->loaded_config.config;c->owner=ASTERISKD_OWNER_BOX;c->core_type=ASTERISKD_CORE_SING_BOX;c->mode=ASTERISKD_MODE_TUN2SOCKS;
+    b->system=s;b->wal_fd=nf_gateway_wal_lock(d);CHECK(b->wal_fd>=0);b->wal_ready=true;b->wal=(struct nf_wal_record){.boot={1},.session={2},.port=15353};
+    CHECK(!nf_gateway_plan(c,15353,true,&b->guard.plan));CHECK(!nf_native_render(s,&b->guard,15353,false));b->guard.pending_valid=b->guard.owned=true;
+    CHECK(!nf_native_checkpoint(b,NF_GUARD_CLOSED));close(b->wal_fd);
+    struct absence_fake f={.rc=-1};uint8_t same[16]={1};
+    CHECK(nf_reboot_reconcile(d,same,fake_absence,&f)<0 && f.calls==0);
+    CHECK(nf_reboot_reconcile(d,boot,fake_absence,&f)<0 && f.calls==1);CHECK(nf_gateway_admission_check(d)<0);
+    f.rc=0;int lock=nf_gateway_wal_lock(d);CHECK(lock>=0);CHECK(nf_reboot_reconcile(d,boot,fake_absence,&f)<0 && f.calls==1);close(lock);
+    int t=openat(d,NF_WAL_TEMP,O_WRONLY|O_CREAT|O_EXCL,0600);CHECK(t>=0);close(t);CHECK(nf_reboot_reconcile(d,boot,fake_absence,&f)<0 && f.calls==1);CHECK(!unlinkat(d,NF_WAL_TEMP,0));
+    CHECK(!nf_reboot_reconcile(d,boot,fake_absence,&f) && f.calls==2);CHECK(!nf_gateway_admission_check(d));
+    uint8_t raw[256];struct nf_wal_record r;CHECK(!nf_gateway_wal_load(d,&r,raw,sizeof(raw)) && r.generation==2 && !r.debts && !r.epoch && !r.length);
+    CHECK(nf_reboot_reconcile(d,boot,fake_absence,&f)<0 && f.calls==2);
+    CHECK(!unlinkat(d,NF_WAL_NAME,0));close(d);CHECK(!rmdir(path));nf_native_clear(&b->guard);free(b);free(s);
+    printf("PASS %u reboot recovery checks\n",checks);return 0;
 }
 #endif
