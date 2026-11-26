@@ -223,6 +223,11 @@ fun buildConfig(
         val remoteDnsStrategy = autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("dns-remote"))
         val dnsMainDirect = forTest || DataStore.dnsMain == "direct"
         val defaultDnsStrategy = if (dnsMainDirect) directDnsStrategy else remoteDnsStrategy
+        // Modern FakeIP can return an empty AAAA response when no IPv6
+        // range is configured. Keep the legacy exception for an IPv6-only
+        // global strategy: that strategy would otherwise reject A before
+        // the FakeIP transport is reached.
+        val fakeDnsPolicy = DnsRuleStrategy.fakeDnsPolicy(defaultDnsStrategy)
 
         inbounds = mutableListOf()
 
@@ -628,11 +633,14 @@ fun buildConfig(
                     0L -> {
                         if (useFakeDns) userDNSRuleList += makeDnsRuleObj().apply {
                             server = "dns-fake"
-                            strategy = DnsRuleStrategy.overrideOrNull("ipv4_only", defaultDnsStrategy)
+                            strategy = fakeDnsPolicy.ruleOverride
                             inbound = listOf("tun-in")
                         }
                         userDNSRuleList += makeDnsRuleObj().apply {
                             server = "dns-remote"
+                            // Remote rules must honor the remote preference even
+                            // when Direct is selected as the default DNS.
+                            strategy = DnsRuleStrategy.overrideOrNull(remoteDnsStrategy, defaultDnsStrategy)
                         }
                     }
 
@@ -822,12 +830,12 @@ fun buildConfig(
                     type = "fakeip"
                     tag = "dns-fake"
                     inet4_range = "198.18.0.0/15"
-                    inet6_range = "fc00::/18"
+                    inet6_range = fakeDnsPolicy.ipv6Range
                 })
                 dns.rules.add(DNSRule_DefaultOptions().apply {
                     inbound = listOf("tun-in")
                     server = "dns-fake"
-                    strategy = DnsRuleStrategy.overrideOrNull("ipv4_only", defaultDnsStrategy)
+                    strategy = fakeDnsPolicy.ruleOverride
                     disable_cache = true
                 })
             }
