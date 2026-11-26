@@ -74,4 +74,37 @@
         <item>8192</item>
         <item>16384</item>
     </string-array>
+    <string name="dns_bootstrap">Bootstrap DNS</string>
+    <string name="dns_bootstrap_system">System DNS (Default)</string>
+    <string name="dns_bootstrap_custom">Custom DNS</string>
+    <string name="dns_bootstrap_address">Bootstrap address (IP only)</string>
+    <string name="dns_bootstrap_tls_name">Bootstrap TLS Server Name (optional)</string>
+    <string name="dns_bootstrap_invalid">Use a literal IPv4/IPv6 DNS address with optional udp://, tcp://, tls:// or https:// scheme and valid port.</string>
+    <string name="dns_bootstrap_invalid_tls">Enter a valid TLS hostname or leave empty for IP certificate verification.</string>
+    <string-array name="dns_bootstrap_names">
+        <item>@string/dns_bootstrap_system</item>
+        <item>Cloudflare — UDP (1.1.1.1)</item>
+        <item>Quad9 — UDP (9.9.9.9)</item>
+        <item>Google — UDP (8.8.8.8)</item>
+        <item>Cloudflare — DoH</item>
+        <item>Quad9 — DoH</item>
+        <item>Google — DoH</item>
+        <item>Cloudflare — DoT</item>
+        <item>Quad9 — DoT</item>
+        <item>Google — DoT</item>
+        <item>@string/dns_bootstrap_custom</item>
+    </string-array>
+    <string-array name="dns_bootstrap_values" translatable="false">
+        <item>system</item>
+        <item>cloudflare</item>
+        <item>quad9</item>
+        <item>google</item>
+        <item>cloudflare_doh</item>
+        <item>quad9_doh</item>
+        <item>google_doh</item>
+        <item>cloudflare_dot</item>
+        <item>quad9_dot</item>
+        <item>google_dot</item>
+        <item>custom</item>
+    </string-array>
 </resources>

@@ -146,6 +146,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var dnsOptimisticWindow by configurationStore.string(Key.DNS_OPTIMISTIC_WINDOW) { "off" }
     var dnsQueryTimeout by configurationStore.string(Key.DNS_QUERY_TIMEOUT) { "default" }
     var dnsCacheCapacity by configurationStore.string(Key.DNS_CACHE_CAPACITY) { "default" }
+    var dnsBootstrapPreset by configurationStore.string(Key.DNS_BOOTSTRAP_PRESET) { "system" }
+    var dnsBootstrapAddress by configurationStore.string(Key.DNS_BOOTSTRAP_ADDRESS) { "https://1.1.1.1/dns-query" }
+    var dnsBootstrapTlsName by configurationStore.string(Key.DNS_BOOTSTRAP_TLS_NAME) { "" }
     var directDns by configurationStore.string(Key.DIRECT_DNS) { "https://1.1.1.1/dns-query" }
     var enableDnsRouting by configurationStore.boolean(Key.ENABLE_DNS_ROUTING) { true }
     var enableFakeDns by configurationStore.boolean(Key.ENABLE_FAKEDNS) { false }

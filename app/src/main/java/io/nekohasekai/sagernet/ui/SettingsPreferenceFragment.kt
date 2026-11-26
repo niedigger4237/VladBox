@@ -239,6 +239,32 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             "domain_strategy_for_direct", "domain_strategy_for_remote", "domain_strategy_for_server")) {
             findPreference<Preference>(key)?.onPreferenceChangeListener = reloadListener
         }
+        val bootstrapAddress = findPreference<EditTextPreference>(Key.DNS_BOOTSTRAP_ADDRESS)!!
+        val bootstrapTlsName = findPreference<EditTextPreference>(Key.DNS_BOOTSTRAP_TLS_NAME)!!
+        fun updateBootstrapVisibility(preset: String) {
+            bootstrapAddress.isVisible = preset == "custom"
+            bootstrapTlsName.isVisible = preset == "custom"
+        }
+        updateBootstrapVisibility(DataStore.dnsBootstrapPreset)
+        findPreference<Preference>(Key.DNS_BOOTSTRAP_PRESET)!!.setOnPreferenceChangeListener { _, v ->
+            updateBootstrapVisibility(v.toString())
+            needReload()
+            true
+        }
+        bootstrapAddress.setOnPreferenceChangeListener { _, v ->
+            val valid = runCatching {
+                io.nekohasekai.sagernet.fmt.BootstrapDnsPolicy.parse(v.toString(), DataStore.dnsBootstrapTlsName)
+            }.isSuccess
+            if (valid) needReload()
+            else android.widget.Toast.makeText(requireContext(), R.string.dns_bootstrap_invalid, android.widget.Toast.LENGTH_LONG).show()
+            valid
+        }
+        bootstrapTlsName.setOnPreferenceChangeListener { _, v ->
+            val valid = io.nekohasekai.sagernet.fmt.BootstrapDnsPolicy.validTlsName(v.toString())
+            if (valid) needReload()
+            else android.widget.Toast.makeText(requireContext(), R.string.dns_bootstrap_invalid_tls, android.widget.Toast.LENGTH_LONG).show()
+            valid
+        }
         enableFakeDns.onPreferenceChangeListener = reloadListener
         remoteDns.onPreferenceChangeListener = reloadListener
         directDns.onPreferenceChangeListener = reloadListener

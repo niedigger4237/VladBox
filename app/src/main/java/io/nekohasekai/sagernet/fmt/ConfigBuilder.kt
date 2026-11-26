@@ -754,12 +754,28 @@ fun buildConfig(
             tag = "dns-local"
         })
 
+        val bootstrap = BootstrapDnsPolicy.select(
+            DataStore.dnsBootstrapPreset, DataStore.dnsBootstrapAddress, DataStore.dnsBootstrapTlsName
+        )
+        if (bootstrap != null) {
+            dns.servers.add(DNSServerOptions().apply {
+                tag = "dns-bootstrap"
+                type = bootstrap.type
+                server = bootstrap.host
+                server_port = bootstrap.port
+                path = bootstrap.path
+                if (bootstrap.tlsName != null) {
+                    _hack_config_map["tls"] = mapOf("enabled" to true, "server_name" to bootstrap.tlsName)
+                }
+                // IP literal, no domain_resolver and no proxy detour.
+            })
+        }
         directDNS.firstOrNull().let {
             dns.servers.add(
                 buildDnsServer(
                     it ?: throw Exception("No direct DNS, check your settings!"),
                     "dns-direct",
-                    "dns-local"
+                    if (bootstrap == null) "dns-local" else "dns-bootstrap"
                 )
             )
         }

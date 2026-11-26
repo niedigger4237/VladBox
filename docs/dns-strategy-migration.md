@@ -124,3 +124,21 @@ the previous outbound's detour or external mapping route. No change to
 the order or intended members of chains. Unit tests exercise tag selection
 and resolver policy; full chain startup and Android network tests remain
 required.
+
+## Optional Bootstrap DNS
+
+Available in both Legacy and Modern managed modes (including URL tests).
+System DNS preserves the previous `dns-local` bootstrap. A selected
+IP-literal resolver adds `dns-bootstrap`, with no detour or domain_resolver;
+only domain-based `dns-direct` server addresses reference it. An IP-based
+Direct DNS or a local/DHCP Direct DNS does not need this bootstrap.
+The Remote DNS resolver remains dns-direct; server resolvers, FakeIP,
+SRS rules, TUN and firewall/tethering are unchanged. Presets provide
+Cloudflare, Quad9 and Google UDP, DoH and DoT; encrypted presets use literal
+IP plus provider TLS server_name. Custom permits UDP/TCP/DoT/DoH, IPv4 and
+IPv6, optional port and DoH path, optional TLS hostname. No insecure TLS
+or automatic fallback to system DNS. With no TLS name, certificate
+verification uses the IP. A configured IPv6 bootstrap requires IPv6
+connectivity. User JSON overrides keep existing precedence. Raw full
+config imports bypass managed settings. Actual reachability and TLS
+verification depend on the network and chosen provider.

@@ -16,4 +16,11 @@
     <string name="dns_cache_capacity">Размер кеша DNS</string>
     <string name="dns_timeout_default">Стандарт ядра (10 секунд)</string>
     <string name="dns_capacity_default">Стандарт ядра (1024 записи)</string>
+    <string name="dns_bootstrap">Bootstrap DNS</string>
+    <string name="dns_bootstrap_system">Системный DNS (по умолчанию)</string>
+    <string name="dns_bootstrap_custom">Свой DNS</string>
+    <string name="dns_bootstrap_address">Адрес Bootstrap DNS (только IP)</string>
+    <string name="dns_bootstrap_tls_name">Имя TLS-сервера (необязательно)</string>
+    <string name="dns_bootstrap_invalid">Укажите IPv4/IPv6, допустимую схему udp://, tcp://, tls:// или https:// и корректный порт.</string>
+    <string name="dns_bootstrap_invalid_tls">Укажите корректное доменное имя TLS или оставьте поле пустым для проверки сертификата по IP.</string>
 </resources>
