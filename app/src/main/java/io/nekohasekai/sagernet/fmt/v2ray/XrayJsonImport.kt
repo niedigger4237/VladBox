@@ -227,41 +227,10 @@ object XrayJsonImport {
             bean.realityHybridMode = parseRealityHybridMode(hybrid)
         }
         val sock = obj(stream, "sockopt")
+        // Ignore Xray-specific address selection and connection racing.
+        // The app's global DNS and sing-box dialer remain authoritative.
         checkKeys(sock, setOf("tcpFastOpen", "tcpKeepAliveInterval", "tcpKeepAliveIdle", "domainStrategy", "happyEyeballs"), "socket options")
         val dialer = JSONObject()
-        // Xray sockopt controls resolution of the proxy server, not route DNS.
-        val domainStrategy = sock.optString("domainStrategy").lowercase(java.util.Locale.ROOT)
-        var resolverStrategy = when (domainStrategy) {
-            "", "asis" -> null
-            "useip", "forceip" -> "as_is"
-            "useipv4", "forceipv4" -> "ipv4_only"
-            "useipv6", "forceipv6" -> "ipv6_only"
-            "useipv4v6", "forceipv4v6" -> "prefer_ipv4"
-            "useipv6v4", "forceipv6v4" -> "prefer_ipv6"
-            else -> throw IllegalArgumentException("Unsupported Xray domainStrategy: " + domainStrategy)
-        }
-        val happy = obj(sock, "happyEyeballs")
-        checkKeys(happy, setOf("prioritizeIPv6", "tryDelayMs", "interleave", "maxConcurrentTry"), "happyEyeballs")
-        fun unsignedOption(key: String, default: Long, max: Long): Long {
-            if (!happy.has(key) || happy.isNull(key)) return default
-            val n = happy.get(key).toString().toLongOrNull()
-            require(n != null && n in 0L..max) { "Invalid Xray happyEyeballs " + key }
-            return n
-        }
-        val delay = unsignedOption("tryDelayMs", 0, Long.MAX_VALUE / 1000000L)
-        val concurrent = unsignedOption("maxConcurrentTry", 4, 4294967295L)
-        unsignedOption("interleave", 1, 4294967295L)
-        require(!happy.has("prioritizeIPv6") || happy.isNull("prioritizeIPv6") || happy.opt("prioritizeIPv6") is Boolean) { "Invalid Xray happyEyeballs prioritizeIPv6" }
-        // Xray's race is inactive for AsIs, zero delay or zero concurrency.
-        // sing-box can approximate family preference and fallback delay, but
-        // cannot reproduce Xray's interleave or concurrent-attempt limits.
-        if (resolverStrategy != null && delay > 0 && concurrent > 0) {
-            if (resolverStrategy == "as_is") resolverStrategy = if (happy.optBoolean("prioritizeIPv6")) "prefer_ipv6" else "prefer_ipv4"
-            dialer.put("fallback_delay", "${delay}ms")
-        }
-        resolverStrategy?.let {
-            dialer.put("domain_resolver", JSONObject().put("server", "dns-direct").put("strategy", it))
-        }
         if (sock.has("tcpFastOpen")) {
             val fastOpen = sock.opt("tcpFastOpen")
             require(fastOpen is Boolean) { "Unsupported Xray tcpFastOpen value" }

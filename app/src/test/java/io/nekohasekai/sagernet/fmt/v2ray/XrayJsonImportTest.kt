@@ -43,25 +43,24 @@ class XrayJsonImportTest {
         return XrayJsonImport.parse(JSONObject("""{"protocol":"vless","settings":{"address":"example.org","port":443,"id":"$id"},"streamSettings":{"sockopt":$socket}}""")).single() as VMessBean
     }
 
-    @Test fun defaultSocketOptionsAreAccepted() {
-        val b = withSocket("""{"domainStrategy":"AsIs","happyEyeballs":{"prioritizeIPv6":false,"tryDelayMs":250,"interleave":1,"maxConcurrentTry":4}}""")
-        assertEquals(0, JSONObject(b.outboundDialer.ifBlank { "{}" }).length())
+    @Test fun ignoresXraySocketDnsAndHappyEyeballs() {
+        for (strategy in listOf("AsIs", "ForceIPv4", "UseIPv6v4", "future-strategy")) {
+            val b = withSocket("""{"domainStrategy":"$strategy","happyEyeballs":{"prioritizeIPv6":true,"tryDelayMs":250,"interleave":2,"maxConcurrentTry":4}}""")
+            assertEquals(0, JSONObject(b.outboundDialer.ifBlank { "{}" }).length())
+        }
     }
 
-    @Test fun socketResolverAndFallbackAreConverted() {
-        val b = withSocket("""{"domainStrategy":"UseIPv6v4","happyEyeballs":{"prioritizeIPv6":true,"tryDelayMs":250,"interleave":1,"maxConcurrentTry":4}}""")
-        val options = mutableMapOf<String, Any>()
-        applyClientDialer(b.outboundDialer, "", options)
-        assertEquals(mapOf("server" to "dns-direct", "strategy" to "prefer_ipv6"), options["domain_resolver"])
-        assertEquals("250ms", options["fallback_delay"])
-    }
-
-    @Test fun forceIPv4AndDisabledRace() {
-        val b = withSocket("""{"domainStrategy":"ForceIPv4","happyEyeballs":{"tryDelayMs":0}}""")
+    @Test fun retainsSupportedSocketOptions() {
+        val b = withSocket("""{"domainStrategy":"ForceIPv4","happyEyeballs":{"tryDelayMs":250},"tcpFastOpen":true,"tcpKeepAliveIdle":30,"tcpKeepAliveInterval":10}""")
         val dialer = JSONObject(b.outboundDialer)
-        assertEquals("ipv4_only", dialer.getJSONObject("domain_resolver").getString("strategy"))
-        assertFalse(dialer.has("fallback_delay"))
-        assertTrue(runCatching { withSocket("""{"domainStrategy":"invalid"}""") }.isFailure)
+        assertEquals(3, dialer.length())
+        assertTrue(dialer.getBoolean("tcp_fast_open"))
+        assertEquals("30s", dialer.getString("tcp_keep_alive"))
+        assertEquals("10s", dialer.getString("tcp_keep_alive_interval"))
+    }
+
+    @Test fun stillRejectsOtherUnsupportedSocketOptions() {
+        assertTrue(runCatching { withSocket("""{"domainStrategy":"AsIs","customSockopt":[{"opt":"1"}]}""") }.isFailure)
     }
 
     @Test fun nativeSingBoxNotMisidentified() {

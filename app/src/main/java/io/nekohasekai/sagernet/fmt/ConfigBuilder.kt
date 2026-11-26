@@ -455,11 +455,9 @@ fun buildConfig(
                     }
                     // sing-box >= 1.12: domain_strategy -> domain_resolver
                     val serverStrategy = if (forTest) "" else defaultServerDomainStrategy
-                    if (!_hack_config_map.containsKey("domain_resolver")) {
-                        _hack_config_map["domain_resolver"] =
-                            if (serverStrategy.isEmpty()) "dns-direct"
-                            else mapOf("server" to "dns-direct", "strategy" to serverStrategy)
-                    }
+                    _hack_config_map["domain_resolver"] =
+                        if (serverStrategy.isEmpty()) "dns-direct"
+                        else mapOf("server" to "dns-direct", "strategy" to serverStrategy)
 
                     _hack_config_map["tag"] = tagOut
 
