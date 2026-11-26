@@ -210,8 +210,11 @@ static int nf_live_names_absence(void *ctx,bool nat_only) {
     if(!nf_native_available(s))return -1;
     for(unsigned f=0;f<ASTERISKD_IP_FAMILY_COUNT;f++)for(unsigned t=0;t<ASTERISKD_IP_TABLE_COUNT;t++) {
         struct system_rule_view v={0};
-        int rc=asteriskd_supervisor_rule_view_capture_table(s,f,t,&v);
-        bool absent=!rc && nf_names_view_absent(&v,nat_only);
+        const bool nat6=f==ASTERISKD_IP_FAMILY_IPV6 && t==ASTERISKD_IP_TABLE_NAT;
+        int rc=nat6?nf_nat6_view(s,&v):asteriskd_supervisor_rule_view_capture_table(s,f,t,&v);
+        // Only the explicitly recognized legacy NAT6 absence is optional.
+        // All other tables and ambiguous failures remain mandatory.
+        bool absent=(nat6 && rc==1) || (!rc && nf_names_view_absent(&v,nat_only));
         asteriskd_supervisor_rule_view_destroy(&v);if(!absent)return -1;
     }
     return 0;
