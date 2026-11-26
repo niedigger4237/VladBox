@@ -1114,3 +1114,30 @@ Seven backend assertions were added but not executed in this turn.
 No complete checkout, full host link or NDK/APK build was available.
 No live firewall/conntrack command was executed. The new wrapper and
 reservation integration were reviewed but not compiled as a whole.
+
+## Interrupted activation and final guard removal
+
+Recovery now retains the validated last WAL operation. In addition to
+the full active debt mask 31, a record with core evidence, epoch and
+debt mask 7 is recoverable if there is no NAT plan and the saved
+operation is GUARD_CLOSED, GUARD_OPEN or GUARD_REMOVE. This covers
+a crash between publishing an epoch and installing NAT. The old
+core/process group and listener must be absent; normal exact preflight,
+guard closure, NAT withdrawal and read-only port drain are required.
+
+A GUARD_REMOVE checkpoint can be retried even when the previous
+attempt removed some or all INPUT chains. This special case requires
+closed guard images and no NAT plan; it does not reopen or recreate
+the guard. All live absence checks are repeated before removing any
+remaining exact owned rules. Ambiguous or foreign state remains fenced.
+Neither path authorizes targeted DELETE or adoption of a live orphan.
+
+Local validation: copied the exact eligibility helper and its closed
+image predicate into an isolated C17 mock-state harness. GCC with
+-Wall -Wextra -Werror passed, and exhaustive enumeration of 114688
+state combinations matched the expected eligibility. This is a
+predicate test, not a kernel or full supervisor integration test.
+Additional assertions were added to NF_ACTIVE_HOST_TEST, not executed
+here. The container cannot resolve github.com to obtain the branch
+checkout. Full branch host/NDK/APK builds and device execution remain
+unverified. No changes to the production activation or other root modes.
