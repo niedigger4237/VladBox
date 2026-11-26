@@ -16,6 +16,7 @@ import io.nekohasekai.sagernet.fmt.tuic.TuicBean
 import io.nekohasekai.sagernet.fmt.v2ray.StandardV2RayBean
 import io.nekohasekai.sagernet.fmt.v2ray.VMessBean
 import io.nekohasekai.sagernet.fmt.v2ray.XrayJsonImport
+import io.nekohasekai.sagernet.fmt.v2ray.XrayRouteImport
 import io.nekohasekai.sagernet.fmt.v2ray.isTLS
 import io.nekohasekai.sagernet.fmt.v2ray.setTLS
 import io.nekohasekai.sagernet.fmt.wireguard.WireGuardBean
@@ -225,14 +226,14 @@ object RawUpdater : GroupUpdater() {
     }
 
     @Suppress("UNCHECKED_CAST")
-    suspend fun parseRaw(text: String, fileName: String = "", onXrayChains: ((List<XrayJsonImport.ImportedChain>) -> Unit)? = null, onXrayProfiles: (() -> Unit)? = null): List<AbstractBean>? {
+    suspend fun parseRaw(text: String, fileName: String = "", onXrayChains: ((List<XrayJsonImport.ImportedChain>) -> Unit)? = null, onXrayRoutes: ((List<XrayRouteImport.Plan>) -> Unit)? = null, onXrayProfiles: (() -> Unit)? = null): List<AbstractBean>? {
 
         val proxies = mutableListOf<AbstractBean>()
 
         // Detect Xray before generic JSON/YAML and preserve its validation errors.
         val jsonCandidate = runCatching { JSONTokener(text.trim().removePrefix("\uFEFF")).nextValue() }.getOrNull()
         if (XrayJsonImport.recognizes(jsonCandidate)) {
-            return XrayJsonImport.parse(requireNotNull(jsonCandidate), fileName, onXrayChains).also { onXrayProfiles?.invoke() }
+            return XrayJsonImport.parse(requireNotNull(jsonCandidate), fileName, onXrayChains, onXrayRoutes).also { onXrayProfiles?.invoke() }
         }
 
         if (text.contains("proxies:")) {

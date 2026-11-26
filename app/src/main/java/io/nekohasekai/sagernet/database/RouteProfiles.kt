@@ -16,7 +16,11 @@ object RouteProfiles {
         var name: String,
         var rules: List<RuleEntity>,
         var routeFinal: String,
-        var dnsMain: String
+        var dnsMain: String,
+        var importedFinal: Long? = null,
+        var importedDns: String? = null,
+        var importedDnsDirect: Boolean? = null,
+        var importedDnsStrategy: String? = null
     )
 
     private val gson = Gson()
@@ -37,6 +41,17 @@ object RouteProfiles {
     private fun persist(items: List<Snapshot>, selected: String) {
         check(prefs.edit().putString("profiles", gson.toJson(items))
             .putString("selected", selected).commit()) { "Unable to save routing profiles" }
+    }
+
+    @Synchronized
+    fun activeImported(): Snapshot? = all().firstOrNull { it.id == selectedId() && it.importedFinal != null }
+
+    @Synchronized
+    fun addImported(items: List<Snapshot>) {
+        if (items.isEmpty()) return
+        val profiles = all()
+        profiles.addAll(items)
+        persist(profiles, selectedId())
     }
 
     /** Save the active profile before switching; never modify another profile's rules. */

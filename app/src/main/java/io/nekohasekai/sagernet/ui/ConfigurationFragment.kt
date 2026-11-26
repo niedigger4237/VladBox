@@ -62,6 +62,7 @@ import io.nekohasekai.sagernet.databinding.LayoutProfileListBinding
 import io.nekohasekai.sagernet.databinding.LayoutProgressListBinding
 import io.nekohasekai.sagernet.fmt.AbstractBean
 import io.nekohasekai.sagernet.fmt.v2ray.XrayJsonImport
+import io.nekohasekai.sagernet.fmt.v2ray.XrayRouteImport
 import io.nekohasekai.sagernet.fmt.toUniversalLink
 import io.nekohasekai.sagernet.group.GroupUpdater
 import io.nekohasekai.sagernet.group.RawUpdater
@@ -322,6 +323,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                     val proxies = mutableListOf<AbstractBean>()
                     var xrayProfiles = false
                     val xrayChains = mutableListOf<XrayJsonImport.ImportedChain>()
+                    val xrayRoutes = mutableListOf<XrayRouteImport.Plan>()
                     if (fileName != null && fileName.endsWith(".zip")) {
                         // try parse wireguard zip
                         val zip =
@@ -330,7 +332,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                             val entry = zip.nextEntry ?: break
                             if (entry.isDirectory) continue
                             val fileText = zip.bufferedReader().readText()
-                            RawUpdater.parseRaw(fileText, entry.name, { xrayChains.addAll(it) }) { xrayProfiles = true }
+                            RawUpdater.parseRaw(fileText, entry.name, { xrayChains.addAll(it) }, onXrayRoutes = { xrayRoutes.addAll(it) }) { xrayProfiles = true }
                                 ?.let { pl -> proxies.addAll(pl) }
                             zip.closeEntry()
                         }
@@ -340,12 +342,12 @@ class ConfigurationFragment @JvmOverloads constructor(
                             requireContext().contentResolver.openInputStream(file)!!.use {
                                 it.bufferedReader().readText()
                             }
-                        RawUpdater.parseRaw(fileText, fileName ?: "", { xrayChains.addAll(it) }) { xrayProfiles = true }
+                        RawUpdater.parseRaw(fileText, fileName ?: "", { xrayChains.addAll(it) }, onXrayRoutes = { xrayRoutes.addAll(it) }) { xrayProfiles = true }
                             ?.let { pl -> proxies.addAll(pl) }
                     }
                     if (proxies.isEmpty()) onMainDispatcher {
                         snackbar(getString(R.string.no_proxies_found_in_file)).show()
-                    } else import(proxies, xrayProfiles, xrayChains)
+                    } else import(proxies, xrayProfiles, xrayChains, xrayRoutes)
                 } catch (e: SubscriptionFoundException) {
                     (requireActivity() as MainActivity).importSubscription(e.link.toUri())
                 } catch (e: Exception) {
@@ -357,17 +359,17 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
         }
 
-    suspend fun import(proxies: List<AbstractBean>, xrayProfiles: Boolean = false, xrayChains: List<XrayJsonImport.ImportedChain> = emptyList()) {
+    suspend fun import(proxies: List<AbstractBean>, xrayProfiles: Boolean = false, xrayChains: List<XrayJsonImport.ImportedChain> = emptyList(), xrayRoutes: List<XrayRouteImport.Plan> = emptyList()) {
         val targetId = DataStore.selectedGroupForImport()
-        if (xrayChains.isNotEmpty()) {
-            ProfileManager.createImportedChains(targetId, proxies, xrayChains)
+        if (xrayChains.isNotEmpty() || xrayRoutes.isNotEmpty()) {
+            ProfileManager.createImportedChains(targetId, proxies, xrayChains, xrayRoutes)
         } else {
             for (proxy in proxies) ProfileManager.createProfile(targetId, proxy)
         }
         onMainDispatcher {
             DataStore.editingGroup = targetId
             val added = requireContext().resources.getQuantityString(R.plurals.added, proxies.size + xrayChains.size, proxies.size + xrayChains.size)
-            snackbar(if (xrayProfiles) "$added. ${getString(R.string.xray_import_profiles_only)}" else added).show()
+            snackbar(if (xrayRoutes.isNotEmpty()) "$added. ${getString(R.string.xray_import_routes_saved)}" else if (xrayProfiles) "$added. ${getString(R.string.xray_import_profiles_only)}" else added).show()
         }
 
     }
@@ -403,10 +405,11 @@ class ConfigurationFragment @JvmOverloads constructor(
                     try {
                         var xrayProfiles = false
                         val xrayChains = mutableListOf<XrayJsonImport.ImportedChain>()
-                        val proxies = RawUpdater.parseRaw(text, onXrayChains = { xrayChains.addAll(it) }) { xrayProfiles = true }
+                    val xrayRoutes = mutableListOf<XrayRouteImport.Plan>()
+                        val proxies = RawUpdater.parseRaw(text, onXrayChains = { xrayChains.addAll(it) }, onXrayRoutes = { xrayRoutes.addAll(it) }) { xrayProfiles = true }
                         if (proxies.isNullOrEmpty()) onMainDispatcher {
                             snackbar(getString(R.string.no_proxies_found_in_clipboard)).show()
-                        } else import(proxies, xrayProfiles, xrayChains)
+                        } else import(proxies, xrayProfiles, xrayChains, xrayRoutes)
                     } catch (e: SubscriptionFoundException) {
                         (requireActivity() as MainActivity).importSubscription(e.link.toUri())
                     } catch (e: Exception) {

@@ -6,6 +6,7 @@ import io.nekohasekai.sagernet.bg.VpnService
 import io.nekohasekai.sagernet.bg.TunAddressPlan
 import io.nekohasekai.sagernet.Key
 import io.nekohasekai.sagernet.database.DataStore
+import io.nekohasekai.sagernet.database.RouteProfiles
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.database.ProxyEntity.Companion.TYPE_CONFIG
 import io.nekohasekai.sagernet.database.SagerDatabase
@@ -131,11 +132,12 @@ fun buildConfig(
         return list
     }
 
+    val importedRoute = if (forTest) null else RouteProfiles.activeImported()
+    val importedFinal = importedRoute?.importedFinal
     val extraRules = if (forTest) listOf() else SagerDatabase.rulesDao.enabledRules()
-    val extraProxies =
-        if (forTest) mapOf() else SagerDatabase.proxyDao.getEntities(extraRules.mapNotNull { rule ->
-            rule.outbound.takeIf { it > 0 && it != proxy.id }
-        }.toHashSet().toList()).associateBy { it.id }
+    val requiredIds = (extraRules.map { it.outbound } + listOfNotNull(importedFinal)).filter { it > 0 && it != proxy.id }.distinct()
+    val extraProxies = if (forTest) mapOf() else SagerDatabase.proxyDao.getEntities(requiredIds).associateBy { it.id }
+    if (importedRoute != null) require(requiredIds.all { it in extraProxies }) { "Imported Xray route references a deleted profile" }
     val buildSelector = !forTest && group?.isSelector == true && !forExport
     val userDNSRuleList = mutableListOf<DNSRule_DefaultOptions>()
     val domainListDNSDirectForce = mutableListOf<String>()
@@ -146,13 +148,13 @@ fun buildConfig(
     val isRootSocksHelper = !forTest && (DataStore.serviceMode == Key.MODE_ROOT_TUN2SOCKS ||
             DataStore.serviceMode == Key.MODE_ROOT_BPF2SOCKS)
     val bind = if (!forTest && DataStore.allowAccess) "0.0.0.0" else LOCALHOST
-    val remoteDns = DnsPresets.remote().split("\n")
+    val remoteDns = (importedRoute?.importedDns?.takeIf { importedRoute.importedDnsDirect == false } ?: DnsPresets.remote()).split("\n")
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
-    val directDNS = DnsPresets.direct().split("\n")
+    val directDNS = (importedRoute?.importedDns?.takeIf { importedRoute.importedDnsDirect == true } ?: DnsPresets.direct()).split("\n")
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
-    val enableDnsRouting = DataStore.enableDnsRouting
+    val enableDnsRouting = DataStore.enableDnsRouting && importedRoute?.importedDns == null
     // root TUN: traffic to the FakeIP range (198.18.0.0/15) is not captured by auto_redirect, so no FakeIP there
-    val useFakeDns = DataStore.enableFakeDns && !forTest && !isRootTun
+    val useFakeDns = DataStore.enableFakeDns && !forTest && !isRootTun && importedRoute?.importedDns == null
     val needSniff = DataStore.trafficSniffing > 0
     val needSniffOverride = DataStore.trafficSniffing == 2
     val externalIndexMap = ArrayList<IndexEntity>()
@@ -219,8 +221,8 @@ fun buildConfig(
             }
         }
 
-        val directDnsStrategy = autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("dns-direct"))
-        val remoteDnsStrategy = autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("dns-remote"))
+        val directDnsStrategy = importedRoute?.importedDnsStrategy?.takeIf { importedRoute.importedDnsDirect == true } ?: autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("dns-direct"))
+        val remoteDnsStrategy = importedRoute?.importedDnsStrategy?.takeIf { importedRoute.importedDnsDirect == false } ?: autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("dns-remote"))
 
         inbounds = mutableListOf()
 
@@ -685,7 +687,11 @@ fun buildConfig(
 
         // WireGuard/AmneziaWG are endpoints, not outbounds: without an explicit final the first
         // outbound (direct) would carry all unmatched traffic
-        route.final_ = if (!forTest && DataStore.routeFinal == "direct") TAG_DIRECT else TAG_PROXY
+        route.final_ = when {
+            !forTest && DataStore.routeFinal == "direct" -> TAG_DIRECT
+            importedFinal != null && importedFinal > 0 -> if (importedFinal == proxy.id) TAG_PROXY else tagMap[importedFinal] ?: error("Missing imported Xray default outbound")
+            else -> TAG_PROXY
+        }
 
         for (freedom in arrayOf(TAG_DIRECT, TAG_BYPASS)) outbounds.add(Outbound().apply {
             tag = freedom
@@ -747,7 +753,7 @@ fun buildConfig(
                 ).apply {
                     // legacy servers were routed through the default outbound;
                     // new-format servers connect directly unless a detour is set
-                    detour = TAG_PROXY
+                    detour = if (importedRoute?.importedDnsDirect == false) route.final_ else TAG_PROXY
                 }
             )
         }

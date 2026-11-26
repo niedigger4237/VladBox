@@ -3,6 +3,7 @@ package io.nekohasekai.sagernet.database
 import android.database.sqlite.SQLiteCantOpenDatabaseException
 import io.nekohasekai.sagernet.fmt.internal.ChainBean
 import io.nekohasekai.sagernet.fmt.v2ray.XrayJsonImport
+import io.nekohasekai.sagernet.fmt.v2ray.XrayRouteImport
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.aidl.TrafficData
 import io.nekohasekai.sagernet.fmt.AbstractBean
@@ -92,7 +93,7 @@ object ProfileManager {
      * Do not notify UI listeners until the transaction has committed.
      */
     suspend fun createImportedChains(
-        groupId: Long, beans: List<AbstractBean>, chains: List<XrayJsonImport.ImportedChain>
+        groupId: Long, beans: List<AbstractBean>, chains: List<XrayJsonImport.ImportedChain>, routes: List<XrayRouteImport.Plan> = emptyList()
     ) {
         val group = SagerDatabase.groupDao.getById(groupId) ?: error("Import group not found")
         require(group.frontProxy <= 0L && group.landingProxy <= 0L) {
@@ -100,6 +101,7 @@ object ProfileManager {
         }
         val ids = java.util.IdentityHashMap<AbstractBean, Long>()
         val created = ArrayList<ProxyEntity>()
+        val chainIds = java.util.IdentityHashMap<XrayJsonImport.ImportedChain, Long>()
         SagerDatabase.instance.runInTransaction {
             fun insert(bean: AbstractBean): ProxyEntity {
                 bean.applyDefaultValues()
@@ -114,11 +116,27 @@ object ProfileManager {
             for (bean in beans) ids[bean] = insert(bean).id
             for (chain in chains) {
                 require(chain.hops.size >= 2) { "Incomplete imported Xray chain" }
-                insert(ChainBean().apply {
+                chainIds[chain] = insert(ChainBean().apply {
                     name = chain.name
                     proxies = chain.hops.map { ids[it] ?: error("Missing imported Xray hop") }
-                })
+                }).id
             }
+        }
+        fun resolve(target: XrayRouteImport.Target): Long = target.special
+            ?: target.chain?.let { chainIds[it] ?: error("Missing imported chain") }
+            ?: target.bean?.let { ids[it] ?: error("Missing imported profile") }
+            ?: error("Missing Xray route target")
+        try {
+            RouteProfiles.addImported(routes.map { plan ->
+                RouteProfiles.Snapshot(java.util.UUID.randomUUID().toString(), plan.name,
+                    plan.rules.map { it.rule.copy(outbound = resolve(it.target)) },
+                    if (plan.final.special == -1L) "direct" else "proxy",
+                    if (plan.dns?.direct == true) "direct" else if (plan.dns != null) "remote" else DataStore.dnsMain,
+                    resolve(plan.final), plan.dns?.address, plan.dns?.direct, plan.dns?.strategy)
+            })
+        } catch (e: Exception) {
+            SagerDatabase.instance.runInTransaction { SagerDatabase.proxyDao.deleteProxy(created) }
+            throw e
         }
         for (entity in created) iterator { onAdd(entity) }
     }
