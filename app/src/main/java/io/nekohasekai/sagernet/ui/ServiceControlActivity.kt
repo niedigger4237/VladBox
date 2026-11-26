@@ -8,6 +8,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,7 +82,7 @@ private fun ServiceControlScreen(close: () -> Unit) {
     }
     Scaffold(topBar = {
         TopAppBar(title = { Text(pageTitle) },
-            navigationIcon = { TextButton(onClick = { if (page == "home") close() else page = "home" }) { Text("‹", style = MaterialTheme.typography.headlineMedium) } })
+            navigationIcon = { IconButton(onClick = { if (page == "home") close() else page = "home" }) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } })
     }) { padding ->
         key(page) {
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -114,9 +121,9 @@ private fun ServiceControlScreen(close: () -> Unit) {
                 }
             }
             Text("Automation", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            ControlDestination(stringResource(R.string.sc_schedule), "Start and stop at scheduled times", master && enabled("scSchedule")) { page = "schedule" }
-            ControlDestination("Wi-Fi", "Connection and disconnection rules", master && enabled("scWifi")) { page = "wifi" }
-            if (Build.VERSION.SDK_INT >= 33) ControlDestination(stringResource(R.string.sc_keyguard), "Lock and unlock rules", master && enabled("scKeyguard")) { page = "keyguard" }
+            ControlDestination(Icons.Default.Schedule, stringResource(R.string.sc_schedule), "Start and stop at scheduled times", master && enabled("scSchedule")) { page = "schedule" }
+            ControlDestination(Icons.Default.Wifi, "Wi-Fi", "Connection and disconnection rules", master && enabled("scWifi")) { page = "wifi" }
+            if (Build.VERSION.SDK_INT >= 33) ControlDestination(Icons.Default.Lock, stringResource(R.string.sc_keyguard), "Lock and unlock rules", master && enabled("scKeyguard")) { page = "keyguard" }
             }
             if (page == "schedule") ControlCard {
                 Text(stringResource(R.string.sc_schedule), style = MaterialTheme.typography.titleLarge)
@@ -200,7 +207,7 @@ private fun ControlSwitch(title: String, checked: Boolean, enabled: Boolean, sum
 @Composable
 private fun ControlField(key: String, title: String, enabled: Boolean, cron: Boolean, onSaved: () -> Unit = {}) {
     val store = DataStore.configurationStore
-    val value = store.getString(key) ?: ""
+    var value by remember(key) { mutableStateOf(store.getString(key) ?: "") }
     var draft by remember(key) { mutableStateOf(value) }
     var editing by remember { mutableStateOf(false) }
     OutlinedButton(onClick = { draft = value; editing = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
@@ -212,7 +219,7 @@ private fun ControlField(key: String, title: String, enabled: Boolean, cron: Boo
             text = { OutlinedTextField(value = draft, onValueChange = { draft = it }, isError = !valid,
                 singleLine = cron, modifier = Modifier.fillMaxWidth()) },
             confirmButton = { TextButton(enabled = valid, onClick = {
-                store.putString(key, draft.trim()); editing = false; onSaved()
+                store.putString(key, draft.trim()); value = draft.trim(); editing = false; onSaved()
             }) { Text(stringResource(android.R.string.ok)) } },
             dismissButton = { TextButton(onClick = { editing = false }) { Text(stringResource(android.R.string.cancel)) } })
     }
@@ -220,17 +227,22 @@ private fun ControlField(key: String, title: String, enabled: Boolean, cron: Boo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ControlDestination(title: String, description: String, active: Boolean, open: () -> Unit) {
+private fun ControlDestination(icon: ImageVector, title: String, description: String, active: Boolean, open: () -> Unit) {
     Card(onClick = open, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
         Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
+                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+            }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(title, style = MaterialTheme.typography.titleLarge)
                 Text(description, style = MaterialTheme.typography.bodyMedium)
                 Text(if (active) "Enabled" else "Disabled", style = MaterialTheme.typography.labelMedium,
                     color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text("›", style = MaterialTheme.typography.headlineMedium)
+            Icon(Icons.Default.ChevronRight, contentDescription = null)
         }
     }
 }
@@ -239,7 +251,7 @@ private fun ControlDestination(title: String, description: String, active: Boole
 @Composable
 private fun DailyScheduleField(key: String, title: String, enabled: Boolean, onSaved: () -> Unit) {
     val store = DataStore.configurationStore
-    val value = store.getString(key).orEmpty()
+    var value by remember(key) { mutableStateOf(store.getString(key).orEmpty()) }
     val fields = value.trim().split(Regex("\\s+"))
     val minute = fields.getOrNull(0)?.toIntOrNull()
     val hour = fields.getOrNull(1)?.toIntOrNull()
@@ -251,7 +263,12 @@ private fun DailyScheduleField(key: String, title: String, enabled: Boolean, onS
     FilledTonalButton(onClick = { picking = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
         Text(time?.let { "Every day · $it" } ?: if (value.isBlank()) "Choose daily time" else "Replace custom schedule with daily time")
     }
-    ControlField(key, "Advanced Cron", enabled, true, onSaved)
+    androidx.compose.runtime.key(value) {
+        ControlField(key, "Advanced Cron", enabled, true) {
+            value = store.getString(key).orEmpty()
+            onSaved()
+        }
+    }
     if (picking) {
         val state = rememberTimePickerState(initialHour = if (daily) hour!! else 8,
             initialMinute = if (daily) minute!! else 0, is24Hour = true)
@@ -260,6 +277,7 @@ private fun DailyScheduleField(key: String, title: String, enabled: Boolean, onS
             text = { TimeInput(state = state) },
             confirmButton = { TextButton(onClick = {
                 store.putString(key, "${state.minute} ${state.hour} * * *")
+                value = store.getString(key).orEmpty()
                 picking = false
                 onSaved()
             }) { Text(stringResource(android.R.string.ok)) } },
