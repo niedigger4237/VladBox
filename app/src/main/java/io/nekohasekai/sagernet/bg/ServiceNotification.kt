@@ -99,7 +99,7 @@ class ServiceNotification(
     suspend fun postServiceControlWaiting(waiting: Boolean) {
         useBuilder {
             it.setStyle(null)
-            it.setContentText(service.getString(if (waiting) R.string.sc_waiting else R.string.vpn_connected))
+            it.setContentText((service as Context).getString(if (waiting) R.string.sc_waiting else R.string.vpn_connected))
             it.setSubText(null)
         }
         update()
