@@ -96,6 +96,7 @@ int nf_gateway_recovery_load(struct nf_native_backend *b,const uint8_t boot[16])
         b->core_evidence_valid=true;pos+=32;
     }
     if(pos!=r.length)goto done;
+    b->recovered_op=(enum nf_step)payload[6];
     b->precore_certified=(payload[7]&3U)==1U;
     b->mark_authorized=false; // persisted identity is not a live mark lease
     b->wal=r;b->wal.payload=NULL;b->wal.length=0;b->wal_ready=true;rc=0;
@@ -341,11 +342,29 @@ static int nf_precore_reconcile(int directory,const uint8_t boot[16],
  * session whose old mappings have drained. Keep the closed guard and WAL
  * while any matching port is busy or the kernel cannot be inspected. */
 extern int nf_gateway_ct_port_absent(unsigned port);
+/* Eligibility for an interrupted activation or removal. An epoch is
+ * checkpointed before NAT is installed, so debt 7 with an epoch can be
+ * legitimate. Debt 31 survives NAT withdrawal until final release.
+ * Guard removal may be replayed only with closed images and no NAT plan. */
+static bool nf_active_recoverable(const struct nf_native_backend *b) {
+    if(!b->wal_ready || !b->core_evidence_valid || b->precore_certified ||
+       !b->wal.epoch || !b->guard.owned || b->wal.generation==UINT64_MAX)return false;
+    if(b->wal.debts==7U) {
+        if(b->nat.owned || b->nat.plan.private_group_count ||
+           (b->recovered_op!=NF_GUARD_CLOSED && b->recovered_op!=NF_GUARD_OPEN &&
+            b->recovered_op!=NF_GUARD_REMOVE))return false;
+    } else if(b->wal.debts!=31U)return false;
+    return b->recovered_op!=NF_GUARD_REMOVE || nf_closed_guard_only(b);
+}
 static int nf_active_cleanup(void *ctx,struct nf_native_backend *b) {
     b->system=ctx;
-    if(nf_postcore_absent(NULL,b) || nf_recovery_preflight(b,&b->guard) ||
+    if(!nf_active_recoverable(b) || nf_postcore_absent(NULL,b) || nf_recovery_preflight(b,&b->guard) ||
        nf_recovery_preflight(b,&b->nat))return -1;
-    if(nf_native_write(b,&b->guard,b->wal.port,true,false) || nf_native_remove(b,&b->nat))return -1;
+    // A crash during final guard removal may leave only one family or no
+    // guard at all. Do not reopen/recreate it. Repeat all absence checks
+    // before idempotent removal of the remaining exact owned images.
+    if(b->recovered_op!=NF_GUARD_REMOVE &&
+       (nf_native_write(b,&b->guard,b->wal.port,true,false) || nf_native_remove(b,&b->nat)))return -1;
     if(nf_live_names_absence(ctx,true) || nf_gateway_ct_port_absent(b->wal.port) ||
        nf_postcore_absent(NULL,b) || nf_gateway_ct_port_absent(b->wal.port) ||
        nf_recovery_preflight(b,&b->guard) || nf_native_remove(b,&b->guard))return -1;
@@ -359,8 +378,7 @@ static int nf_active_reconcile(int directory,const uint8_t boot[16],
     struct nf_native_backend *b=calloc(1,sizeof(*b));if(!b)goto done;
     b->wal_fd=lock;
     if(fstatat(lock,NF_WAL_TEMP,&st,AT_SYMLINK_NOFOLLOW)==0 || errno!=ENOENT ||
-       nf_gateway_recovery_load(b,boot) || !b->core_evidence_valid || b->precore_certified ||
-       b->wal.debts!=31U || !b->wal.epoch || !b->guard.owned || b->wal.generation==UINT64_MAX)goto done;
+       nf_gateway_recovery_load(b,boot) || !nf_active_recoverable(b))goto done;
     if(cleanup(ctx,b) || b->guard.owned || b->nat.owned || b->wal.generation==UINT64_MAX)goto done;
     struct nf_wal_record clean=b->wal;clean.generation++;clean.debts=0;clean.epoch=0;clean.payload=NULL;clean.length=0;
     rc=nf_gateway_wal_save(lock,&clean,clean.generation-1);
@@ -584,6 +602,22 @@ int main(void) {
     CHECK(!nf_gateway_plan(c,15353,true,&b->guard.plan));CHECK(!nf_native_render(s,&b->guard,15353,true,0,0,false));b->guard.pending_valid=b->guard.owned=true;
     CHECK(!nf_gateway_plan(c,15353,false,&b->nat.plan));CHECK(!nf_native_render(s,&b->nat,15353,true,0,0,false));b->nat.pending_valid=b->nat.owned=true;
     CHECK(!nf_native_checkpoint(b,NF_NAT_INSTALL));close(b->wal_fd);
+    // Exercise the interrupted activation and final removal eligibility.
+    b->recovered_op=NF_NAT_INSTALL;CHECK(nf_active_recoverable(b));
+    b->wal.debts=7;CHECK(!nf_active_recoverable(b));b->wal.debts=31;
+    b->recovered_op=NF_GUARD_REMOVE;CHECK(!nf_active_recoverable(b));
+    struct nf_native_backend *edge=calloc(1,sizeof(*edge));CHECK(edge);
+    edge->system=s;edge->wal_ready=true;edge->wal=b->wal;edge->wal.debts=7;
+    edge->core_evidence_valid=true;edge->recovered_op=NF_GUARD_OPEN;
+    CHECK(!nf_gateway_plan(c,15353,true,&edge->guard.plan));
+    CHECK(!nf_native_render(s,&edge->guard,15353,true,0,0,false));edge->guard.owned=edge->guard.pending_valid=true;
+    CHECK(nf_active_recoverable(edge));
+    edge->recovered_op=NF_GUARD_REMOVE;CHECK(!nf_active_recoverable(edge));
+    nf_native_clear(&edge->guard);CHECK(!nf_gateway_plan(c,15353,true,&edge->guard.plan));
+    CHECK(!nf_native_render(s,&edge->guard,15353,false,0,0,false));edge->guard.owned=edge->guard.pending_valid=true;
+    CHECK(nf_active_recoverable(edge));edge->wal.debts=31;CHECK(nf_active_recoverable(edge));
+    edge->wal.epoch=0;CHECK(!nf_active_recoverable(edge));
+    nf_native_clear(&edge->guard);free(edge);
     struct active_fake f={.busy=true};uint8_t boot[16]={1},wrong[16]={2};
     CHECK(nf_active_reconcile(d,wrong,active_fake_cleanup,&f)<0 && !f.calls);
     CHECK(nf_active_reconcile(d,boot,active_fake_cleanup,&f)<0 && f.calls==1);CHECK(nf_gateway_admission_check(d)<0);
