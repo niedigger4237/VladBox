@@ -551,6 +551,7 @@ SOURCES=$(cd "$SRC" && find . -name '*.c' -not -path './.git/*' | LC_ALL=C sort)
 # Active recovery closes the guard and waits for read-only conntrack drain.
 # Inventory also checks candidate connmark masks without allocating them.
 # Marked gateway rules and WAL metadata are connected; live mark ownership remains unverified.
+# Exact CTNETLINK DELETE transport compiled but not called from production.
 HEV_GATEWAY_BACKEND="$ROOT/buildScript/experiments/hev-gateway-dns/gateway_recovery.c"
 
 build() { # abi cc-prefix
