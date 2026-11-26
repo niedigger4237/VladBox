@@ -274,12 +274,12 @@ static int nf_native_write(struct nf_native_backend *b,
         asteriskd_supervisor_rule_snapshot_destroy(&s->rule_snapshot);
         slot->expected_valid=true;slot->pending_valid=false;
     }
-    if (fresh && nf_native_plan(b,slot,port,guard)!=0) return -1;
+    if (fresh && nf_native_plan(b,slot,port,guard)!=0) {nf_native_clear(slot);return -1;}
     int rc=nf_native_snapshot(s,slot);
     if(!rc) for(size_t i=0;i<slot->plan.private_group_count;i++)
         if(nf_native_classify(s,slot,i,!fresh,false)!=(fresh?0:1)) rc=-1;
     asteriskd_supervisor_rule_snapshot_destroy(&s->rule_snapshot);
-    if(rc) return -1;
+    if(rc) {if(fresh)nf_native_clear(slot);return -1;}
     struct nf_gateway_targets targets={0},current={0};
     bool target_ipv6=!b->ipv6_nat_disabled && s->loaded_config.config.enable_ipv6;
     if(!guard && nf_gateway_collect_targets(&s->loaded_config.config,target_ipv6,&targets)) goto render_failed;
@@ -310,8 +310,12 @@ static int nf_native_write(struct nf_native_backend *b,
     slot->expected_valid=true;slot->pending_valid=false;
     return 0;
 render_failed:
-    for(size_t i=0;i<2;i++) asteriskd_byte_buffer_destroy(&slot->pending[i]);
-    slot->pending_valid=false;
+    // No pending image was committed. A fresh slot owns no firewall object.
+    if(fresh && !slot->owned)nf_native_clear(slot);
+    else {
+        for(size_t i=0;i<2;i++) asteriskd_byte_buffer_destroy(&slot->pending[i]);
+        slot->pending_valid=false;
+    }
     return -1;
 }
 static int nf_native_remove(struct nf_native_backend *b,struct nf_native_slot *slot) {
