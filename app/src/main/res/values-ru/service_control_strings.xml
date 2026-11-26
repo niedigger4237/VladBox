@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sc_ui_back">Назад</string>
+    <string name="sc_ui_supervisor_status">Состояние супервизора</string>
+    <string name="sc_ui_traffic_active">Перехват трафика активен</string>
+    <string name="sc_ui_traffic_paused">Перехват приостановлен • автоматизация доступна</string>
+    <string name="sc_ui_traffic_stopped">Перехват остановлен • ожидание события, если супервизор активен</string>
+    <string name="sc_ui_supervisor_failed">Ошибка супервизора</string>
+    <string name="sc_ui_traffic_starting">Запуск перехвата</string>
+    <string name="sc_ui_traffic_stopping">Остановка перехвата</string>
+    <string name="sc_ui_supervisor_unavailable">Состояние супервизора недоступно</string>
+    <string name="sc_ui_automation">Автоматизация</string>
+    <string name="sc_ui_schedule_desc">Запуск и остановка по расписанию</string>
+    <string name="sc_ui_wifi_desc">Правила подключения и отключения</string>
+    <string name="sc_ui_keyguard_desc">Правила блокировки и разблокировки</string>
+    <string name="sc_ui_enabled">Включено</string>
+    <string name="sc_ui_disabled">Выключено</string>
+    <string name="sc_ui_daily_time">Каждый день · %1$s</string>
+    <string name="sc_ui_choose_time">Выбрать время</string>
+    <string name="sc_ui_replace_schedule">Заменить особое расписание ежедневным</string>
+    <string name="sc_ui_advanced_cron">Расширенный Cron</string>
+    <string name="sc_ui_root_only">Автоматизация доступна только в режимах ROOT. Настройки сохраняются для следующего сеанса ROOT.</string>
+    <string name="sc_ui_invalid_cron">Введите корректное выражение Cron из пяти полей.</string>
+</resources>

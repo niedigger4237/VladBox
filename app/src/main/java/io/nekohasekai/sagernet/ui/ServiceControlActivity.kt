@@ -82,21 +82,21 @@ private fun ServiceControlScreen(close: () -> Unit) {
     }
     Scaffold(topBar = {
         TopAppBar(title = { Text(pageTitle) },
-            navigationIcon = { IconButton(onClick = { if (page == "home") close() else page = "home" }) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } })
+            navigationIcon = { IconButton(onClick = { if (page == "home") close() else page = "home" }) { Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.sc_ui_back)) } })
     }) { padding ->
         key(page) {
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (page == "home" && rootMode && serviceState.started) ControlCard {
-                Text("Supervisor status", style = MaterialTheme.typography.titleLarge)
+                Text(stringResource(R.string.sc_ui_supervisor_status), style = MaterialTheme.typography.titleLarge)
                 Text(when (daemonPhase) {
-                    "running" -> "Traffic active"
-                    "paused" -> "Traffic paused • automation remains available"
-                    "stopped" -> "Traffic stopped • waiting for a configured event if supervisor is active"
-                    "failed" -> "Supervisor reported a failure"
-                    "starting", "validating", "acquiring", "applying-rules" -> "Starting traffic"
-                    "stopping" -> "Stopping traffic"
-                    else -> "Supervisor status unavailable"
+                    "running" -> stringResource(R.string.sc_ui_traffic_active)
+                    "paused" -> stringResource(R.string.sc_ui_traffic_paused)
+                    "stopped" -> stringResource(R.string.sc_ui_traffic_stopped)
+                    "failed" -> stringResource(R.string.sc_ui_supervisor_failed)
+                    "starting", "validating", "acquiring", "applying-rules" -> stringResource(R.string.sc_ui_traffic_starting)
+                    "stopping" -> stringResource(R.string.sc_ui_traffic_stopping)
+                    else -> stringResource(R.string.sc_ui_supervisor_unavailable)
                 }, style = MaterialTheme.typography.bodyMedium)
             }
             if (page == "home" && rootMode && serviceState.started) ControlCard {
@@ -115,15 +115,16 @@ private fun ServiceControlScreen(close: () -> Unit) {
                 ) { Text(stringResource(R.string.apply)) }
             }
             if (page == "home") {
+            if (!rootMode) ControlCard { Text(stringResource(R.string.sc_ui_root_only), style = MaterialTheme.typography.bodyMedium) }
             ControlCard {
                 ControlSwitch(stringResource(R.string.sc_enable), master, true, stringResource(R.string.sc_enable_sum)) {
                     store.putBoolean("scEnabled", it); revision++
                 }
             }
-            Text("Automation", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            ControlDestination(Icons.Default.Schedule, stringResource(R.string.sc_schedule), "Start and stop at scheduled times", master && enabled("scSchedule")) { page = "schedule" }
-            ControlDestination(Icons.Default.Wifi, "Wi-Fi", "Connection and disconnection rules", master && enabled("scWifi")) { page = "wifi" }
-            if (Build.VERSION.SDK_INT >= 33) ControlDestination(Icons.Default.Lock, stringResource(R.string.sc_keyguard), "Lock and unlock rules", master && enabled("scKeyguard")) { page = "keyguard" }
+            Text(stringResource(R.string.sc_ui_automation), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            ControlDestination(Icons.Default.Schedule, stringResource(R.string.sc_schedule), stringResource(R.string.sc_ui_schedule_desc), master && enabled("scSchedule")) { page = "schedule" }
+            ControlDestination(Icons.Default.Wifi, "Wi-Fi", stringResource(R.string.sc_ui_wifi_desc), master && enabled("scWifi")) { page = "wifi" }
+            if (Build.VERSION.SDK_INT >= 33) ControlDestination(Icons.Default.Lock, stringResource(R.string.sc_keyguard), stringResource(R.string.sc_ui_keyguard_desc), master && enabled("scKeyguard")) { page = "keyguard" }
             }
             if (page == "schedule") ControlCard {
                 Text(stringResource(R.string.sc_schedule), style = MaterialTheme.typography.titleLarge)
@@ -217,7 +218,7 @@ private fun ControlField(key: String, title: String, enabled: Boolean, cron: Boo
         val valid = !cron || draft.isBlank() || ServiceControl.validCron(draft)
         AlertDialog(onDismissRequest = { editing = false }, title = { Text(title) },
             text = { OutlinedTextField(value = draft, onValueChange = { draft = it }, isError = !valid,
-                singleLine = cron, modifier = Modifier.fillMaxWidth()) },
+                singleLine = cron, supportingText = { if (!valid) Text(stringResource(R.string.sc_ui_invalid_cron)) }, modifier = Modifier.fillMaxWidth()) },
             confirmButton = { TextButton(enabled = valid, onClick = {
                 store.putString(key, draft.trim()); value = draft.trim(); editing = false; onSaved()
             }) { Text(stringResource(android.R.string.ok)) } },
@@ -239,7 +240,7 @@ private fun ControlDestination(icon: ImageVector, title: String, description: St
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(title, style = MaterialTheme.typography.titleLarge)
                 Text(description, style = MaterialTheme.typography.bodyMedium)
-                Text(if (active) "Enabled" else "Disabled", style = MaterialTheme.typography.labelMedium,
+                Text(if (active) stringResource(R.string.sc_ui_enabled) else stringResource(R.string.sc_ui_disabled), style = MaterialTheme.typography.labelMedium,
                     color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Icon(Icons.Default.ChevronRight, contentDescription = null)
@@ -261,10 +262,10 @@ private fun DailyScheduleField(key: String, title: String, enabled: Boolean, onS
     val time = if (daily) java.lang.String.format(java.util.Locale.ROOT, "%02d:%02d", hour, minute) else null
     Text(title, style = MaterialTheme.typography.titleMedium)
     FilledTonalButton(onClick = { picking = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
-        Text(time?.let { "Every day · $it" } ?: if (value.isBlank()) "Choose daily time" else "Replace custom schedule with daily time")
+        Text(time?.let { stringResource(R.string.sc_ui_daily_time, it) } ?: if (value.isBlank()) stringResource(R.string.sc_ui_choose_time) else stringResource(R.string.sc_ui_replace_schedule))
     }
     androidx.compose.runtime.key(value) {
-        ControlField(key, "Advanced Cron", enabled, true) {
+        ControlField(key, stringResource(R.string.sc_ui_advanced_cron), enabled, true) {
             value = store.getString(key).orEmpty()
             onSaved()
         }

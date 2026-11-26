@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sc_ui_back">Back</string>
+    <string name="sc_ui_supervisor_status">Supervisor status</string>
+    <string name="sc_ui_traffic_active">Traffic active</string>
+    <string name="sc_ui_traffic_paused">Traffic paused • automation remains available</string>
+    <string name="sc_ui_traffic_stopped">Traffic stopped • waiting for a configured event if supervisor is active</string>
+    <string name="sc_ui_supervisor_failed">Supervisor reported a failure</string>
+    <string name="sc_ui_traffic_starting">Starting traffic</string>
+    <string name="sc_ui_traffic_stopping">Stopping traffic</string>
+    <string name="sc_ui_supervisor_unavailable">Supervisor status unavailable</string>
+    <string name="sc_ui_automation">Automation</string>
+    <string name="sc_ui_schedule_desc">Start and stop at scheduled times</string>
+    <string name="sc_ui_wifi_desc">Connection and disconnection rules</string>
+    <string name="sc_ui_keyguard_desc">Lock and unlock rules</string>
+    <string name="sc_ui_enabled">Enabled</string>
+    <string name="sc_ui_disabled">Disabled</string>
+    <string name="sc_ui_daily_time">Every day · %1$s</string>
+    <string name="sc_ui_choose_time">Choose daily time</string>
+    <string name="sc_ui_replace_schedule">Replace custom schedule with daily time</string>
+    <string name="sc_ui_advanced_cron">Advanced Cron</string>
+    <string name="sc_ui_root_only">Automation is available in ROOT modes only. Settings are saved for the next ROOT session.</string>
+    <string name="sc_ui_invalid_cron">Enter a valid five-field Cron expression.</string>
+</resources>
