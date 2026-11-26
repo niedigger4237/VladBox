@@ -508,3 +508,35 @@ core-stop failures; this is not live firewall validation. The staged file
 also compiles without the test macro with -Wall -Wextra -Werror.
 No APK build inputs, app settings, existing MANGLE refresh or other root
 modes changed in this stage.
+
+## Native gateway firewall adapter linked at build time
+
+gateway_backend.c now connects the coordinator's firewall callbacks to the
+actual supervisor xtables snapshot, queue, batch flush and removal APIs.
+The INPUT and NAT slots keep independent ownership and expected listings,
+including pending versions after a partial cross-family commit. A new slot
+must be absent; existing entries must match exactly. Verification requires
+an exact ordered chain and a unique hook at position one. Removal verifies
+known rules before enqueueing exact hook deletion and chain cleanup, then
+checks absence. Unknown state is retained as a cleanup obligation rather
+than flushing foreign rules. This is an in-memory adapter, not durable
+crash recovery. It cannot make a read/commit atomic across other writers.
+The lifecycle retry can remove the guard after core, NAT and flows are gone
+even if a previous attempt to close the guard failed.
+
+The native build now compiles gateway_backend.c (which includes the staged
+planner and coordinator as a single translation unit). No supervisor call
+site or core config enables it yet; LTO may eliminate the unused code.
+The non-firewall operations are explicitly delegated to a mandatory callback,
+not stubbed as successful. Exclusive listener/port ownership, immutable link
+snapshot checking, precise conntrack cleanup, and durable crash recovery
+must be implemented before activation. Then integrate Service Control and
+boot resolution with the real supervisor. Existing mode rules stay unchanged.
+
+Host validation against the supplied pinned sources with the non-local IPv6
+patch: GCC C17 -Wall -Wextra -Werror for the adapter, full host GCC and
+Clang links with -D_GNU_SOURCE, 13 adapter listing/ownership tests and 73
+coordinator assertions (47 fault positions). The host tests use real native
+parsers and queued command generation, but synthetic listings. No live
+iptables, Android NDK build, or device packet test was performed. Kernel
+normalization of listing syntax and competing netd changes remain unverified.
