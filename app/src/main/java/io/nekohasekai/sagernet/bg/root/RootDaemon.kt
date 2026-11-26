@@ -58,31 +58,6 @@ object RootDaemon {
         return result.ok
     }
 
-    // Legacy HEV DNS rules use xt_addrtype. Probe even with no downstreams:
-    // a later hot-refresh may populate those rules without restarting the core.
-    // A read-only -C may report a missing rule; that is expected, but extension
-    // warnings, permission errors and incomplete output are not proof of support.
-    private fun hevDnsAddrtypeAvailable(ipv6: Boolean): Boolean {
-        val commands = mutableListOf(
-            "iptables -w 3 -t mangle -C PREROUTING -m addrtype --dst-type UNICAST -j RETURN"
-        )
-        if (ipv6) commands +=
-            "ip6tables -w 3 -t mangle -C PREROUTING -m addrtype ! --dst-type LOCAL -j RETURN"
-        for (command in commands) {
-            val result = RootShell.run("LC_ALL=C $command", timeoutMs = 5000)
-            val missingRule = result.code == 1 &&
-                result.err == "iptables: Bad rule (does a matching rule exist in that chain?)." ||
-                result.code == 1 &&
-                result.err == "ip6tables: Bad rule (does a matching rule exist in that chain?)."
-            if (result.out.isNotEmpty() ||
-                !(result.ok && result.err.isEmpty() || missingRule)) {
-                Logs.w("ROOT HEV tether DNS interception: addrtype probe failed; keeping standard routing (exit=${result.code})")
-                return false
-            }
-        }
-        return true
-    }
-
     // Only managed, bundled helper sessions opt in. Raw/external cores retain normal SOCKS5.
     private fun withFlowMetadata(json: String, token: String): String {
         val root = com.google.gson.JsonParser.parseString(json).asJsonObject
@@ -782,7 +757,7 @@ object RootDaemon {
             Mode.TUN2SOCKS -> DataStore.tetherHevDnsHijack
             else -> false
         }
-        val tetherDnsEligible = gatewayDnsPort != null || RootTetherDnsPolicy.enabled(
+        val tetherDnsHijack = gatewayDnsPort != null || RootTetherDnsPolicy.enabled(
             requested = dnsCaptureRequested,
             managed = managed && core.bundled,
             supportedMode = mode == Mode.TPROXY || mode == Mode.TUN2SOCKS,
@@ -790,10 +765,8 @@ object RootDaemon {
             startOnBoot = DataStore.configurationStore.getBoolean("startOnBoot", false),
             coreConfig = baseConfig
         )
-        val tetherDnsHijack = tetherDnsEligible &&
-            (mode != Mode.TUN2SOCKS || gatewayDnsPort != null || hevDnsAddrtypeAvailable(ipv6))
         if (dnsCaptureRequested)
-            Logs.i("ROOT ${mode.wire} tether DNS interception: ${if (gatewayDnsPort != null) "experimental gateway DNS" else if (tetherDnsEligible && !tetherDnsHijack) "disabled: addrtype unavailable or unverified" else if (!tetherDnsHijack) "not eligible" else if (mode == Mode.TUN2SOCKS) if (ipv6) "IPv4 and IPv6 non-local DNS only" else "IPv4 non-local unicast only" else "enabled"}")
+            Logs.i("ROOT ${mode.wire} tether DNS interception: ${if (gatewayDnsPort != null) "experimental gateway DNS" else if (!tetherDnsHijack) "not eligible" else if (mode == Mode.TUN2SOCKS) if (ipv6) "IPv4 and IPv6 non-local DNS only" else "IPv4 non-local unicast only" else "enabled"}")
         val dcfg = File(stage, "asteriskd.json").apply {
             writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, daemonDownstreams,
                 dynamicDownstreams?.ipv6Prefixes.orEmpty().map { it.subnet }, serviceControl, tetherDnsHijack, gatewayDnsPort))
