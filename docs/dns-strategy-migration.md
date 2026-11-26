@@ -1411,3 +1411,26 @@ committed host test suites, NDK/Kotlin/APK build and Android behavior
 have not yet been verified. Next build should verify the existing
 HEV interception with the hotspot active before enabling the
 experimental gateway path.
+
+## Restricted IPv4 gateway preview activation
+
+The 571a996 preview built successfully (Actions run 45902258162).
+The user's Android device log confirms startup with wlan2 selected,
+the legacy nonlocal DNS path active, and orderly stop. It does not
+prove DNS packet interception. The preview activation now enables
+the experimental exact-host gateway NAT path only for managed bundled
+IPv4 TUN2SOCKS with Hijack Tethering requested, Start on Boot off,
+Service Control off, normal (not monitor-only) launch, reliable
+nonempty downstream discovery, and an eligible core configuration.
+Other cases retain the previous path. Initial publication uses the
+existing compensating withdraw hook on failure.
+
+No new mark ownership is claimed; conntrack deletion is NOT enabled.
+A busy/unreadable conntrack table can block startup, refresh or
+cleanup and subsequent admission; retain the closed INPUT guard and
+journal, do not flush global conntrack or delete the journal.
+First verify DNS requests directly to the hotspot gateway with the
+hotspot already active, then orderly shutdown after flows expire.
+Boot, Service Control, dual-stack and seamless dynamic tethering
+are not part of this first device trial. The activation commits have
+not yet been built or tested on Android.
