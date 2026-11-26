@@ -116,6 +116,11 @@
         <item>@string/dns_mode_direct_only</item>
         <item>@string/dns_mode_remote_preferred</item>
     </string-array>
+    <string-array name="dns_routing_mode_short_names" translatable="false">
+        <item>Split DNS</item>
+        <item>Direct Only</item>
+        <item>Remote Preferred</item>
+    </string-array>
     <string-array name="dns_routing_mode_values" translatable="false">
         <item>direct</item>
         <item>direct_only</item>

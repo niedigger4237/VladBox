@@ -435,9 +435,16 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
             }
             fun bind() {
                 val ctx = binding.root.context
+                // Both settings screens use the same persisted values and resource arrays.
+                val dnsValues = ctx.resources.getStringArray(R.array.dns_routing_mode_values)
+                val dnsNames = ctx.resources.getStringArray(R.array.dns_routing_mode_names)
+                val dnsShortNames = ctx.resources.getStringArray(R.array.dns_routing_mode_short_names)
+                // Match the generator's historical remote fallback for unknown values.
+                val dnsIndex = dnsValues.indexOf(DataStore.dnsMain).takeIf { it >= 0 }
+                    ?: dnsValues.indexOf("remote")
                 io.nekohasekai.sagernet.ui.compose.installRouteSettingsTiles(host,
                     ctx.getString(if (DataStore.routeFinal == "direct") R.string.route_direct else R.string.route_proxy),
-                    ctx.getString(if (DataStore.dnsMain == "direct") R.string.route_direct else R.string.route_remote),
+                    dnsShortNames[dnsIndex],
                     onOutbound = {
                     val values = arrayOf("proxy", "direct")
                     MaterialAlertDialogBuilder(activity).setTitle(R.string.route_outbound)
@@ -452,13 +459,11 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                         }.setNegativeButton(R.string.no, null).show()
                 },
                 onDns = {
-                    val values = arrayOf("remote", "direct")
-                    MaterialAlertDialogBuilder(activity).setTitle(R.string.route_dns_tunnel)
-                        .setSingleChoiceItems(
-                            arrayOf(getString(R.string.route_remote), getString(R.string.route_direct)),
-                            values.indexOf(DataStore.dnsMain).coerceAtLeast(0)
-                        ) { d, which ->
-                            DataStore.dnsMain = values[which]
+                    val selected = dnsValues.indexOf(DataStore.dnsMain).takeIf { it >= 0 }
+                        ?: dnsValues.indexOf("remote")
+                    MaterialAlertDialogBuilder(activity).setTitle(R.string.dns_routing_mode)
+                        .setSingleChoiceItems(dnsNames, selected) { d, which ->
+                            DataStore.dnsMain = dnsValues[which]
                             d.dismiss()
                             notifyItemChanged(0)
                             needReload()

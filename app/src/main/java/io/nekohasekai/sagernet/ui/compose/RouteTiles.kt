@@ -83,7 +83,7 @@ fun installRouteSettingsTiles(host: ComposeView, outbound: String, dns: String,
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     RouteSettingTile(Modifier.weight(1f), stringResource(R.string.route_outbound), outbound, R.drawable.ic_hardware_router, onOutbound)
-                    RouteSettingTile(Modifier.weight(1f), stringResource(R.string.route_dns_tunnel), dns, R.drawable.ic_hardware_router, onDns)
+                    RouteSettingTile(Modifier.weight(1f), stringResource(R.string.dns_routing_mode), dns, R.drawable.ic_hardware_router, onDns)
                 }
                 RouteSettingTile(Modifier.fillMaxWidth(), "Assets", "", R.drawable.ic_baseline_layers_24, onAssets)
                 FilledTonalButton(onClick = onAddRule, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(18.dp)) {
