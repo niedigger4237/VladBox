@@ -669,3 +669,38 @@ now compiles gateway_recovery.c including gateway_backend.c once.
 No live iptables operations, Android NDK build or device tests performed.
 Still required: durable process/link/conntrack evidence, actual recovery
 callbacks, new-boot handling and supervisor/Service Control call sites.
+
+## Supervisor startup admission fence
+
+The gateway recovery module now exports nf_gateway_admission_check.
+build_asteriskd.sh patches supervisor/supervisor.c to call it for BOX
+ownership after the global control listener is acquired and state store
+opened, but before system_reset_telemetry_state overwrites old evidence.
+This is a real production supervisor call site, shared by start, monitor
+and boot. It does not execute firewall commands or enable a DNS listener.
+
+Normal admission with no journal and no temporary record takes a read-only
+fast path. If a journal exists, acquire its independent directory lock,
+validate the record, and allow admission only for a clean record with no
+debts, epoch or payload and no temporary file. A malformed, unreadable,
+locked, dirty or ambiguous record fails admission without deleting files.
+This intentionally also blocks switching to a different BOX ROOT mode
+while old gateway DNS cleanup is unresolved. It changes no other mode's
+ordinary traffic rules. No runtime journal producer is activated yet.
+The lock is not held across a successful admission; future runtime
+activation must establish a session-long lock under the control listener.
+
+Host validation: PASS 27 admission checks and PASS 32 existing recovery
+checks. Admission tests use real filesystem files, symlink, outstanding
+debt, lock contention, clean record, interrupted temp and corrupt record.
+The modified recovery translation unit compiled with GCC C17 -Wall
+-Wextra -Werror. A full host supervisor binary with the admission call
+and previous IPv6 patch linked successfully against the pinned source.
+This was not the complete downstream Android build, and no live firewall
+or Service Control/boot/device integration test was run.
+
+Automatic cleanup is still NOT wired: the fence blocks unresolved state
+rather than calling the recovery API with unproven listener and conntrack
+callbacks. Before activating the gateway path, implement durable process
+and flow evidence, real cleanup, re-admission and the Service Control
+lifecycle hooks. Do not interpret this check as completed DNS hijacking.
