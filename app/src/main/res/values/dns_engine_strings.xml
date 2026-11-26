@@ -150,5 +150,5 @@
     </string-array>
     <string name="tether_dns_hijack">Tethering DNS Hijacking (experimental)</string>
     <string name="tether_dns_hijack_summary">Intercept TCP/UDP port 53 on selected tether interfaces before local bypass. Bundled ROOT TPROXY only, requires Port or Both, and Start on Boot off.</string>
-    <string name="tether_hev_dns_hijack_summary">IPv4 non-local unicast DNS only. Gateway DNS and IPv6 are unchanged. Bundled ROOT TUN2SOCKS, requires Port or Both, Start on Boot off, and kernel addrtype support.</string>
+    <string name="tether_hev_dns_hijack_summary">Non-local IPv4 and, when enabled, IPv6 global/ULA DNS. Gateway and link-local DNS are unchanged. Bundled ROOT TUN2SOCKS, requires Port or Both, Start on Boot off, and kernel addrtype support.</string>
 </resources>
