@@ -12,3 +12,52 @@ Pinned core: `d9442d14b19ddd02605bf3ee893a171947038e19`.
 
 ## Opt-in modern mode
 `dnsEngineMode` defaults to legacy; both saved per-resolver preferences remain intact. Modern uses a separate global preference (`dnsGlobalStrategy`, default auto = service IPv6 mode). The DNS main server and routing order stay unchanged. Managed generated rules omit legacy strategy. FakeIP rules match A/AAAA only; other queries continue through remaining DNS rules. With IPv6-only, IPv4 FakeDNS is disabled in modern mode (legacy still uses the prior exception). ROOT TUN continues to exclude FakeDNS. Imported raw JSON and custom overrides are not rewritten. A custom rule-set or override requiring legacy DNS can still conflict with modern query_type. No core or firewall changes.
+
+## Advanced DNS response rules in Modern mode
+
+The existing global/per-profile Custom Config merge supports `dns.rules+` (append)
+and `dns.+rules` (prepend). Prefer append to preserve generated bootstrap,
+domain, block and FakeIP precedence. Appended rules apply only if earlier
+rules do not terminate evaluation. Do not use prepend unless intentionally
+overriding the generated DNS policy.
+
+Example (only unmatched example.org requests, no change in DNS transport):
+```json
+{
+  "dns": {
+    "rules+": [
+      {
+        "domain_suffix": ["example.org"],
+        "action": "evaluate",
+        "server": "dns-remote",
+        "tag": "example-answer"
+      },
+      {
+        "domain_suffix": ["example.org"],
+        "match_response": "example-answer",
+        "response_rcode": "NOERROR",
+        "action": "respond"
+      },
+      {
+        "domain_suffix": ["example.org"],
+        "action": "route",
+        "server": "dns-remote"
+      }
+    ]
+  }
+}
+```
+
+This illustrates explicit response-based selection; the fallback can cause a
+second DNS lookup. It is not automatically enabled and is not a recommended
+performance optimization. If a matching generated rule already terminates,
+this example is not reached. Internal lookups also obey the global strategy.
+
+Managed Modern configurations now receive structural validation after both
+custom JSON merges, before core startup. Legacy rule strategies, missing or
+forward evaluate references, duplicate tags, direct address response filters
+without match_response, nested evaluate/respond and evaluate on FakeIP are
+rejected with a rule path. Raw full-core configs and Legacy mode are untouched.
+The core still validates SRS metadata, available servers, full option schemas
+and conditional runtime response availability; the application check is not
+a replacement for sing-box check or device testing.

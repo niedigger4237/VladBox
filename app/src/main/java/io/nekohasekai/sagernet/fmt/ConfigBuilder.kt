@@ -867,6 +867,11 @@ fun buildConfig(
         val configMap = it.asMap()
         Util.mergeJSON(configMap, proxy.requireBean().customConfigJson)
         val json = gson.toJson(configMap)
+        // Validate the merged managed config, including global and per-profile JSON.
+        // Raw full-core imports return earlier and remain entirely user-owned.
+        if (DnsRuleStrategy.isModern(DataStore.dnsEngineMode)) {
+            ModernDnsValidation.check(com.google.gson.JsonParser.parseString(json).asJsonObject)
+        }
         if (tunPlan != null) {
             // A custom JSON override must not silently leave Android and the core on different subnets.
             val expected = if (ipv6Mode == IPv6Mode.DISABLE) listOf(tunPlan.cidr4)
