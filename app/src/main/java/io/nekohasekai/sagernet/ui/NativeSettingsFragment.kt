@@ -61,11 +61,24 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
 
     private fun setupRootCore() {
         findPreference<Preference>("rootCoreUpdate")!!.setOnPreferenceClickListener {
-            runOnDefaultDispatcher {
-                val rel = io.nekohasekai.sagernet.bg.root.RootCore.fetchLatest()
-                    .getOrElse { e -> rootCoreResult(Result.failure(e)); return@runOnDefaultDispatcher }
-                rootCoreResult(io.nekohasekai.sagernet.bg.root.RootCore.downloadAndInstall(rel))
-            }
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle("ROOT core update channel")
+                .setItems(arrayOf("Patched (recommended)", "Upstream (without app patches)")) { _, choice ->
+                    val channel = if (choice == 0) io.nekohasekai.sagernet.bg.root.RootCore.Channel.PATCHED
+                        else io.nekohasekai.sagernet.bg.root.RootCore.Channel.UPSTREAM
+                    fun update() = runOnDefaultDispatcher {
+                        val rel = io.nekohasekai.sagernet.bg.root.RootCore.fetchLatest(channel)
+                            .getOrElse { e -> rootCoreResult(Result.failure(e)); return@runOnDefaultDispatcher }
+                        rootCoreResult(io.nekohasekai.sagernet.bg.root.RootCore.downloadAndInstall(rel))
+                    }
+                    if (choice == 0) update()
+                    else MaterialAlertDialogBuilder(requireContext())
+                        .setTitle("Use upstream core?")
+                        .setMessage("Upstream does not guarantee Firefox 148 uTLS, Flow Metadata or other NieFigger patches. Reconnect to apply.")
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(android.R.string.ok) { _, _ -> update() }
+                        .show()
+                }.show()
             true
         }
         findPreference<Preference>("rootCoreImport")!!.setOnPreferenceClickListener {

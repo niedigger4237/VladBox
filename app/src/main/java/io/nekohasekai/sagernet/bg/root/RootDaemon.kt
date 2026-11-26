@@ -606,7 +606,7 @@ object RootDaemon {
         if (!shutdownVerified()) return "Previous ROOT supervisor did not shut down cleanly"
         mark("cleanup previous daemon")
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
-        val useFlow = managed && core.bundled && DataStore.rootFlowMetadata &&
+        val useFlow = managed && core.patched && DataStore.rootFlowMetadata &&
             mode in listOf(Mode.TUN2SOCKS, Mode.BPF2SOCKS)
         val flowToken = if (useFlow) newFlowToken() else null
         val dynamicDownstreams = if (managed && (mode != Mode.TUN ||

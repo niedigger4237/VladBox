@@ -46,7 +46,7 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         mark("su access")
         val core = RootCore.resolve() ?: throw IllegalStateException("No sing-box core for root mode")
         mark("resolve core")
-        Logs.i("root core: ${core.label} (${core.path}); source=${if (core.bundled) "bundled" else "external"}; sha256=${RootCore.fingerprint(core.path)}")
+        Logs.i("root core: ${core.label} (${core.path}); source=${if (core.bundled) "bundled" else if (core.patched) "patched" else "external"}; sha256=${RootCore.fingerprint(core.path)}")
 
         mark("core fingerprint")
 
