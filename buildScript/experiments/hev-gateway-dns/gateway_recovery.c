@@ -549,12 +549,30 @@ int nf_gateway_runtime_core_identity(struct asteriskd_system_supervisor *s) {
 int nf_gateway_runtime_core_ready(struct asteriskd_system_supervisor *s) {
     struct nf_native_backend *b=s->nf_gateway_session;
     if(!b)return s->loaded_config.config.nf_hev_gateway_dns_port?-1:0;
-    unsigned families=0;
-    // This proves TCP and UDP listener ownership in at least one family.
-    // Dual-stack reachability is deliberately not inferred from procfs.
-    if(!nf_closed_guard_only(b) || nf_native_verify(s,&b->guard,false) ||
-       nf_native_record_core(b) || nf_gateway_socket_observe(s,b->wal.port,&families))return -1;
-    return (families&3U)==3U || (families&12U)==12U?0:-1;
+    if(!nf_closed_guard_only(b) || nf_native_verify(s,&b->guard,false))
+        return nf_gateway_start_error(s,"gateway DNS readiness: closed INPUT guard not verified");
+    if(nf_native_record_core(b))
+        return nf_gateway_start_error(s,"gateway DNS readiness: core identity not verified");
+    // Upstream core readiness can precede the additional direct inbound.
+    // Allow a short bounded observation window, never open INPUT on timeout.
+    const unsigned required=b->ipv6_nat_disabled?3U:15U;
+    unsigned families=0;int64_t start=0,now=0;
+    if(asteriskd_supervisor_runtime_clock(s,&start))
+        return nf_gateway_start_error(s,"gateway DNS readiness: clock unavailable");
+    for(unsigned attempt=0;attempt<31U;attempt++) {
+        if(s->stop_requested || s->core_reaped || nf_native_record_core(b))
+            return nf_gateway_start_error(s,"gateway DNS readiness: core stopped or identity changed");
+        if(!nf_gateway_socket_observe(s,b->wal.port,&families) && (families&required)==required) {
+            if(nf_native_verify(s,&b->guard,false) || nf_native_record_core(b))
+                return nf_gateway_start_error(s,"gateway DNS readiness: guard or identity changed");
+            (void)asteriskd_log_line(&s->logger,ASTERISKD_LOG_LEVEL_INFO,ASTERISKD_COMPONENT_CORE,
+                ASTERISKD_LOG_EVENT_DIAGNOSTIC,"gateway DNS readiness: owned TCP and UDP sockets verified");
+            return 0;
+        }
+        if(asteriskd_supervisor_runtime_clock(s,&now) || now<start || now-start>=1500 || attempt==30U)break;
+        usleep(50000U);
+    }
+    return nf_gateway_start_error(s,"gateway DNS readiness: owned TCP/UDP listener verification timed out");
 }
 /* Capture the actual address set, not just a reused interface name.
  * The Android caller still owns the classification of trusted downstreams.
@@ -739,22 +757,50 @@ int nf_gateway_runtime_reconcile(struct asteriskd_system_supervisor *s) {
 
 int nf_gateway_runtime_after_core_stop(struct asteriskd_system_supervisor *s) {
     struct nf_native_backend *b=s->nf_gateway_session;if(!b)return 0;
-    if(!b->wal_ready || b->nat.owned || b->nat.plan.private_group_count ||
-       (s->core_spawned && !s->core_reaped) ||
+    if(!b->wal_ready)
+        return nf_gateway_start_error(s,"gateway DNS cleanup: journal not ready");
+    if(b->nat.owned || b->nat.plan.private_group_count)
+        return nf_gateway_start_error(s,"gateway DNS cleanup: NAT withdrawal incomplete");
+    if((s->core_spawned && !s->core_reaped) ||
        (s->core_spawned && !b->core_evidence_valid) ||
-       (b->core_evidence_valid && !nf_core_gone(&b->core_evidence)))return -1;
+       (b->core_evidence_valid && !nf_core_gone(&b->core_evidence)))
+        return nf_gateway_start_error(s,"gateway DNS cleanup: old core or process group not proven absent");
     if(!b->wal.debts && !b->guard.owned) {
-        // No owned mutation was committed. Never clear another owner's rules.
         nf_runtime_free(b);s->nf_gateway_session=NULL;return 0;
     }
-    if((b->guard.owned && !nf_closed_guard_only(b)) ||
-       nf_gateway_port_absent(b->wal.port) || nf_live_names_absence(s,true) ||
-       nf_gateway_ct_port_absent(b->wal.port) || nf_recovery_preflight(b,&b->guard) ||
-       nf_native_remove(b,&b->guard) || nf_reboot_live_absence(s) ||
-       nf_gateway_port_absent(b->wal.port) || b->wal.generation==UINT64_MAX)return -1;
+    if(b->guard.owned && !nf_closed_guard_only(b))
+        return nf_gateway_start_error(s,"gateway DNS cleanup: INPUT guard not closed");
+    if(nf_gateway_port_absent(b->wal.port))
+        return nf_gateway_start_error(s,"gateway DNS cleanup: listener absence not verified");
+    if(nf_live_names_absence(s,true))
+        return nf_gateway_start_error(s,"gateway DNS cleanup: NAT chains still present or unreadable");
+    if(nf_recovery_preflight(b,&b->guard))
+        return nf_gateway_start_error(s,"gateway DNS cleanup: guard ownership not verified");
+    // Brief bounded drain for expiring mappings. A positive result is busy;
+    // an unreadable dump is not absence and must never authorize removal.
+    int ct=nf_gateway_ct_port_absent(b->wal.port);
+    for(unsigned attempt=0;ct==1 && attempt<6U;attempt++) {
+        usleep(250000U);
+        ct=nf_gateway_ct_port_absent(b->wal.port);
+    }
+    if(ct) return nf_gateway_start_error(s,ct==1?
+        "gateway DNS cleanup: conntrack mappings remain; closed guard and journal retained":
+        "gateway DNS cleanup: conntrack inspection failed; closed guard and journal retained");
+    if(nf_gateway_port_absent(b->wal.port) || nf_live_names_absence(s,true) ||
+       (b->core_evidence_valid && !nf_core_gone(&b->core_evidence)) ||
+       nf_recovery_preflight(b,&b->guard) || nf_gateway_ct_port_absent(b->wal.port))
+        return nf_gateway_start_error(s,"gateway DNS cleanup: final absence or ownership recheck failed");
+    if(nf_native_remove(b,&b->guard) || nf_reboot_live_absence(s) ||
+       nf_gateway_port_absent(b->wal.port) || b->wal.generation==UINT64_MAX)
+        return nf_gateway_start_error(s,"gateway DNS cleanup: final guard removal or verification failed");
     struct nf_wal_record clean=b->wal;clean.generation++;clean.debts=0;clean.epoch=0;clean.length=0;clean.payload=NULL;
-    if(nf_gateway_wal_save(b->wal_fd,&clean,b->wal.generation)) {b->wal_ready=false;return -1;}
-    nf_runtime_free(b);s->nf_gateway_session=NULL;return 0;
+    if(nf_gateway_wal_save(b->wal_fd,&clean,b->wal.generation)) {
+        b->wal_ready=false;return nf_gateway_start_error(s,"gateway DNS cleanup: clean journal commit failed");
+    }
+    nf_runtime_free(b);s->nf_gateway_session=NULL;
+    (void)asteriskd_log_line(&s->logger,ASTERISKD_LOG_LEVEL_INFO,ASTERISKD_COMPONENT_CORE,
+        ASTERISKD_LOG_EVENT_DIAGNOSTIC,"gateway DNS cleanup: verified complete");
+    return 0;
 }
 /* Destruction never claims cleanup success. An unresolved WAL survives. */
 void nf_gateway_runtime_dispose(struct asteriskd_system_supervisor *s) {
