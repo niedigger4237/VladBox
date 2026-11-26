@@ -236,11 +236,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
             val active = profile.id == selected
             io.nekohasekai.sagernet.ui.compose.RouteProfileTile(
                 profile.id, profile.name, active,
-                (if (active) DataStore.routeFinal else profile.routeFinal).let { final ->
-                    if (final == "proxy" && (profile.importedFinal ?: 0L) > 0L) {
-                        ProfileManager.getProfile(requireNotNull(profile.importedFinal))?.displayName() ?: "Missing Xray outbound"
-                    } else final
-                } + (profile.importedDns?.let { " · DNS: $it" } ?: ""),
+                if (active) DataStore.routeFinal else profile.routeFinal,
                 if (active) ruleAdapter.ruleList.size else profile.rules.size
             )
         }

@@ -68,7 +68,7 @@ object XrayJsonImport {
         return dialer.ifBlank { tag }
     }
 
-    fun parse(value: Any, fileName: String = "", onChains: ((List<ImportedChain>) -> Unit)? = null, onRoutes: ((List<XrayRouteImport.Plan>) -> Unit)? = null): List<AbstractBean> {
+    fun parse(value: Any, fileName: String = "", onChains: ((List<ImportedChain>) -> Unit)? = null): List<AbstractBean> {
         val outbounds = when (value) {
             is JSONObject -> if (value.has("outbounds")) objects(value.getJSONArray("outbounds")) else listOf(value)
             is JSONArray -> {
@@ -76,10 +76,8 @@ object XrayJsonImport {
                 if (entries.all { it.has("protocol") }) entries
                 else {
                     val chains = mutableListOf<ImportedChain>()
-                    val routes = mutableListOf<XrayRouteImport.Plan>()
-                    val beans = entries.flatMap { parse(it, fileName, if (onChains == null) null else { c -> chains.addAll(c); Unit }, if (onRoutes == null) null else { plans -> routes.addAll(plans); Unit }) }
+                    val beans = entries.flatMap { parse(it, fileName, if (onChains == null) null else { c -> chains.addAll(c); Unit }) }
                     if (chains.isNotEmpty()) onChains?.invoke(chains)
-                    if (routes.isNotEmpty()) onRoutes?.invoke(routes)
                     return beans
                 }
             }
@@ -178,43 +176,14 @@ object XrayJsonImport {
             bean
         }
         val chainNames = mutableSetOf<String>()
-        val chainsByIndex = mutableMapOf<Int, ImportedChain>()
         val chains = orders.mapIndexedNotNull { index, order ->
             if (order.size < 2) null else {
                 val name = beans[index].name + " (Chain)"
                 var unique = name
                 var suffix = 2
                 while (!chainNames.add(unique)) unique = "$name (${suffix++})"
-                ImportedChain(unique, order.map { beans[it] }).also { chainsByIndex[index] = it }
+                ImportedChain(unique, order.map { beans[it] })
             }
-        }
-        if (onRoutes != null && value is JSONObject && value.has("outbounds") && (value.has("routing") || value.has("dns"))) {
-            fun target(outbound: JSONObject): XrayRouteImport.Target {
-                return when (outbound.optString("protocol")) {
-                    "freedom" -> {
-                        val settings = obj(outbound, "settings")
-                        checkKeys(settings, setOf("domainStrategy"), "direct outbound")
-                        require(settings.optString("domainStrategy", "AsIs") in setOf("", "AsIs")) { "Unsupported Xray direct domain strategy" }
-                        require(!active(outbound.opt("streamSettings")) && !active(outbound.opt("sendThrough"))) { "Unsupported Xray direct socket policy" }
-                        XrayRouteImport.Target(special = -1L)
-                    }
-                    "blackhole" -> {
-                        val settings = obj(outbound, "settings")
-                        checkKeys(settings, setOf("response"), "block outbound")
-                        require(obj(settings, "response").optString("type", "none") == "none") { "Xray HTTP block response cannot be reproduced" }
-                        XrayRouteImport.Target(special = -2L)
-                    }
-                    "dns" -> throw IllegalArgumentException("Xray DNS outbound requires explicit DNS hijack conversion")
-                    else -> {
-                        val i = proxies.indexOfFirst { it === outbound }
-                        require(i >= 0) { "Unknown Xray outbound" }
-                        chainsByIndex[i]?.let { XrayRouteImport.Target(chain = it) } ?: XrayRouteImport.Target(bean = beans[i])
-                    }
-                }
-            }
-            val routeTags = tagged.filterValues { it.optString("protocol") != "dns" }.mapValues { target(it.value) }
-            val name = fileName.substringAfterLast('/').removeSuffix(".json").ifBlank { "Xray routing" }
-            XrayRouteImport.plan(value, name, routeTags, target(outbounds.first()))?.let { onRoutes(listOf(it)) }
         }
         if (chains.isNotEmpty()) {
             // Label inner components explicitly: selecting them individually omits their chain.

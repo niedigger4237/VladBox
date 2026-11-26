@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="xray_import_profiles_only">Исходящие подключения Xray импортированы как профили. DNS, входящие подключения и маршрутизация управляются приложением.</string>
-    <string name="xray_import_routes_saved">Профиль маршрутизации Xray сохранён неактивным. Выберите его в Route для использования импортированных правил и поддерживаемых настроек DNS.</string>
 </resources>
