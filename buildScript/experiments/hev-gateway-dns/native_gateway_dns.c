@@ -86,8 +86,9 @@ int nf_gateway_populate(struct asteriskd_system_supervisor *s,
     const struct asteriskd_private_chain_group *g, unsigned port, bool active) {
     if (!s || !g || (!s->rule_commands.active && !s->verify_private_rules)) return -1;
     const struct asteriskd_config *c = &s->loaded_config.config;
-    if (!nf_valid(c, port) || g->chain_id != ASTERISKD_CHAIN_DNS || g->name_count != 1U) return -1;
     bool guard = g->table == ASTERISKD_IP_TABLE_FILTER;
+    if (port < 1024U || port > 65535U || ((!guard || active) && !nf_valid(c, port)) ||
+        g->chain_id != ASTERISKD_CHAIN_DNS || g->name_count != 1U) return -1;
     if (!guard && (g->table != ASTERISKD_IP_TABLE_NAT || !active)) return -1;
     if (g->family != ASTERISKD_IP_FAMILY_IPV4 && g->family != ASTERISKD_IP_FAMILY_IPV6) return -1;
     const bool v6 = g->family == ASTERISKD_IP_FAMILY_IPV6;
