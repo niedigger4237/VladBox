@@ -44,7 +44,7 @@ object XhttpExtra {
 
     private fun range(value: Any?, name: String): Pair<Long, Long> {
         fun number(v: Any?): Long = v?.toString()?.toLongOrNull()
-            ?.takeIf { it in 0..Int.MAX_VALUE.toLong() }
+            ?.takeIf { it in 0L..Int.MAX_VALUE.toLong() }
             ?: throw IllegalArgumentException("Invalid XHTTP range: $name")
         val result = when (value) {
             is Map<*, *> -> {
@@ -179,6 +179,63 @@ object XhttpExtra {
             result["tls"] = tls
         }
         return result
+    }
+
+    /** Export shared Xray-compatible spelling, retaining sing-box-only extensions.
+     * Native-only download detour/TLS settings cannot be mapped losslessly. */
+    fun toShareExtra(extra: String?, mode: String, reality: Boolean): String {
+        if (extra.isNullOrBlank()) return ""
+        val original = JSONObject(extra)
+        // Preserve untouched Xray-style download objects including diagnostic fields.
+        if (original.has("downloadSettings")) return extra
+        val normalized = toSingBox(extra, mode, reality)
+        fun camel(key: String): String = special.entries.firstOrNull { it.value == key }?.key
+            ?: key.split('_').let { parts -> parts.first() + parts.drop(1).joinToString("") { it.replaceFirstChar { c -> c.uppercaseChar() } } }
+        val nativeOnly = setOf("domain_strategy", "trusted_x_forwarded_for", "congestion_controller", "cwnd")
+        fun transport(values: Map<*, *>): JSONObject = JSONObject().apply {
+            for ((k, v) in values) {
+                if (k !is String || k == "download") continue
+                if (k == "xmux" && v is Map<*, *>) {
+                    put("xmux", JSONObject().apply { for ((key, value) in v) if (key is String) put(camel(key), value) })
+                } else put(if (k in nativeOnly) k else camel(k), JSONObject.wrap(v))
+            }
+        }
+        val out = transport(normalized)
+        val d = normalized["download"] as? Map<*, *> ?: return out.toString()
+        val tls = d["tls"] as? Map<*, *>
+        val utls = tls?.get("utls") as? Map<*, *>
+        val pq = tls?.get("reality") as? Map<*, *>
+        val supportedTls = setOf("enabled", "server_name", "insecure", "alpn", "min_version", "max_version", "disable_sni", "utls", "reality")
+        val supportedReality = setOf("enabled", "public_key", "short_id", "support_x25519mlkem768", "require_x25519mlkem768", "mldsa65_verify")
+        if (d["detour"] != null || tls?.keys?.any { it !in supportedTls } == true ||
+            utls?.keys?.any { it !in setOf("enabled", "fingerprint") } == true ||
+            pq?.keys?.any { it !in supportedReality } == true) {
+            out.put("download", JSONObject(d))
+            return out.toString()
+        }
+        val stream = JSONObject().put("address", d["server"]).put("port", d["server_port"]).put("network", "xhttp")
+        val security = if (tls?.get("enabled") != true) "none" else if (pq?.get("enabled") == true) "reality" else "tls"
+        stream.put("security", security)
+        val settings = transport(d.filterKeys { it !in setOf("server", "server_port", "tls", "detour") })
+        stream.put("xhttpSettings", settings)
+        if (security != "none" && tls != null) {
+            val opts = JSONObject()
+            tls["server_name"]?.let { opts.put("serverName", it) }
+            if (utls?.get("enabled") == true) utls["fingerprint"]?.let { opts.put("fingerprint", it) }
+            if (security == "reality" && pq != null) {
+                opts.put("publicKey", pq["public_key"]).put("shortId", pq["short_id"])
+                pq["mldsa65_verify"]?.let { opts.put("mldsa65Verify", it) }
+                if (pq["require_x25519mlkem768"] == true) opts.put("supportX25519MLKEM768", true)
+                else if (pq["support_x25519mlkem768"] == false) opts.put("supportX25519MLKEM768", false)
+                stream.put("realitySettings", opts)
+            } else {
+                for ((key, name) in listOf("insecure" to "allowInsecure", "alpn" to "alpn", "min_version" to "minVersion", "max_version" to "maxVersion", "disable_sni" to "disableSNI"))
+                    tls[key]?.let { opts.put(name, JSONObject.wrap(it)) }
+                stream.put("tlsSettings", opts)
+            }
+        }
+        out.put("downloadSettings", stream)
+        return out.toString()
     }
 
     fun toSingBox(extra: String?, mode: String = "auto", reality: Boolean = false): Map<String, Any> {

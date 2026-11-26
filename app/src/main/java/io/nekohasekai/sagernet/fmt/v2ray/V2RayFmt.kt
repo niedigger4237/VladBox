@@ -476,7 +476,7 @@ fun VMessBean.toV2rayN(): String {
         fp = bean.utlsFingerprint
         if (bean.isTLS()) pinSHA256 = bean.tlsPubKeySha256
         if (bean.isTLS() && bean.realityPubKey.isNotBlank()) { pbk = bean.realityPubKey; sid = bean.realityShortId; pqv = bean.realityMldsa65Verify?.takeIf { it.isNotBlank() }; supportX25519MLKEM768 = realityHybridQueryValue(bean.effectiveRealityHybridMode()) }
-        if (net == "xhttp") { mode = bean.xhttpMode; extra = bean.xhttpExtra }
+        if (net == "xhttp") { mode = bean.xhttpMode; extra = XhttpExtra.toShareExtra(bean.xhttpExtra, bean.xhttpMode, bean.isTLS() && bean.realityPubKey.isNotBlank()) }
         if (net == "kcp") { type = bean.kcpHeader; seed = bean.kcpSeed }
         if (net == "ws") { ed = bean.wsMaxEarlyData; eh = bean.earlyDataHeaderName }
         network = bean.vlessNetwork
@@ -546,7 +546,7 @@ fun StandardV2RayBean.toUriVMessVLESSTrojan(isTrojan: Boolean): String {
             if (xhttpMode.isNotBlank() && xhttpMode != "auto") {
                 builder.addQueryParameter("mode", xhttpMode)
             }
-            if (xhttpExtra.isNotBlank()) builder.addQueryParameter("extra", xhttpExtra)
+            if (xhttpExtra.isNotBlank()) builder.addQueryParameter("extra", XhttpExtra.toShareExtra(xhttpExtra, xhttpMode, isTLS() && realityPubKey.isNotBlank()))
         }
     }
 

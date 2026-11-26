@@ -56,6 +56,7 @@ android {
 dependencies {
     implementation("com.caverock:androidsvg-aar:1.4")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 
     implementation(fileTree("libs"))
 
