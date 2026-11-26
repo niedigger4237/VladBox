@@ -223,28 +223,36 @@ static bool nf_family_active(const struct nf_native_slot *slot,const struct aste
 }
 static int nf_native_populate(struct asteriskd_system_supervisor *s,
         const struct asteriskd_private_chain_group *g,unsigned port,bool active,
-        uint32_t mark,uint32_t mask,bool authorized) {
+        uint32_t mark,uint32_t mask,bool authorized,const struct nf_gateway_targets *targets) {
     if(mark || mask) {
         if(!nf_gateway_mark_valid(mark,mask))return -1;
-        if(active)return nf_gateway_populate_marked(s,g,port,true,mark,mask,authorized);
+        if(active)return nf_gateway_populate_marked(s,g,port,true,mark,mask,authorized,targets);
     }
     // Recovery can close an owned guard without authorizing new mark writes.
-    return nf_gateway_populate(s,g,port,active);
+    return nf_gateway_populate(s,g,port,active,targets);
 }
-static int nf_native_render(struct asteriskd_system_supervisor *s,
+static int nf_native_render_targets(struct asteriskd_system_supervisor *s,
         struct nf_native_slot *slot,unsigned port,bool active,
-        uint32_t mark,uint32_t mask,bool authorized) {
+        uint32_t mark,uint32_t mask,bool authorized,const struct nf_gateway_targets *targets) {
     if (asteriskd_supervisor_rule_batch_begin(&s->rule_commands)!=0) return -1;
     int rc=0;
     for(size_t i=0;i<slot->plan.private_group_count;i++) {
         const struct asteriskd_private_chain_group *g=&slot->plan.private_groups[i];
-        if(nf_native_populate(s,g,port,nf_family_active(slot,g,active),mark,mask,authorized)!=0) {rc=-1;break;}
+        if(nf_native_populate(s,g,port,nf_family_active(slot,g,active),mark,mask,authorized,targets)!=0) {rc=-1;break;}
         const struct asteriskd_byte_buffer *b=&s->rule_commands.xtables[0][g->family][g->table];
         if(b->length && asteriskd_byte_buffer_append(&slot->pending[i],b->bytes,b->length)!=0) {rc=-1;break;}
     }
     asteriskd_supervisor_rule_batch_destroy(&s->rule_commands);
     return rc;
 }
+#ifdef NF_GATEWAY_HAS_FIXTURES
+static int __attribute__((unused)) nf_native_render(struct asteriskd_system_supervisor *s,
+        struct nf_native_slot *slot,unsigned port,bool active,
+        uint32_t mark,uint32_t mask,bool authorized) {
+    return nf_native_render_targets(s,slot,port,active,mark,mask,authorized,
+        nf_gateway_fixture(&s->loaded_config.config));
+}
+#endif
 static int nf_native_write(struct nf_native_backend *b,
         struct nf_native_slot *slot,unsigned port,bool guard,bool active) {
     struct asteriskd_system_supervisor *s=b->system;
@@ -272,14 +280,19 @@ static int nf_native_write(struct nf_native_backend *b,
         if(nf_native_classify(s,slot,i,!fresh,false)!=(fresh?0:1)) rc=-1;
     asteriskd_supervisor_rule_snapshot_destroy(&s->rule_snapshot);
     if(rc) return -1;
-    if(nf_native_render(s,slot,port,active,b->session_mark,b->session_mask,b->mark_authorized)!=0) goto render_failed;
+    struct nf_gateway_targets targets={0},current={0};
+    bool target_ipv6=!b->ipv6_nat_disabled && s->loaded_config.config.enable_ipv6;
+    if(!guard && nf_gateway_collect_targets(&s->loaded_config.config,target_ipv6,&targets)) goto render_failed;
+    if(nf_native_render_targets(s,slot,port,active,b->session_mark,b->session_mask,b->mark_authorized,&targets)!=0) goto render_failed;
     if(asteriskd_supervisor_rule_batch_begin(&s->rule_commands)!=0) goto render_failed;
     for(size_t i=0;i<slot->plan.private_group_count;i++) {
         const struct asteriskd_private_chain_group *g=&slot->plan.private_groups[i];
         if(asteriskd_supervisor_xtables_zero(s,g->family,g->table,fresh?"-N":"-F",g->names[0],NULL,0)!=0 ||
-           nf_native_populate(s,g,port,nf_family_active(slot,g,active),b->session_mark,b->session_mask,b->mark_authorized)!=0 ||
+           nf_native_populate(s,g,port,nf_family_active(slot,g,active),b->session_mark,b->session_mask,b->mark_authorized,&targets)!=0 ||
            (fresh && asteriskd_supervisor_apply_hook_group(s,&slot->plan.hook_groups[i])!=0)) {rc=-1;break;}
     }
+    if(!rc && !guard && (nf_gateway_collect_targets(&s->loaded_config.config,target_ipv6,&current) ||
+        !nf_gateway_targets_equal(&targets,&current))) rc=-1;
     if(!rc) {
         slot->owned=true;slot->pending_valid=true;
         rc=nf_native_checkpoint(b,guard?(active?NF_GUARD_OPEN:NF_GUARD_CLOSED):NF_NAT_INSTALL);
@@ -288,6 +301,8 @@ static int nf_native_write(struct nf_native_backend *b,
     asteriskd_supervisor_rule_batch_destroy(&s->rule_commands);
     if(!slot->pending_valid) goto render_failed;
     if(rc || nf_native_verify(s,slot,true)!=0) return -1;
+    if(!guard && (nf_gateway_collect_targets(&s->loaded_config.config,target_ipv6,&current) ||
+        !nf_gateway_targets_equal(&targets,&current))) return -1;
     for(size_t i=0;i<2;i++) {
         asteriskd_byte_buffer_destroy(&slot->expected[i]);slot->expected[i]=slot->pending[i];
         memset(&slot->pending[i],0,sizeof(slot->pending[i]));
