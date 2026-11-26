@@ -118,7 +118,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var rootDisableSystemIpv6 by configurationStore.boolean("rootDisableSystemIpv6") { true }
     var rootHevMultiQueue by configurationStore.boolean("rootHevMultiQueue") { true }
     var rootHevTcpFastOpen by configurationStore.boolean("rootHevTcpFastOpen") { true }
-    var rootFlowMetadata by configurationStore.boolean("rootFlowMetadata") { true }
+    var rootFlowMetadata by configurationStore.boolean("rootFlowMetadata") { false }
     var rootEbpfMatcher by configurationStore.boolean("rootEbpfMatcher") { true }
     var rootTproxyPort by configurationStore.stringToInt(Key.ROOT_TPROXY_PORT) { 9898 }
 
