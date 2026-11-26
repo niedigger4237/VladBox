@@ -805,3 +805,31 @@ alone cannot prove provenance or absence of redirected conntrack flows.
 Before enabling gateway capture, resolve flow ownership and drain,
 wire real lifecycle callbacks and verify the resulting build and behavior
 on Android. Do not advertise full same-boot recovery yet.
+
+## Read-only CTNETLINK GET
+
+gateway_netlink.c includes the existing exact delete request builder once
+and adds a real read-only NETLINK_NETFILTER transport for a single
+CT_GET with original TCP/UDP tuple and zone. A fresh unicast socket,
+bounded poll and receive, kernel sender address, local port, sequence,
+message type and framing checks are required. Both tuples and kernel ID,
+status, mark and zone are decoded. Missing default zone is interpreted as
+zero; direction-specific zones are rejected. Duplicate known attributes,
+truncated messages and a mismatched tuple/family/zone fail. Only a matching
+kernel ENOENT error means absent; any other failure is not absence.
+The native build now compiles gateway_netlink.c instead of gateway_conntrack.c.
+
+Host tests: PASS 32 netlink checks (synthetic IPv4/UDP and IPv6/TCP
+responses and malformed/error response cases), PASS 42 existing conntrack
+request checks. Standalone C17 -Wall -Wextra -Werror compile succeeded.
+Host supervisor link succeeded using the locally patched pinned sources
+and previously tested recovery/socket modules. The committed netlink blob
+matches the tested file. A real read-only GET returned -1 on the host,
+which lacks CAP_NET_ADMIN; no successful live conntrack observation was
+established. No DELETE was sent. Full Android NDK build remains untested.
+
+This transport is not a full conntrack inventory or proof of flow ownership.
+No live delete API, mark reservation, dump completeness guarantee or runtime
+call site is enabled. A complete verified inventory and exclusive session
+ownership are still necessary before deleting entries. Gateway DNS remains
+disabled. Avoid introducing a global conntrack flush as a workaround.
