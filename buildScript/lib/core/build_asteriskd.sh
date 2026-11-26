@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds asteriskd (the root supervisor from Asterisk4Magisk/asteriskd, GPL-3.0) for the root modes
 # and drops it into jniLibs as libasteriskd.so. Same flags as the upstream AsteriskBOX build.
-set -e
+set -eo pipefail
 source "buildScript/init/env.sh"
 
 ROOT="$(pwd)"
@@ -19,7 +19,12 @@ fi
 # Keep the downstream refresh staging primitive pinned to the same upstream
 # revision. Embed its patch so the existing native cache key covers every edit.
 ASTERISKD_PATCH=$(mktemp)
-trap 'rm -f "$ASTERISKD_PATCH"' EXIT
+ASTERISKD_WORK=$(mktemp -d)
+trap 'rm -f "$ASTERISKD_PATCH"; rm -rf "$ASTERISKD_WORK"' EXIT
+# Leave any cached checkout untouched. Later hook patches modify lines in
+# the base patch, so reverse-apply detection alone cannot safely reuse it.
+git -C "$SRC" archive "$ASTERISKD_COMMIT" | tar -x -C "$ASTERISKD_WORK"
+SRC="$ASTERISKD_WORK"
 cat > "$ASTERISKD_PATCH" <<'NIEFIGER_ASTERISKD_PATCH'
 diff --git a/supervisor/supervisor_xtables.c b/supervisor/supervisor_xtables.c
 --- a/supervisor/supervisor_xtables.c
@@ -576,6 +581,21 @@ for name, old, new in replacements:
         raise SystemExit("asteriskd gateway rule hook mismatch: " + name)
     path.write_text(source.replace(old, new, 1))
 NF_GATEWAY_RULE_HOOKS
+
+# Extend the existing app-owned downstream transaction, never run a second reactor.
+python3 - "$SRC" <<'NF_GATEWAY_TETHER_HOOKS'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+replacements = [["supervisor/supervisor.c","extern int nf_gateway_runtime_withdraw(struct asteriskd_system_supervisor *system);\n","extern int nf_gateway_runtime_withdraw(struct asteriskd_system_supervisor *system);\nextern int nf_gateway_runtime_refresh_begin(struct asteriskd_system_supervisor *system);\nextern int nf_gateway_runtime_refresh_finish(struct asteriskd_system_supervisor *system);\nextern int nf_gateway_runtime_reconcile(struct asteriskd_system_supervisor *system);\n"],["supervisor/supervisor.c","    system->rules_reconciling = true;\n    memcpy(c->hotspot_interfaces, r.names, sizeof(r.names));","    system->rules_reconciling = true;\n    if (nf_gateway_runtime_refresh_begin(system) != 0) {\n        system->rules_reconciling = false;\n        system->rules_verified = false;\n        system_nf_tether_ack(system, &r, \"rejected\");\n        return -1;\n    }\n    memcpy(c->hotspot_interfaces, r.names, sizeof(r.names));"],["supervisor/supervisor.c","        (bpf || asteriskd_supervisor_reconcile_hotspot_tc(system) == 0)) {\n        system->rules_reconciling = false;\n        system_nf_tether_ack(system, &r, \"applied\");","        (bpf || asteriskd_supervisor_reconcile_hotspot_tc(system) == 0)) {\n        if (nf_gateway_runtime_refresh_finish(system) != 0 ||\n            (c->nf_hev_gateway_dns_port && !system_nf_tether_links_current(&r))) {\n            (void)nf_gateway_runtime_withdraw(system);\n            system->rules_reconciling = false;\n            system->rules_verified = false;\n            system_nf_tether_ack(system, &r, \"rejected\");\n            return -1;\n        }\n        system->rules_reconciling = false;\n        system_nf_tether_ack(system, &r, \"applied\");"],["supervisor/supervisor.c","    rc = bpf ? niefiger_supervisor_refresh_bpf_tether(system, r.names, r.count)\n             : system_nf_tether_replace(system);\n    system->rules_reconciling = false;\n    if (rc != 0) {","    rc = bpf ? niefiger_supervisor_refresh_bpf_tether(system, r.names, r.count)\n             : system_nf_tether_replace(system);\n    if (rc == 0 && c->nf_hev_gateway_dns_port &&\n        (asteriskd_supervisor_reconcile_hotspot_tc(system) != 0 ||\n         nf_gateway_runtime_refresh_finish(system) != 0)) rc = -1;\n    system->rules_reconciling = false;\n    if (rc != 0) {"],["supervisor/supervisor.c","    if (system_nf_tether_refresh(system) != 0) return -1;\n    if (asteriskd_mode_core_managed(system->loaded_config.config.mode)) {","    if (system_nf_tether_refresh(system) != 0 || nf_gateway_runtime_reconcile(system) != 0) {\n        system->rules_verified = false;\n        return -1;\n    }\n    if (asteriskd_mode_core_managed(system->loaded_config.config.mode)) {"]]
+for name, old, new in replacements:
+    path = root / name
+    source = path.read_text()
+    if source.count(new) == 1:
+        continue
+    if source.count(old) != 1:
+        raise SystemExit("asteriskd gateway tether hook mismatch: " + name)
+    path.write_text(source.replace(old, new, 1))
+NF_GATEWAY_TETHER_HOOKS
 
 SOURCES=$(cd "$SRC" && find . -name '*.c' -not -path './.git/*' | LC_ALL=C sort)
 # Compile the HEV gateway backend with the pinned supervisor. Runtime activation
