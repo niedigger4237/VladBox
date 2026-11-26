@@ -29,8 +29,10 @@ object ServiceControl {
             })
     }
 
-    fun toJson(): JsonObject {
-        val master = enabled()
+    fun toJson(): JsonObject = buildJson(::b, ::t, android.os.Build.VERSION.SDK_INT)
+
+    internal fun buildJson(b: (String) -> Boolean, t: (String) -> String, sdk: Int): JsonObject {
+        val master = b("scEnabled")
         fun rule(name: String): JsonObject {
             val key = "scWifi_$name"
             val ssidInput = t("${key}_ssids")
@@ -68,7 +70,7 @@ object ServiceControl {
                 addProperty("enabled", WIFI_RULES.any { getAsJsonObject(it).get("enabled").asBoolean })
             })
             add("keyguard", JsonObject().apply {
-                val on = master && b("scKeyguard") && android.os.Build.VERSION.SDK_INT >= 33
+                val on = master && b("scKeyguard") && sdk >= 33
                 addProperty("enabled", on && (b("scLockStart") || b("scLockStop") || b("scUnlockStart") || b("scUnlockStop")))
                 addProperty("lockStart", on && b("scLockStart") && !b("scLockStop"))
                 addProperty("lockStop", on && b("scLockStop"))
