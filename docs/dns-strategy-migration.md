@@ -731,3 +731,36 @@ gateway modules. The complete downstream Android NDK build, real
 iptables inspection and on-device reboot tests have not been performed.
 Same-boot automatic cleanup still requires real old process/flow
 identity and deletion callbacks. Gateway inbound remains disabled.
+
+## Same-boot recovery before gateway core spawn
+
+A certified pre-core checkpoint (NFFW01 byte 7 = 1) is now emitted only
+after the gateway reservation callback succeeds for a clean new session.
+The future supervisor integration must invoke that reservation before any
+gateway listener/core spawn; no alternate spawn path may bypass this
+contract. Before invoking NF_START_CORE, the adapter clears certification
+and durably records core cleanup debt. Guard opening and NAT publication
+are rejected while pre-core or without core debt. A failure to checkpoint
+prevents the spawn callback. Older uncertified checkpoints do not qualify
+for same-boot recovery.
+
+The existing production startup reconciliation now also attempts same-boot
+recovery of certified closed-guard-only records, with no epoch, NAT or
+core/flow debt. It reconstructs and verifies the old guard, removes only
+known rules through the existing native backend, checks absence of all
+four chain names, then commits a clean generation. Ambiguous records,
+active-session debt and failed cleanup retain the startup fence. No
+conntrack deletion or old process termination is attempted.
+
+Host checks using supplied pinned source: PASS 28 pre-core tests, PASS 31
+reboot, PASS 32 recovery, PASS 27 admission, PASS 26 backend. The pre-core
+tests exercise real journal files and simulated guard removal/spawn
+callbacks. The source also compiles with GCC C17 -Wall -Wextra -Werror and
+links with the host supervisor including its previously patched admission
+call. The committed source blob hashes match the tested local files.
+Full downstream Android NDK build and live firewall tests remain undone.
+The gateway runtime producer is still not enabled; this recovery path
+does not constitute active gateway hijacking or recovery of running
+sessions. Next work must implement actual durable child/flow provenance,
+or choose an alternative design that avoids the shared conntrack problem,
+then wire runtime call sites and validate on Android.
