@@ -1218,3 +1218,49 @@ NF_RUNTIME_SESSION_HOST_TEST assertions are committed but not run.
 No full adapter link, NDK/APK build, privileged firewall operation or
 Android test was performed. Dynamic tethering and a trustworthy
 marked cleanup contract remain necessary before user activation.
+
+## Dynamic downstream changes through the existing reactor
+
+The native-only gateway experiment now participates in the existing
+nf-tether-request / nf-tether-ack transaction. Before changing selectors,
+it closes INPUT, removes its owned NAT and checks for the absence of
+old conntrack mappings. New REDIRECT is published only after upstream
+rules and hotspot TC reconciliation succeed; the request ifindices
+are checked again before an applied ACK. A failed publication attempts
+withdrawal and returns a lifecycle failure; rollback to the old
+selectors also requires verified gateway republish. Disabled gateway
+sessions take no-op hooks. The previous restrictions on hot refresh
+(service control, boot selectors and system IPv6 guard) remain intact.
+
+A live snapshot records exact selected names, ifindices and the
+canonical set of IPv4/IPv6 interface addresses and netmasks, with a
+bounded 32 addresses per interface. Publication compares snapshots
+before/after rules, and ordinary reconcile verifies the published
+snapshot, owned firewall and core listeners. Unexplained drift
+withdraws the gateway and reports failure instead of adopting an
+unclassified interface. Role classification is still supplied by
+the existing Android downstream discovery. A busy or unreadable
+conntrack table rejects hot refresh and can require the normal
+stop/restart path; this is not seamless dynamic marked cleanup.
+No targeted CTNETLINK DELETE is authorized in this runtime path.
+
+Build patching now uses a fresh temporary git archive of the already
+pinned asteriskd commit. This prevents later substitutions inside
+the base patch from breaking reverse-apply detection on cached
+checkouts, without modifying that checkout. The temporary export
+is removed on exit. The full build script has not been executed.
+
+Local validation this turn: extracted the new link snapshot helpers
+into a C17 harness using the pinned supervisor headers and stubbed
+eligibility; 26 checks passed, including a read-only observation
+of a real host interface, name/ifindex/address/mask drift and
+canonical ordering. A separate C17 harness containing the patched
+hot refresh function with simulated effects passed 13 checks
+(success, begin failure, publication failure, stale links, rollback
+and disabled path). Both compiled with -Wall -Wextra -Werror.
+The fresh archive and git apply mechanism was tested in a disposable
+local Git repository. These are isolated tests, not a full branch
+link or Android build. Additional runtime host assertions were
+committed but the complete test unit was not executed. The native
+opt-in still is not emitted by the Android app. Service Control,
+boot integration and real marked ownership remain outstanding.
