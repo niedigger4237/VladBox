@@ -118,16 +118,22 @@ fun parseHysteria2(url: String): HysteriaBean {
 //        link.queryParameter("downmbps")?.also {
 //            downloadMbps = it.toIntOrNull() ?: downloadMbps
 //        }
-        link.queryParameter("pinSHA256")?.takeIf { it.isNotBlank() }?.let {
-            quicTlsOptions = org.json.JSONObject().put("certificate_public_key_sha256", org.json.JSONArray(listOf(it))).toString()
+        // Hysteria2 pinSHA256 hashes the entire certificate, not its public key.
+        // The currently pinned sing-box core supports only SPKI pinning.
+        require(link.queryParameterValues("pinSHA256").none { !it.isNullOrBlank() }) {
+            "Hysteria2 certificate pinSHA256 is not supported by this core; use a trusted certificate or an explicit public-key pin"
+        }
+        val publicKeyPins = link.queryParameterValues("certificate_public_key_sha256").filterNotNull()
+        if (publicKeyPins.isNotEmpty()) {
+            require(publicKeyPins.all { pin ->
+                runCatching { android.util.Base64.decode(pin, android.util.Base64.DEFAULT).size == 32 }.getOrDefault(false)
+            }) { "Invalid Hysteria2 public-key SHA-256 pin" }
+            quicTlsOptions = org.json.JSONObject().put("certificate_public_key_sha256", org.json.JSONArray(publicKeyPins)).toString()
         }
         link.queryParameter("obfs")?.also { hy2ObfsType = it }
         link.queryParameter("obfs-password")?.also {
             obfuscation = it
         }
-//        link.queryParameter("pinSHA256")?.also {
-//            // TODO your box do not support it
-//        }
     }
 }
 
@@ -186,9 +192,10 @@ fun HysteriaBean.toUri(): String {
         if (sni.isNotBlank()) {
             builder.addQueryParameter("sni", sni)
         }
-    org.json.JSONObject(quicTlsOptions.ifBlank { "{}" }).optJSONArray("certificate_public_key_sha256")?.let { pins ->
-        if (pins.length() == 1) builder.addQueryParameter("pinSHA256", pins.getString(0))
-    }
+        org.json.JSONObject(quicTlsOptions.ifBlank { "{}" }).optJSONArray("certificate_public_key_sha256")?.let { pins ->
+            for (index in 0 until pins.length())
+                builder.addQueryParameter("certificate_public_key_sha256", pins.getString(index))
+        }
         if (obfuscation.isNotBlank()) {
             builder.addQueryParameter("obfs", hy2ObfsType)
             builder.addQueryParameter("obfs-password", obfuscation)
