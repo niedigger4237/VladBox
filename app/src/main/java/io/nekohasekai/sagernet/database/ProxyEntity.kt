@@ -308,7 +308,7 @@ data class ProxyEntity(
                 }
 
                 for ((chain) in config.externalIndex) {
-                    chain.entries.forEachIndexed { index, (port, profile) ->
+                    chain.entries.forEach { (port, profile) ->
                         when (val bean = profile.requireBean()) {
                             is TrojanGoBean -> {
                                 append("\n\n")

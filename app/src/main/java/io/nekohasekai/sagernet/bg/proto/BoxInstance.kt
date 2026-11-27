@@ -53,7 +53,7 @@ abstract class BoxInstance(
     open suspend fun init() {
         buildConfig()
         for ((chain) in config.externalIndex) {
-            chain.entries.forEachIndexed { index, (port, profile) ->
+            chain.entries.forEach { (port, profile) ->
                 when (val bean = profile.requireBean()) {
                     is TrojanGoBean -> {
                         initPlugin("trojan-go-plugin")
@@ -90,10 +90,9 @@ abstract class BoxInstance(
         cacheDir.mkdirs()
 
         for ((chain) in config.externalIndex) {
-            chain.entries.forEachIndexed { index, (port, profile) ->
+            chain.entries.forEach { (port, profile) ->
                 val bean = profile.requireBean()
-                val needChain = index != chain.size - 1
-                val (profileType, config) = pluginConfigs[port] ?: (0 to "")
+                val config = pluginConfigs[port]?.second.orEmpty()
 
                 when {
                     externalInstances.containsKey(port) -> {

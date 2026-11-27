@@ -526,7 +526,7 @@ fun buildConfig(
                     var needExternal = true
                     if (index == profileList.lastIndex) {
                         val pluginId = when (bean) {
-                            is HysteriaBean -> if (bean.protocolVersion == 1) "hysteria-plugin" else "hysteria2-plugin"
+                            is HysteriaBean -> "hysteria-plugin" // Only Hysteria 1 has an external fallback.
                             else -> ""
                         }
                         if (Plugins.isUsingMatsuriExe(pluginId)) {

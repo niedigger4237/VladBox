@@ -41,7 +41,6 @@ fun NaiveProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                 }
                 item { Button(onClick = onSave, enabled = valid, modifier = Modifier.fillMaxWidth()) { Text("Save profile") } }
             } else item {
-                val current = revision
                 SimpleSection(section) {
                     when(section) {
                         "General" -> {
