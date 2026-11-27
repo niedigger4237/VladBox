@@ -549,6 +549,8 @@
     <string name="set_panel_url">Set panel URL</string>
     <string name="enable_clash_api">Enable Clash API</string>
     <string name="log_level">Log Level</string>
+    <string name="clear_logs_on_connect">Clear logs on connect</string>
+    <string name="clear_logs_on_connect_summary">Clear the previous application log before starting a new VPN or ROOT session. Android system logs are not cleared.</string>
     <string name="enable_clash_api_summary">Provide clash api and yacd dashboard at 127.0.0.1:9090</string>
     <string name="xtls_flow">Flow (VLESS Sub-protocol)</string>
     <string name="ads">Ads</string>

@@ -70,6 +70,7 @@ object Key {
     const val WAKE_RESET_CONNECTIONS = "wakeResetConnections"
     const val RULES_PROVIDER = "rulesProvider"
     const val LOG_LEVEL = "logLevel"
+    const val CLEAR_LOGS_ON_CONNECT = "clearLogsOnConnect"
     const val LOG_BUF_SIZE = "logBufSize"
     const val MTU = "mtu"
     const val ALWAYS_SHOW_ADDRESS = "alwaysShowAddress"

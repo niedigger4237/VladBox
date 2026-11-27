@@ -164,6 +164,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var geositeSrsSource by configurationStore.string("geositeSrsSource")
     var logLevel by configurationStore.stringToInt(Key.LOG_LEVEL) { 2 }
     var logBufSize by configurationStore.int(Key.LOG_BUF_SIZE) { 0 }
+    var clearLogsOnConnect by configurationStore.boolean(Key.CLEAR_LOGS_ON_CONNECT) { true }
     var acquireWakeLock by configurationStore.boolean(Key.ACQUIRE_WAKE_LOCK)
 
     // hopefully hashCode = mHandle doesn't change, currently this is true from KitKat to Nougat

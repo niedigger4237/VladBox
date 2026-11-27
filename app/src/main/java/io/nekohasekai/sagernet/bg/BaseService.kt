@@ -524,6 +524,18 @@ class BaseService {
                     // A destroyed ROOT service may still be completing native
                     // cleanup. Wait before touching any processes or configuration.
                     if (this@Interface is RootService) this@Interface.awaitPreviousCleanup()
+
+                    // Clear only our app's log, after previous-session cleanup and
+                    // before the new core emits its startup diagnostics. Never clear
+                    // Android logcat or erase logs on a mere network reset.
+                    if (DataStore.clearLogsOnConnect) {
+                        try {
+                            libcore.Libcore.nekoLogClear()
+                            Logs.i("New session: application log cleared")
+                        } catch (e: Exception) {
+                            Logs.w("Could not clear application log", e)
+                        }
+                    }
                     Executable.killAll()    // clean up old processes
                     markRootStartup("cleanup plugins")
                     preInit()

@@ -237,6 +237,8 @@
 <string name="license">Лицензия</string>
 <string name="lines">%d строк</string>
 <string name="log_level">Тип журнала</string>
+<string name="clear_logs_on_connect">Очищать журнал при подключении</string>
+<string name="clear_logs_on_connect_summary">Удалять предыдущий журнал приложения перед запуском новой VPN или ROOT-сессии. Системный журнал Android не очищается.</string>
 <string name="log_level_help">Удерживайте для настройки размера буфера.</string>
 <string name="logcat">Экспорт отладочной информации</string>
 <string name="mal_close">Закрыть</string>
