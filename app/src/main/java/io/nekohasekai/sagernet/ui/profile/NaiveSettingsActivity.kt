@@ -25,6 +25,7 @@ class NaiveSettingsActivity : ProfileSettingsActivity<NaiveBean>() {
         DataStore.serverHeaders = extraHeaders
         DataStore.serverInsecureConcurrency = insecureConcurrency
         DataStore.profileCacheStore.putBoolean("sUoT", sUoT)
+        DataStore.profileCacheStore.putString("naiveMemoryProfile", memoryProfile)
     }
 
     override fun NaiveBean.serialize() {
@@ -39,6 +40,7 @@ class NaiveSettingsActivity : ProfileSettingsActivity<NaiveBean>() {
         extraHeaders = DataStore.serverHeaders.replace("\r\n", "\n")
         insecureConcurrency = DataStore.serverInsecureConcurrency
         sUoT = DataStore.profileCacheStore.getBoolean("sUoT")
+        memoryProfile = DataStore.profileCacheStore.getString("naiveMemoryProfile") ?: "automatic"
     }
 
     override fun PreferenceFragmentCompat.createPreferences(savedInstanceState: Bundle?, rootKey: String?) {

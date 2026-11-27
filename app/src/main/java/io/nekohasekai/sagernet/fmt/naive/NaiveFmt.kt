@@ -67,6 +67,7 @@ internal fun buildNativeNaiveOutbound(bean: NaiveBean): moe.matsuri.nb4a.SingBox
         _hack_config_map["password"] = bean.password
         if (bean.proto == "quic") _hack_config_map["quic"] = true
         if (bean.insecureConcurrency > 0) _hack_config_map["insecure_concurrency"] = bean.insecureConcurrency
+        _hack_config_map.putAll(NaiveMemoryPolicy.options(bean.proto, bean.memoryProfile))
         val headers = linkedMapOf<String, List<String>>()
         for (line in bean.extraHeaders.lineSequence().filter { it.isNotBlank() }) {
             val colon = line.indexOf(':')

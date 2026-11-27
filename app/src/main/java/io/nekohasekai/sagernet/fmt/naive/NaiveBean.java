@@ -22,6 +22,7 @@ public class NaiveBean extends AbstractBean {
     public String sni;
     public String certificates;
     public Integer insecureConcurrency;
+    public String memoryProfile;
 
     // sing-box socks
     public Boolean sUoT;
@@ -38,11 +39,12 @@ public class NaiveBean extends AbstractBean {
         if (sni == null) sni = "";
         if (insecureConcurrency == null) insecureConcurrency = 0;
         if (sUoT == null) sUoT = false;
+        if (memoryProfile == null) memoryProfile = "automatic";
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(3);
+        output.writeInt(4);
         super.serialize(output);
         output.writeString(proto);
         output.writeString(username);
@@ -53,6 +55,7 @@ public class NaiveBean extends AbstractBean {
         output.writeString(sni);
         output.writeInt(insecureConcurrency);
         output.writeBoolean(sUoT);
+        output.writeString(memoryProfile);
     }
 
     @Override
@@ -73,6 +76,7 @@ public class NaiveBean extends AbstractBean {
         if (version >= 3) {
             sUoT = input.readBoolean();
         }
+        if (version >= 4) memoryProfile = input.readString();
     }
 
     @NotNull

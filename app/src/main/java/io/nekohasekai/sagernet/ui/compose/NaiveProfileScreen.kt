@@ -64,6 +64,13 @@ fun NaiveProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                             SimpleField("Extra HTTP headers",DataStore.serverHeaders) { DataStore.serverHeaders = it; revision++ }
                             var concurrency by rememberSaveable { mutableStateOf(DataStore.serverInsecureConcurrency.toString()) }
                             SimpleField("Insecure concurrency",concurrency) { concurrency = it; DataStore.serverInsecureConcurrency = it.toIntOrNull() ?: -1; revision++ }
+                            Text("Use 0 (automatic) or 1 for a single Cronet engine. Higher concurrency creates additional engines and may increase memory use.",style = MaterialTheme.typography.bodySmall)
+                            Text("Memory profile", style = MaterialTheme.typography.titleMedium)
+                            ProfileChoices(listOf("automatic" to "Automatic", "low_memory" to "Low memory"),
+                                DataStore.profileCacheStore.getString("naiveMemoryProfile") ?: "automatic") {
+                                DataStore.profileCacheStore.putString("naiveMemoryProfile",it); revision++
+                            }
+                            Text("Low memory reduces receive windows and may reduce throughput on high-latency links. Automatic keeps the core defaults.",style = MaterialTheme.typography.bodySmall)
                             SimpleToggle("UDP over TCP",DataStore.profileCacheStore.getBoolean("sUoT",false)) { DataStore.profileCacheStore.putBoolean("sUoT",it); revision++ }
                             Text("UDP over TCP requires a compatible server (for example, sing-box Naive inbound). Leave disabled for Caddy forward_proxy.",style = MaterialTheme.typography.bodySmall)
                         }

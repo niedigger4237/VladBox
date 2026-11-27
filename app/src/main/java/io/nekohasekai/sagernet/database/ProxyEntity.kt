@@ -270,7 +270,8 @@ data class ProxyEntity(
             is ShadowTLSBean -> false
             is NekoBean -> false
             is ConfigBean -> false
-            is NaiveBean -> !bean.sUoT && bean.customOutboundJson.isBlank() && bean.customConfigJson.isBlank()
+            is NaiveBean -> !bean.sUoT && bean.memoryProfile == "automatic" &&
+                bean.customOutboundJson.isBlank() && bean.customConfigJson.isBlank()
             is HysteriaBean -> bean.canShareStandardLink()
             else -> true
         }
