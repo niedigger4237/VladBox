@@ -63,7 +63,7 @@ internal fun settingVisible(key: String?, mode: String, access: Access = Access.
     "tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet", "tetherCustom" ->
         mode == "vpn" || mode.startsWith("root_")
     "serviceControl", "startOnBoot", "rootCoreUpdate", "rootCoreImport", "rootCoreRollback", "rootCoreBundled", "rootDisableSystemIpv6" -> mode.startsWith("root_")
-    "meteredNetwork", "appendHttpProxy" -> mode == "vpn"
+    "meteredNetwork", "appendHttpProxy", "vpnInPlaceNetworkRefresh" -> mode == "vpn"
     "tunImplementation", "mtu" -> mode == "vpn" || mode == "root_tun" || mode == "root_tun2socks"
     else -> true
 }

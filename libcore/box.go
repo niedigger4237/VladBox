@@ -75,6 +75,8 @@ type BoxInstance struct {
 
 	*box.Box
 	cancel context.CancelFunc
+	ctx context.Context
+	networkRefreshCancel context.CancelFunc
 	state  int
 	managedDNSCacheLease *os.File
 
@@ -113,6 +115,7 @@ func NewSingBoxInstance(config string, localTransport LocalDNSTransport) (b *Box
 	b = &BoxInstance{
 		Box:          instance,
 		cancel:       cancel,
+		ctx:          ctx,
 		pauseManager: service.FromContext[pause.Manager](ctx),
 	}
 
@@ -150,6 +153,10 @@ func (b *BoxInstance) Close() (err error) {
 		return nil
 	}
 	b.state = 2
+	if b.networkRefreshCancel != nil {
+		b.networkRefreshCancel()
+		b.networkRefreshCancel = nil
+	}
 	if b.managedDNSCacheLease != nil {
 		// Retain the lease until Box.Close returns. The preflight also checks
 		// the DB's own flock if the native close did not release it.
@@ -171,6 +178,24 @@ func (b *BoxInstance) Close() (err error) {
 		b.Box.Close()
 	}
 
+	return nil
+}
+
+// RefreshNetwork closes tracked flows and notifies endpoint/outbound interface
+// listeners without tearing down the box, Android TUN or DNS cache lease.
+func (b *BoxInstance) RefreshNetwork() (err error) {
+	b.access.Lock()
+	defer b.access.Unlock()
+	defer device.DeferPanicToError("box.RefreshNetwork", func(err_ error) { err = err_ })
+	if b.state != 1 || b.Box == nil || b.ctx == nil || b.ctx.Err() != nil {
+		return errors.New("box is not running")
+	}
+	if b.networkRefreshCancel != nil {
+		b.networkRefreshCancel()
+	}
+	ctx, cancel := context.WithCancel(b.ctx)
+	b.networkRefreshCancel = cancel
+	b.Box.Network().ResetNetwork(ctx)
 	return nil
 }
 

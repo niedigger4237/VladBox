@@ -594,6 +594,8 @@
     <string name="mux_preference">Mulitplex</string>
     <string name="padding">Padding</string>
     <string name="network_change_reset_connections">Reset outbound connections when network changes</string>
+    <string name="vpn_in_place_network_refresh">Keep VPN running on network change</string>
+    <string name="vpn_in_place_network_refresh_summary">Refresh native core connections without restarting VPN. External plugins and raw JSON configurations use a full restart.</string>
     <string name="wake_reset_connections">Reset outbound connections when device wake from sleep</string>
     <string name="preview_version_hint">This is a preview build of NieFigger Hub. Some features may still be under development.</string>
     <string name="check_update_preview">Check for preview version updates</string>

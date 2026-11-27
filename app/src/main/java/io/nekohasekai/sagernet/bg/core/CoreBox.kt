@@ -30,6 +30,7 @@ class LibcoreBox(val raw: libcore.BoxInstance) : CoreBox {
     override fun queryStats(tag: String, direction: String): Long = raw.queryStats(tag, direction)
     override fun enableStats(tags: String) = raw.setV2rayStats(tags)
     override fun resetConnections() = Libcore.resetAllConnections(true)
+    fun refreshNetwork() = raw.refreshNetwork()
 }
 
 /** resets the connections of whichever core runs the current profile */

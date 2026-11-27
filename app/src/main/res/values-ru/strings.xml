@@ -291,6 +291,8 @@
 <string name="need_restart">Перезапустите приложение для применения изменений</string>
 <string name="network">Сеть</string>
 <string name="network_change_reset_connections">Сбросить исходящие соединения при изменении сети</string>
+<string name="vpn_in_place_network_refresh">Не перезапускать VPN при смене сети</string>
+<string name="vpn_in_place_network_refresh_summary">Обновлять соединения встроенного ядра при смене сети, сохраняя VPN. Для внешних плагинов и пользовательских JSON используется перезапуск.</string>
 <string name="night_mode">Ночной режим</string>
 <string name="no">Нет</string>
 <string name="no_proxies_found">В ссылке не найдено прокси-серверов</string>

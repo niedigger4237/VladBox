@@ -108,6 +108,7 @@ fun buildSettingsTree(manager: PreferenceManager): PreferenceScreen {
     category(R.string.cat_security) {
         addPreference(UrlTestPreference(ctx).apply { key = "connectionTestURL"; setTitle(R.string.connection_test_url); setDefaultValue("http://cp.cloudflare.com/"); summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance() })
         addPreference(SwitchPreference(ctx).apply { key = "networkChangeResetConnections"; setTitle(R.string.network_change_reset_connections); setDefaultValue(true) })
+        addPreference(SwitchPreference(ctx).apply { key = "vpnInPlaceNetworkRefresh"; setTitle(R.string.vpn_in_place_network_refresh); setSummary(R.string.vpn_in_place_network_refresh_summary); setDefaultValue(true) })
         addPreference(SwitchPreference(ctx).apply { key = "wakeResetConnections"; setTitle(R.string.wake_reset_connections) })
         addPreference(SwitchPreference(ctx).apply { key = "globalAllowInsecure"; setTitle(R.string.global_allow_insecure) })
         addPreference(SwitchPreference(ctx).apply { key = "allowInsecureOnRequest"; setTitle(R.string.allow_insecure_on_request_sum) })

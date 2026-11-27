@@ -67,6 +67,7 @@ object Key {
     const val CONNECTION_TEST_URL = "connectionTestURL"
 
     const val NETWORK_CHANGE_RESET_CONNECTIONS = "networkChangeResetConnections"
+    const val VPN_IN_PLACE_NETWORK_REFRESH = "vpnInPlaceNetworkRefresh"
     const val WAKE_RESET_CONNECTIONS = "wakeResetConnections"
     const val RULES_PROVIDER = "rulesProvider"
     const val LOG_LEVEL = "logLevel"

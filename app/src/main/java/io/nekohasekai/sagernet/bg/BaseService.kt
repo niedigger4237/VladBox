@@ -432,6 +432,30 @@ class BaseService {
                         if (data.proxy === owner && data.networkListenerKey === key &&
                             data.state == State.Connected && !lost && previous == network &&
                             DataStore.networkChangeResetConnections && DataStore.serviceMode == Key.MODE_VPN) {
+                            // Raw configurations and external processes may have their own
+                            // network lifecycle. Keep their proven full-restart path.
+                            val embedded = if (owner.isBoxInitialized())
+                                owner.box as? io.nekohasekai.sagernet.bg.core.LibcoreBox else null
+                            val refreshInPlace = DataStore.vpnInPlaceNetworkRefresh &&
+                                !owner.profile.isRawCoreConfig() &&
+                                owner.config.externalIndex.all { it.chain.isEmpty() } &&
+                                embedded != null
+                            if (refreshInPlace && embedded != null) {
+                                try {
+                                    withContext(Dispatchers.IO) { embedded.refreshNetwork() }
+                                    Logs.i("VPN reconnect: in-place network reset requested on $name ($network)")
+                                    data.networkReconnectJob = null
+                                    return@launch
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    Logs.w("VPN reconnect: in-place reset failed; falling back to restart", e)
+                                }
+                            }
+                            // A newer handover or stop may have arrived during the native call.
+                            if (data.proxy !== owner || data.networkListenerKey !== key ||
+                                data.state != State.Connected || lost || previous != network ||
+                                !DataStore.networkChangeResetConnections || DataStore.serviceMode != Key.MODE_VPN) return@launch
                             data.networkReconnectJob = null
                             Logs.i("VPN reconnect: restarting active session on $name ($network)")
                             stopRunner(restart = true)
