@@ -10,9 +10,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 fun parseTrojanGo(server: String): TrojanGoBean {
-    val link = server.replace("trojan-go://", "https://").toHttpUrlOrNull() ?: error(
-        "invalid trojan-link link $server"
-    )
+    val link = server.replace("trojan-go://", "https://").toHttpUrlOrNull() ?: error("Invalid Trojan-Go link")
     return TrojanGoBean().apply {
         serverAddress = link.host
         serverPort = link.port
@@ -42,9 +40,11 @@ fun parseTrojanGo(server: String): TrojanGoBean {
         link.queryParameter("plugin")?.let {
             plugin = it
         }
+        link.queryParameter("allowInsecure")?.let { allowInsecure = it == "1" || it.equals("true", true) }
         link.fragment.takeIf { !it.isNullOrBlank() }?.let {
             name = it
         }
+        initializeDefaultValues()
     }
 }
 
@@ -67,9 +67,10 @@ fun TrojanGoBean.toUri(): String {
             }
         }
     }
-    if (type.isNotBlank() && type != "none") {
+    if (encryption.isNotBlank() && encryption != "none") {
         builder.addQueryParameter("encryption", encryption)
     }
+    if (allowInsecure) builder.addQueryParameter("allowInsecure", "1")
     if (plugin.isNotBlank()) {
         builder.addQueryParameter("plugin", plugin)
     }
@@ -132,31 +133,41 @@ fun TrojanGoBean.buildTrojanGoConfig(port: Int): String {
 }
 
 fun JSONObject.parseTrojanGo(): TrojanGoBean {
+    val source = this
     return TrojanGoBean().applyDefaultValues().apply {
-        serverAddress = optString("remote_addr", serverAddress)
-        serverPort = optInt("remote_port", serverPort)
-        when (val pass = get("password")) {
-            is String -> {
-                password = pass
-            }
-            is List<*> -> {
-                password = pass[0] as String
-            }
+        serverAddress = source.getString("remote_addr")
+        serverPort = source.optInt("remote_port", 443)
+        require(serverAddress.isNotBlank() && serverPort in 1..65535) { "Invalid Trojan-Go server" }
+        password = when (val pass = source.get("password")) {
+            is String -> pass
+            is JSONArray -> pass.getString(0)
+            else -> error("Invalid Trojan-Go password")
         }
-        optJSONArray("ssl")?.apply {
-            sni = optString("sni", sni)
+        require(password.isNotEmpty()) { "Missing Trojan-Go password" }
+        source.optJSONObject("ssl")?.let { ssl ->
+            sni = ssl.optString("sni", sni)
+            allowInsecure = !ssl.optBoolean("verify", true)
         }
-        optJSONArray("websocket")?.apply {
-            if (optBoolean("enabled", false)) {
+        source.optJSONObject("websocket")?.let { ws ->
+            if (ws.optBoolean("enabled", false)) {
                 type = "ws"
-                host = optString("host", host)
-                path = optString("path", path)
+                host = ws.optString("host", host)
+                path = ws.optString("path", path)
             }
         }
-        optJSONArray("shadowsocks")?.apply {
-            if (optBoolean("enabled", false)) {
-                encryption = "ss;${optString("method", "")}:${optString("password", "")}"
+        source.optJSONObject("shadowsocks")?.let { ss ->
+            if (ss.optBoolean("enabled", false)) {
+                val method = ss.getString("method")
+                val secret = ss.getString("password")
+                require(method in listOf("aes-128-gcm", "aes-256-gcm", "chacha20-ietf-poly1305") && secret.isNotEmpty()) {
+                    "Unsupported Trojan-Go Shadowsocks encryption"
+                }
+                encryption = "ss;$method:$secret"
             }
         }
+        require(source.optJSONObject("mux")?.optBoolean("enabled", false) != true) {
+            "Trojan-Go JSON with enabled mux cannot be imported without losing mux settings"
+        }
+        initializeDefaultValues()
     }
 }

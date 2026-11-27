@@ -792,7 +792,7 @@ object RawUpdater : GroupUpdater() {
 
         if (json is JSONObject) {
             when {
-                json.has("server") && (json.has("up") || json.has("up_mbps")) -> {
+                json.has("server") && !json.has("type") && !json.has("server_port") && (json.has("up") || json.has("up_mbps")) -> {
                     return listOf(json.parseHysteria1Json())
                 }
 

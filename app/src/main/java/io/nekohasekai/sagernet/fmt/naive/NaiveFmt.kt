@@ -6,7 +6,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 fun parseNaive(link: String): NaiveBean {
     val proto = link.substringAfter("+").substringBefore(":")
     val url = ("https://" + link.substringAfter("://")).toHttpUrlOrNull()
-        ?: error("Invalid naive link: $link")
+        ?: error("Invalid NaiveProxy link")
     return NaiveBean().also {
         it.proto = proto
     }.apply {
@@ -26,7 +26,7 @@ fun parseNaive(link: String): NaiveBean {
 }
 
 fun NaiveBean.toUri(proxyOnly: Boolean = false): String {
-    val builder = linkBuilder().host(finalAddress).port(finalPort)
+    val builder = linkBuilder().host(if (proxyOnly) finalAddress else serverAddress).port(if (proxyOnly) finalPort else serverPort)
     if (username.isNotBlank()) {
         builder.username(username)
         if (password.isNotBlank()) {
