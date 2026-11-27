@@ -330,6 +330,9 @@ fun buildConfig(
                     }
                 }
             }
+            ProxyChainTransportPolicy.validate(profileList.asReversed().map { hop ->
+                describeChainTransport(hop)
+            })
             val chainTrafficSet = HashSet<ProxyEntity>().apply {
                 plusAssign(profileList)
                 add(entity)
