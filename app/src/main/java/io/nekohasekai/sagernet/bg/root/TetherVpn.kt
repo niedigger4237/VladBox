@@ -310,9 +310,11 @@ object TetherVpn {
             val snapshot = RootShell.run(
                 "set -e",
                 "$tool -w 3 -t filter -S FORWARD",
+                "$tool -w 3 -t filter -S $forward",
                 "$tool -w 3 -t nat -S PREROUTING",
                 "$tool -w 3 -t nat -S $pre",
                 "$tool -w 3 -t nat -S POSTROUTING",
+                "$tool -w 3 -t nat -S $post",
                 "$ip rule show",
                 "$ip route show table ${r.table}",
                 timeoutMs = 10000
@@ -326,6 +328,10 @@ object TetherVpn {
             if (lines.none { it == "default dev ${r.up}" || it.startsWith("default dev ${r.up} ") }) return false
             if (!TetherSnapshotChecks.hasDnsRedirects(lines, pre, downstreams.map { it.first }.toSet(), dns)) {
                 Logs.w("VPN tether: DNS redirect chain differs; repairing owned rules")
+                return false
+            }
+            if (!TetherSnapshotChecks.hasForwardingAndNat(lines, forward, post, r.up, downstreams)) {
+                Logs.w("VPN tether: forwarding or masquerade chain differs; repairing owned rules")
                 return false
             }
             return TetherSnapshotChecks.hasRouting(lines, r.up, r.table, r.pref, downstreams)
