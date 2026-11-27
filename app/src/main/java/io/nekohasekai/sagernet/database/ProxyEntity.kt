@@ -12,6 +12,7 @@ import io.nekohasekai.sagernet.fmt.http.toUri
 import io.nekohasekai.sagernet.fmt.hysteria.*
 import io.nekohasekai.sagernet.fmt.internal.ChainBean
 import io.nekohasekai.sagernet.fmt.mieru.MieruBean
+import io.nekohasekai.sagernet.fmt.mieru.toUri
 import io.nekohasekai.sagernet.fmt.naive.NaiveBean
 import io.nekohasekai.sagernet.fmt.naive.toUri
 import io.nekohasekai.sagernet.fmt.shadowsocks.*
@@ -263,12 +264,14 @@ data class ProxyEntity(
     }
 
     fun haveStandardLink(): Boolean {
-        return when (requireBean()) {
+        return when (val bean = requireBean()) {
             is SSHBean -> false
             is WireGuardBean -> false
             is ShadowTLSBean -> false
             is NekoBean -> false
             is ConfigBean -> false
+            is NaiveBean -> !bean.sUoT && bean.customOutboundJson.isBlank() && bean.customConfigJson.isBlank()
+            is HysteriaBean -> bean.canShareStandardLink()
             else -> true
         }
     }
@@ -281,6 +284,7 @@ data class ProxyEntity(
             is VMessBean -> toUriVMessVLESSTrojan(false)
             is TrojanBean -> toUriVMessVLESSTrojan(true)
             is TrojanGoBean -> toUri()
+            is MieruBean -> toUri()
             is NaiveBean -> toUri()
             is HysteriaBean -> toUri()
             is TuicBean -> toUri()

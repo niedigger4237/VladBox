@@ -12,9 +12,7 @@ import java.io.File
 
 // hysteria://host:port?auth=123456&peer=sni.domain&insecure=1|0&upmbps=100&downmbps=100&alpn=hysteria&obfs=xplus&obfsParam=123456#remarks
 fun parseHysteria1(url: String): HysteriaBean {
-    val link = url.replace("hysteria://", "https://").toHttpUrlOrNull() ?: error(
-        "invalid hysteria link $url"
-    )
+    val link = url.replace("hysteria://", "https://").toHttpUrlOrNull() ?: error("Invalid Hysteria link")
     return HysteriaBean().apply {
         protocolVersion = 1
         serverAddress = link.host
@@ -92,7 +90,9 @@ fun parseHysteria2(url: String): HysteriaBean {
         protocolVersion = 2
         serverAddress = link.host
         serverPorts = authorityPorts ?: link.port.toString()
-        authPayload = if (link.password.isNotBlank()) {
+        val rawAuthority = normalized.substringAfter("://").substringBefore("/").substringBefore("?").substringBefore("#")
+        val hasPasswordSeparator = rawAuthority.substringBeforeLast('@', "").contains(':')
+        authPayload = if (link.password.isNotEmpty() || hasPasswordSeparator) {
             link.username + ":" + link.password
         } else {
             link.username
@@ -141,7 +141,7 @@ fun HysteriaBean.toUri(): String {
     var un = ""
     var pw = ""
     if (protocolVersion == 2) {
-        if (authPayload.contains(":")) {
+        if (authPayload.contains(":") && !authPayload.endsWith(":")) {
             un = authPayload.substringBefore(":")
             pw = authPayload.substringAfter(":")
         } else {
@@ -202,6 +202,24 @@ fun HysteriaBean.toUri(): String {
         }
     }
     return builder.toLink(if (protocolVersion == 2) "hy2" else "hysteria")
+}
+
+/** Standard links contain connection essentials, not all client-specific options.
+ * Offer the universal profile link instead when a standard link would lose settings. */
+internal fun HysteriaBean.canShareStandardLink(): Boolean {
+    if (caText.isNotBlank() || outboundDialer.isNotBlank() ||
+        customOutboundJson.isNotBlank() || customConfigJson.isNotBlank() || hopInterval != 10) return false
+    val tls = runCatching { JSONObject(quicTlsOptions.ifBlank { "{}" }) }.getOrNull() ?: return false
+    if (protocolVersion == 1) {
+        return authPayloadType != HysteriaBean.TYPE_BASE64 && streamReceiveWindow == 0 &&
+            connectionReceiveWindow == 0 && !disableMtuDiscovery && tls.length() == 0
+    }
+    if (tls.keys().asSequence().any { it != "certificate_public_key_sha256" }) return false
+    return uploadMbps == 0 && downloadMbps == 0 &&
+        listOf(hy2BbrProfile, hy2HopIntervalMax, hy2GeckoMin, hy2GeckoMax, hy2Network,
+            hy2IdleTimeout, hy2KeepAlive, hy2StreamWindow, hy2ConnectionWindow, hy2MaxStreams,
+            hy2InitialPacket, hy2Realm).all { it.isBlank() } &&
+        !hy2BrutalDebug && !hy2DisableChrome && !hy2DisablePathMtu
 }
 
 fun JSONObject.parseHysteria1Json(): HysteriaBean {
