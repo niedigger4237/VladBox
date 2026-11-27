@@ -270,10 +270,12 @@ class BaseService {
             if (listener != null) runOnDefaultDispatcher {
                 DefaultNetworkListener.stop(listener)
             }
-            data.proxy?.close()
-            wakeLock?.apply {
-                release()
+            try {
+                data.proxy?.close()
+            } finally {
+                val lock = wakeLock
                 wakeLock = null
+                if (lock?.isHeld == true) lock.release()
             }
         }
 
