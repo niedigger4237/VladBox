@@ -60,17 +60,19 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean, fastHandshakeRetry: B
         if (bean.system) system = true
         if (bean.workers > 0) workers = bean.workers
         bean.udpTimeout.trim().takeIf { it.isNotEmpty() }?.let { udp_timeout = it }
+        require(bean.wgListenPort in 0..65535) { "Invalid WireGuard listen port" }
+        require(bean.persistentKeepalive in 0..65535) { "Invalid WireGuard keepalive" }
+        if (bean.wgListenPort > 0) _hack_config_map["listen_port"] = bean.wgListenPort
         peers = listOf(SingBoxOptions.Endpoint_WireGuardPeer().apply {
             address = bean.serverAddress
             port = bean.serverPort
             public_key = bean.peerPublicKey
             if (bean.peerPreSharedKey.isNotBlank()) pre_shared_key = bean.peerPreSharedKey
-            allowed_ips = listOf("0.0.0.0/0", "::/0")
-            if (bean.persistentKeepalive > 0) persistent_keepalive_interval = bean.persistentKeepalive
-            else if (fastHandshakeRetry && bean.isAmnezia && bean.serverAddress.isNotBlank() && bean.serverPort > 0) {
-                // A configured client peer must initiate a handshake even before user traffic.
-                persistent_keepalive_interval = 25
+            allowed_ips = bean.wgAllowedIps.listByLineOrComma().filter { it.isNotBlank() }.map { it.asPrefix() }.also {
+                require(it.isNotEmpty()) { "WireGuard Allowed IPs required" }
             }
+            // A zero interval explicitly disables periodic keepalive.
+            if (bean.persistentKeepalive > 0) persistent_keepalive_interval = bean.persistentKeepalive
         })
         if (!bean.isAmnezia) {
             if (bean.wgDialer.isNotBlank()) {
@@ -99,10 +101,8 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean, fastHandshakeRetry: B
                     } else native(value)?.let { _hack_config_map[key] = it }
                 }
             }
-            require(bean.wgListenPort in 0..65535) { "Invalid WireGuard listen port" }
             require(bean.wgUdpNatMax >= 0 && bean.wgBuffers >= 0) { "Invalid WireGuard resource limits" }
             if (bean.system && bean.wgInterfaceName.isNotBlank()) _hack_config_map["name"] = bean.wgInterfaceName.trim()
-            if (bean.wgListenPort > 0) _hack_config_map["listen_port"] = bean.wgListenPort
             val natModes = setOf("endpoint_independent", "address_dependent", "address_and_port_dependent")
             listOf("udp_mapping" to bean.wgUdpMapping, "udp_filtering" to bean.wgUdpFiltering).forEach { (key, value) ->
                 if (value.isNotBlank()) {
@@ -113,9 +113,6 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean, fastHandshakeRetry: B
             if (bean.wgUdpNatMax > 0) _hack_config_map["udp_nat_max"] = bean.wgUdpNatMax
             if (bean.wgBuffers > 0) _hack_config_map["preallocated_buffers_per_pool"] = bean.wgBuffers
             if (bean.wgDisablePauses) _hack_config_map["disable_pauses"] = true
-            peers.first().allowed_ips = bean.wgAllowedIps.listByLineOrComma().filter { it.isNotBlank() }.map { it.asPrefix() }.also {
-                require(it.isNotEmpty()) { "WireGuard Allowed IPs required" }
-            }
             if (bean.wgExtraPeers.isNotBlank()) {
                 val extra = org.json.JSONArray(bean.wgExtraPeers)
                 peers = peers + (0 until extra.length()).map { index ->

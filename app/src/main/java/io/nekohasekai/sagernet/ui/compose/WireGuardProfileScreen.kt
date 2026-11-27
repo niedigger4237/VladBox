@@ -37,8 +37,8 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
         read("workers").toIntOrNull()?.let { it >= 0 } != true -> "Invalid workers value."
         read("persistentKeepalive").toIntOrNull()?.let { it in 0..65535 } != true -> "Invalid keepalive."
         !awg && runCatching { org.json.JSONObject(read("wgDialer").ifBlank { "{}" }) }.isFailure -> "Invalid dialer JSON."
-        !awg && read("wgAllowedIps").isBlank() -> "Allowed IPs are required."
-        !awg && read("wgListenPort").toIntOrNull()?.let { it in 0..65535 } != true -> "Invalid listen port."
+        read("wgAllowedIps").isBlank() -> "Allowed IPs are required."
+        read("wgListenPort").toIntOrNull()?.let { it in 0..65535 } != true -> "Invalid listen port."
         awg && awgNumbers.any { read(it).toIntOrNull()?.let { n -> n >= 0 } != true } -> "Invalid AmneziaWG numeric parameter."
         awg && (read("awgJmin").toIntOrNull() ?: 0) > (read("awgJmax").toIntOrNull() ?: 0) -> "Jmin must not exceed Jmax."
         awg && awgNumbers.none { (read(it).toIntOrNull() ?: 0) > 0 } && awgTexts.none { read(it).isNotBlank() } && !checked("awgRandomTrailers") && !checked("awgDisableCookies") -> "Configure AmneziaWG parameters before saving."
@@ -97,7 +97,7 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
                 WgText("Private key",read("privateKey"),true) { write("privateKey",it) }
                 WgToggle("System interface",checked("system")) { toggle("system",it) }
                 if (!awg && checked("system")) WgText("Interface name",read("wgInterfaceName")) { write("wgInterfaceName",it) }
-                if (!awg) WgText("Listen port",read("wgListenPort")) { write("wgListenPort",it) }
+                WgText("Listen port",read("wgListenPort")) { write("wgListenPort",it) }
                 WgText("MTU",read("mtu")) { write("mtu",it) }
                 WgText("Workers",read("workers")) { write("workers",it) }
             }
@@ -108,7 +108,7 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
                 WgText("Endpoint port",read("serverPort")) { write("serverPort",it) }
                 WgText("Public key",read("peerPublicKey")) { write("peerPublicKey",it) }
                 WgText("Pre-shared key",read("peerPreSharedKey"),true) { write("peerPreSharedKey",it) }
-                if (!awg) WgText("Allowed IPs",read("wgAllowedIps")) { write("wgAllowedIps",it) }
+                WgText("Allowed IPs",read("wgAllowedIps")) { write("wgAllowedIps",it) }
                 WgText("Persistent keepalive",read("persistentKeepalive")) { write("persistentKeepalive",it) }
                 WgText("Reserved (compatibility only)",read("reserved")) { write("reserved",it) }
                 if (!awg) WgPeers(read("wgExtraPeers")) { write("wgExtraPeers",it) }

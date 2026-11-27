@@ -72,8 +72,6 @@ object WireGuardConf {
             }
             if (isAmnezia) {
                 require(peers.size == 1) { "Multiple AmneziaWG peers are not supported by the current editor" }
-                require(wgAllowedIps.split(',').map { it.trim() }.toSet() == setOf("0.0.0.0/0","::/0")) { "AmneziaWG custom AllowedIPs are not supported by the current generator" }
-                if (wgListenPort > 0) warnings.add("AmneziaWG ListenPort is not applied by the current generator.")
             }
         }
         return ImportResult(bean,warnings.distinct())
@@ -88,7 +86,7 @@ object WireGuardConf {
             appendLine("PrivateKey = ${clean(bean.privateKey)}")
             appendLine("Address = ${list(bean.localAddress)}")
             appendLine("MTU = ${bean.mtu}")
-            if (!bean.isAmnezia && bean.wgListenPort > 0) appendLine("ListenPort = ${bean.wgListenPort}")
+            if (bean.wgListenPort > 0) appendLine("ListenPort = ${bean.wgListenPort}")
             if (bean.reserved.isNotBlank()) appendLine("Reserved = ${clean(bean.reserved)}")
             if (bean.isAmnezia) {
                 for ((key, field) in awgInts) {
@@ -113,7 +111,7 @@ object WireGuardConf {
                 appendLine("AllowedIPs = ${list(ips)}")
                 if (keepalive > 0) appendLine("PersistentKeepalive = $keepalive")
             }
-            addPeer(bean.serverAddress,bean.serverPort,bean.peerPublicKey,bean.peerPreSharedKey,if (bean.isAmnezia) "0.0.0.0/0, ::/0" else bean.wgAllowedIps,bean.persistentKeepalive)
+            addPeer(bean.serverAddress,bean.serverPort,bean.peerPublicKey,bean.peerPreSharedKey,bean.wgAllowedIps,bean.persistentKeepalive)
             val extra = JSONArray(if (bean.isAmnezia) "[]" else bean.wgExtraPeers.ifBlank { "[]" })
             for (i in 0 until extra.length()) {
                 val p = extra.getJSONObject(i)
