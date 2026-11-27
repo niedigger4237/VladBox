@@ -379,8 +379,10 @@ class BaseService {
             val key = Any()
             data.networkListenerKey = key
             upstreamInterfaceName = null
-            // Ordinary VPN reconnect is independent of root and tethering. Keep other modes' reset behavior.
+            // ROOT uses its own native interface monitor; the app's embedded
+            // libcore reset cannot reach the external process.
             val ordinaryVpn = this is VpnService
+            val externalRoot = owner is io.nekohasekai.sagernet.bg.proto.RootProxyInstance
             var previous: Network? = null
             var lost = false
             val main = Handler(Looper.getMainLooper())
@@ -401,6 +403,9 @@ class BaseService {
                             }
                             data.networkReconnectJob?.cancel()
                             data.networkReconnectJob = null
+                        } else if (externalRoot && previous != null && !lost) {
+                            lost = true
+                            Logs.i("ROOT upstream lost; native core monitors interface availability")
                         }
                         return@post
                     }
@@ -413,6 +418,12 @@ class BaseService {
                     upstreamInterfaceName = name
                     previous = network
                     lost = false
+                    if (externalRoot) {
+                        if (oldNetwork != null && (restored || oldNetwork != network || oldName != name)) {
+                            Logs.i("ROOT upstream changed: $oldName -> $name, restored=$restored; native core owns socket recovery")
+                        }
+                        return@post
+                    }
                     if (!ordinaryVpn) {
                         if (oldName != null && oldName != name && DataStore.networkChangeResetConnections) {
                             Logs.d("Network changed: $oldName -> $name")
