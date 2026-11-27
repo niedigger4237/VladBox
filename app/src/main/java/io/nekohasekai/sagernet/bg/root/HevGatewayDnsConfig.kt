@@ -14,7 +14,7 @@ internal object HevGatewayDnsConfig {
     // Experimental branch only: RootDaemon restricts eligibility to a
     // verified active IPv4 HEV downstream without boot or Service Control.
     // Native guard, ownership and journal admission remain mandatory.
-    const val ENABLE_RUNTIME = true
+    const val ENABLE_RUNTIME = false
     const val PORT = 15353
     const val TAG = "nf-hev-gateway-dns"
 
