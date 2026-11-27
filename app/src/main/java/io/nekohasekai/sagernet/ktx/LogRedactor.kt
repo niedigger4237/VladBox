@@ -7,7 +7,8 @@ object LogRedactor {
         """(?i)(?:private[\s_-]*key|pre[\s_-]*shared[\s_-]*key|password|passwd|passphrase|secret|(?:access|refresh|auth|flow[\s_-]*metadata|api|registration)[\s_-]*token|authorization|cookie|api[\s_-]*key|license[\s_-]*key|credential|subscription[\s_-]*(?:url|link)|token|psk|uuid|auth|user[\s_-]*id|auth[\s_-]*str|auth[\s_-]*string|username|user[\s_-]*info|short[\s_-]*id|authentication|auth[\s_-]*key|access[\s_-]*key|registration[\s_-]*key|license|obfs[\s_-]*password)\s*(?:\\?["'])?\s*(?:[:=]|->|\s+["'])"""
     )
     private val bearer = Regex("""(?i)\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+""")
-    private val uri = Regex("""(?i)\b(?:https?|vless|vmess|ss|ssr|trojan|hysteria2?|hy2|tuic|socks5?h?|wireguard|wg|awg|ssh|naive(?:\+https)?)://[^\s<>"']+""")
+    private val splitBearer = Regex("""(?i)\b(?:Bearer|Basic)\s*["']?\s*$""")
+    private val uri = Regex("""(?i)\b(?:https?|vless|vmess|ss|ssr|trojan(?:-go)?|hysteria2?|hy2|tuic|socks(?:4a?|5h?)?|wireguard|wg|awg|amneziawg|ssh|naive(?:\+(?:https|quic))?|shadowtls|mieru|anytls):(?:\\?/){2}[^\s<>"']+""")
     private val uuid = Regex("""(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b""")
     private val opaque = Regex("""(?<![A-Za-z0-9_+/=-])[A-Za-z0-9_+/-]{32,}={0,2}(?![A-Za-z0-9_+/=-])""")
     private val pemBegin = Regex("""-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----""")
@@ -35,9 +36,10 @@ object LogRedactor {
             val match = sensitive.find(value)
             if (match != null) {
                 val suffix = value.substring(match.range.last + 1).trim()
-                pendingCredential = suffix.isEmpty()
+                pendingCredential = suffix.isEmpty() || suffix in setOf("\"", "'", "\\\"", "\\'") ||
+                    splitBearer.containsMatchIn(suffix)
             } else if (value.isNotBlank()) {
-                pendingCredential = false
+                pendingCredential = splitBearer.containsMatchIn(value)
             }
             if (pending) return "[credential continuation omitted]"
             return line(value)
