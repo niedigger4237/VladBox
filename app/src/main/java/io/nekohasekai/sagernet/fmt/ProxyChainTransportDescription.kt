@@ -44,6 +44,7 @@ internal fun describeChainTransport(profile: ProxyEntity): ProxyChainTransportPo
     }
     val provides = when (bean) {
         is NaiveBean -> if (bean.sUoT) null else tcpOnly
+        is WireGuardBean -> setOf(tcp, udp)
         is HttpBean, is SSHBean, is ShadowTLSBean -> tcpOnly
         is SOCKSBean -> if (bean.protocol != SOCKSBean.PROTOCOL_SOCKS5) tcpOnly else null
         is HysteriaBean -> if (bean.protocolVersion == 2) restricted(bean.hy2Network) else null
@@ -51,5 +52,6 @@ internal fun describeChainTransport(profile: ProxyEntity): ProxyChainTransportPo
         is StandardV2RayBean -> restricted(bean.vlessNetwork)
         else -> null
     }
-    return ProxyChainTransportPolicy.Hop(name, required, provides)
+    return ProxyChainTransportPolicy.Hop(name, required, provides,
+        fixedWireGuardListenPort = (bean as? WireGuardBean)?.wgListenPort ?: 0)
 }
