@@ -60,16 +60,38 @@ fun parseHysteria1(url: String): HysteriaBean {
     }
 }
 
+/** OkHttp accepts only one numeric port. Preserve the official multi-port
+ * authority separately before parsing userinfo, host and query parameters. */
+internal fun normalizeHysteria2Authority(url: String): Pair<String, String?> {
+    val scheme = url.substringBefore("://")
+    require(scheme.equals("hysteria2", true) || scheme.equals("hy2", true)) { "Invalid Hysteria2 scheme" }
+    val body = url.substringAfter("://", "")
+    val end = body.indexOfFirst { it in "/?#" }.let { if (it < 0) body.length else it }
+    val authority = body.substring(0, end)
+    val hostStart = authority.lastIndexOf('@') + 1
+    val host = authority.substring(hostStart)
+    val colon = if (host.startsWith("[")) {
+        val bracket = host.indexOf(']')
+        require(bracket >= 0) { "Invalid Hysteria2 IPv6 host" }
+        if (host.getOrNull(bracket + 1) == ':') bracket + 1 else -1
+    } else host.indexOf(':')
+    if (colon < 0) return "https://$body" to null
+    val ports = host.substring(colon + 1)
+    if (',' !in ports && '-' !in ports) return "https://$body" to null
+    val ranges = hopPortsToSingboxList(ports)
+    val first = ranges.first().substringBefore(':')
+    val normalized = authority.substring(0, hostStart + colon + 1) + first + body.substring(end)
+    return "https://$normalized" to ports
+}
+
 // hysteria2://[auth@]hostname[:port]/?[key=value]&[key=value]...
 fun parseHysteria2(url: String): HysteriaBean {
-    val link = url
-        .replace("hysteria2://", "https://")
-        .replace("hy2://", "https://")
-        .toHttpUrlOrNull() ?: error("invalid hysteria link $url")
+    val (normalized, authorityPorts) = normalizeHysteria2Authority(url)
+    val link = normalized.toHttpUrlOrNull() ?: error("invalid Hysteria2 link")
     return HysteriaBean().apply {
         protocolVersion = 2
         serverAddress = link.host
-        serverPorts = link.port.toString()
+        serverPorts = authorityPorts ?: link.port.toString()
         authPayload = if (link.password.isNotBlank()) {
             link.username + ":" + link.password
         } else {
@@ -78,6 +100,10 @@ fun parseHysteria2(url: String): HysteriaBean {
         name = link.fragment
 
         link.queryParameter("mport")?.also {
+            hopPortsToSingboxList(it)
+            require(authorityPorts == null || hopPortsToSingboxList(authorityPorts) == hopPortsToSingboxList(it)) {
+                "Conflicting Hysteria2 port ranges"
+            }
             serverPorts = it
         }
         link.queryParameter("sni")?.also {
