@@ -760,13 +760,13 @@ object RootDaemon {
             val tun = managedTunInbound(com.google.gson.JsonParser.parseString(effectiveConfig).asJsonObject)
             if (tun != null) Logs.i("ROOT TUN effective config: include_interface=${tun.get("include_interface")} stack=${tun.get("stack")} mtu=${tun.get("mtu")} auto_route=${tun.get("auto_route")} auto_redirect=${tun.get("auto_redirect")}")
         }
+        // A boot-started native daemon has no Android app monitor. Keep its native prefix
+        // selectors for daemon-managed modes when start-on-boot is enabled.
+        val daemonDownstreams = if (gatewayDnsPort != null) verifiedGatewayDownstreams!!.names
+            else if (mode != Mode.TUN && bootEnabled) null else dynamicDownstreams?.names
         val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
         try {
             val cfg = File(stage, "config.json").apply { writeText(withLogFile(effectiveConfig)) }
-            // A boot-started native daemon has no Android app monitor. Keep its native prefix
-            // selectors for daemon-managed modes when start-on-boot is enabled.
-            val daemonDownstreams = if (gatewayDnsPort != null) verifiedGatewayDownstreams!!.names
-                else if (mode != Mode.TUN && bootEnabled) null else dynamicDownstreams?.names
             val dnsCaptureRequested = false // Ignore previously saved experimental settings.
             val tetherDnsHijack = gatewayDnsPort != null || RootTetherDnsPolicy.enabled(
                 requested = dnsCaptureRequested,
