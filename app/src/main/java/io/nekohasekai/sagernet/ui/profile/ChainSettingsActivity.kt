@@ -23,7 +23,9 @@ import io.nekohasekai.sagernet.ui.compose.*
 
 class ChainSettingsActivity : ProfileSettingsActivity<ChainBean>() {
     override fun createEntity() = ChainBean()
-    private val profiles = mutableStateListOf<ProxyEntity>()
+    private val profiles = mutableStateListOf<ChainEditorEntry>()
+    private var nextEntryKey = 0L
+    private fun newEntry(profile: ProxyEntity) = ChainEditorEntry(nextEntryKey++, profile)
     private var missingIds by androidx.compose.runtime.mutableStateOf<List<Long>>(emptyList())
     private var replacing = -1
     private var loaded by androidx.compose.runtime.mutableStateOf(false)
@@ -35,7 +37,7 @@ class ChainSettingsActivity : ProfileSettingsActivity<ChainBean>() {
     override fun ChainBean.serialize() {
         name = DataStore.profileName
         require(loaded && missingIds.isEmpty() && profiles.isNotEmpty()) { "Chain is incomplete" }
-        proxies = profiles.map { it.id }
+        proxies = profiles.map { it.profile.id }
         initializeDefaultValues()
     }
     override fun PreferenceFragmentCompat.createPreferences(savedInstanceState: Bundle?, rootKey: String?) {
@@ -57,7 +59,7 @@ class ChainSettingsActivity : ProfileSettingsActivity<ChainBean>() {
                 onMainDispatcher {
                     if (!valid) MaterialAlertDialogBuilder(this@ChainSettingsActivity).setTitle(R.string.circular_reference).setMessage(R.string.circular_reference_sum).setPositiveButton(android.R.string.ok,null).show()
                     else {
-                        if (index in profiles.indices) profiles[index] = profile else profiles.add(profile)
+                        if (index in profiles.indices) profiles[index] = newEntry(profile) else profiles.add(newEntry(profile))
                         DataStore.dirty = true
                     }
                 }
@@ -85,9 +87,14 @@ class ChainSettingsActivity : ProfileSettingsActivity<ChainBean>() {
             HubTheme {
                 ChainProfileScreen(profiles,loaded,missingIds,actions,onDiscardMissing = { missingIds = emptyList(); DataStore.dirty = true },onRestore = { i, profile -> profiles.add(i.coerceIn(0,profiles.size),profile); DataStore.dirty = true },onSave = { runOnDefaultDispatcher { saveAndExit() } },onClose = { this@ChainSettingsActivity.onBackPressed() },onPick = { i ->
                     replacing = i
-                    picker.launch(Intent(this@ChainSettingsActivity,ProfileSelectActivity::class.java).apply { if (i in profiles.indices) putExtra(ProfileSelectActivity.EXTRA_SELECTED,profiles[i]) })
+                    picker.launch(Intent(this@ChainSettingsActivity,ProfileSelectActivity::class.java).apply { if (i in profiles.indices) putExtra(ProfileSelectActivity.EXTRA_SELECTED,profiles[i].profile) })
                 },onMove = { from,to ->
-                    if (from in profiles.indices && to in profiles.indices) { profiles.add(to,profiles.removeAt(from)); DataStore.dirty = true }
+                    if (from in profiles.indices && to in profiles.indices && from != to) {
+                        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+                            profiles.add(to, profiles.removeAt(from))
+                        }
+                        DataStore.dirty = true
+                    }
                 },onRemove = { i -> if (i in profiles.indices) { profiles.removeAt(i); DataStore.dirty = true } })
             }
         }
@@ -96,7 +103,7 @@ class ChainSettingsActivity : ProfileSettingsActivity<ChainBean>() {
             val found = ProfileManager.getProfiles(ids).associateBy { it.id }
             onMainDispatcher {
                 profiles.clear()
-                profiles.addAll(ids.mapNotNull { found[it] })
+                profiles.addAll(ids.mapNotNull { found[it]?.let(::newEntry) })
                 missingIds = ids.filter { it !in found }
                 loaded = true
             }
