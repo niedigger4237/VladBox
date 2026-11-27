@@ -27,11 +27,18 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Install Android NDK r28 for Cronet
+      - name: Setup Android NDK r28
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28
+      - name: Verify Cronet toolchain
+        env:
+          NATIVE_NAIVE_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           set -e
-          sdkmanager "ndk;28.0.13004108"
           source buildScript/init/env_ndk.sh
+          echo "NATIVE_NAIVE_NDK=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
           cat "$ANDROID_NDK_HOME/source.properties"
           "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld" --version
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
