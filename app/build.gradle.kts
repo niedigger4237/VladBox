@@ -23,10 +23,11 @@ android {
         buildConfigField("boolean", "NATIVE_NAIVE", nativeNaive.toString())
         if (nativeNaive) {
             minSdk = 24
-            // AABs must not contain x86-only JNI libraries without their matching core.
-            ndk {
-                abiFilters += if (providers.gradleProperty("previewArm64Only").orNull == "true")
-                    setOf("arm64-v8a") else setOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            // APK builds use splits.abi; only the bundle build uses ndk filters.
+            if (providers.gradleProperty("nativeBundle").orNull == "true") {
+                ndk {
+                    abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86_64")
+                }
             }
         }
         // Версия переопределяется только если переданы -PappVersionName / -PappVersionCode

@@ -168,9 +168,13 @@ fun Project.setupApp() {
 
         splits.abi {
             reset()
-            isEnable = true
+            val nativeBundle = providers.gradleProperty("nativeBundle").orNull == "true" &&
+                providers.gradleProperty("nativeNaive").orNull == "true"
+            isEnable = !nativeBundle
             isUniversalApk = false
-            if (providers.gradleProperty("previewArm64Only").orNull == "true") {
+            if (nativeBundle) {
+                // AAB uses defaultConfig.ndk.abiFilters instead of APK splits.
+            } else if (providers.gradleProperty("previewArm64Only").orNull == "true") {
                 include("arm64-v8a")
             } else if (providers.gradleProperty("nativeNaive").orNull == "true") {
                 // Match the ROOT core and helper ABIs supplied by native-build.

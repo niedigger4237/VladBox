@@ -213,7 +213,7 @@ jobs:
           echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
           export LOCAL_PROPERTIES="${{ secrets.LOCAL_PROPERTIES }}"
           ./run init action gradle
-          ./gradlew --build-cache -PnativeNaive=true app:bundlePlayRelease \
+          ./gradlew --build-cache -PnativeNaive=true -PnativeBundle=true app:bundlePlayRelease \
             -PappVersionName="${TAG#v}" \
             -PappVersionCode="$((1000 + ${{ github.run_number }}))"
       - uses: actions/upload-artifact@v4
