@@ -130,6 +130,7 @@ fun buildSingBoxEndpointWireguardBean(bean: WireGuardBean, fastHandshakeRetry: B
             }
         }
         if (bean.isAmnezia) {
+            AwgValidation.requireValid(bean)
             amnezia = SingBoxOptions.Endpoint_WireGuardAmnezia().apply {
                 if (bean.awgJc > 0) jc = bean.awgJc
                 if (bean.awgJmin > 0) jmin = bean.awgJmin

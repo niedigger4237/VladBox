@@ -9,6 +9,21 @@ object WireGuardConf {
     private val awgInts = mapOf("jc" to "awgJc","jmin" to "awgJmin","jmax" to "awgJmax","s1" to "awgS1","s2" to "awgS2","s3" to "awgS3","s4" to "awgS4")
     private val awgStrings = mapOf("h1" to "awgH1","h2" to "awgH2","h3" to "awgH3","h4" to "awgH4","i1" to "awgI1","i2" to "awgI2","i3" to "awgI3","i4" to "awgI4","i5" to "awgI5","hpk" to "awgHpk","cpa" to "awgCpa","header_protection_key" to "awgHpk","content_padding_addition" to "awgCpa","rekey_after_time" to "awgRekeyAfter","rekey_timeout" to "awgRekeyTimeout","reject_after_time" to "awgRejectAfter","keepalive_timeout" to "awgKeepaliveTimeout","max_handshake_attempts" to "awgMaxHandshake")
     private val awgBools = mapOf("random_trailers" to "awgRandomTrailers","disable_cookies" to "awgDisableCookies")
+    // Official AWG INI uses CamelCase; accept historical aliases as well.
+    private val officialAwgNames = mapOf(
+        "headerprotectionkey" to "hpk", "contentpaddingaddition" to "cpa",
+        "rekeyaftertime" to "rekey_after_time", "rekeytimeout" to "rekey_timeout",
+        "rejectaftertime" to "reject_after_time", "keepalivetimeout" to "keepalive_timeout",
+        "maxhandshakeattempts" to "max_handshake_attempts",
+        "randomtrailers" to "random_trailers", "disablecookies" to "disable_cookies"
+    )
+    private val awgExportNames = mapOf(
+        "hpk" to "HeaderProtectionKey", "cpa" to "ContentPaddingAddition",
+        "rekey_after_time" to "RekeyAfterTime", "rekey_timeout" to "RekeyTimeout",
+        "reject_after_time" to "RejectAfterTime", "keepalive_timeout" to "KeepaliveTimeout",
+        "max_handshake_attempts" to "MaxHandshakeAttempts",
+        "random_trailers" to "RandomTrailers", "disable_cookies" to "DisableCookies"
+    )
     fun parse(text: String): WireGuardBean = parseWithWarnings(text).bean
     fun parseWithWarnings(text: String): ImportResult {
         val warnings = mutableListOf<String>()
@@ -23,7 +38,8 @@ object WireGuardConf {
                 "[peer]" -> { section = linkedMapOf(); peers.add(section); continue }
             }
             require('=' in line && section != null) { "Invalid WireGuard configuration" }
-            val key = line.substringBefore('=').trim().lowercase()
+            val rawKey = line.substringBefore('=').trim().lowercase()
+            val key = if (section === iface) officialAwgNames[rawKey] ?: rawKey else rawKey
             val value = line.substringAfter('=').trim()
             val target = requireNotNull(section)
             val allowed = if (target === iface) setOf("privatekey","address","mtu","listenport","reserved") + awgInts.keys + awgStrings.keys + awgBools.keys
@@ -71,6 +87,7 @@ object WireGuardConf {
                 WireGuardBean::class.java.getField(field).set(this,value)
             }
             if (isAmnezia) {
+                AwgValidation.requireValid(this)
                 require(peers.size == 1) { "Multiple AmneziaWG peers are not supported by the current editor" }
             }
         }
@@ -79,6 +96,7 @@ object WireGuardConf {
 
     fun export(bean: WireGuardBean): String {
         require(bean.privateKey.isNotBlank() && bean.localAddress.isNotBlank() && bean.peerPublicKey.isNotBlank()) { "Required WireGuard fields are missing" }
+        if (bean.isAmnezia) AwgValidation.requireValid(bean)
         fun clean(value: String): String = value.trim().also { require('\n' !in it && '\r' !in it) }
         fun list(value: String) = value.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.joinToString(", ")
         return buildString {
@@ -96,10 +114,10 @@ object WireGuardConf {
                 }
                 for ((key, field) in awgStrings.entries.distinctBy { it.value }) {
                     val value = WireGuardBean::class.java.getField(field).get(bean) as String
-                    if (value.isNotBlank()) appendLine("${key.replaceFirstChar { it.uppercaseChar() }} = ${clean(value)}")
+                    if (value.isNotBlank()) appendLine("${awgExportNames[key] ?: key.replaceFirstChar { it.uppercaseChar() }} = ${clean(value)}")
                 }
                 for ((key, field) in awgBools) {
-                    if (WireGuardBean::class.java.getField(field).get(bean) == true) appendLine("$key = true")
+                    if (WireGuardBean::class.java.getField(field).get(bean) == true) appendLine("${awgExportNames[key] ?: key} = true")
                 }
             }
             fun addPeer(host: String, port: Int, key: String, psk: String, ips: String, keepalive: Int) {

@@ -26,6 +26,17 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
         val value = read(key).trim()
         return (optional && value.isEmpty()) || runCatching { android.util.Base64.decode(value,android.util.Base64.DEFAULT).size == 32 }.getOrDefault(false)
     }
+    val awgError = if (awg && awgNumbers.all { read(it).toIntOrNull() != null }) {
+        io.nekohasekai.sagernet.fmt.wireguard.AwgValidation.error(
+            listOf("awgJc", "awgJmin", "awgJmax").map { read(it).toInt() },
+            (1..4).map { read("awgS$it").toInt() },
+            (1..4).map { read("awgH$it") },
+            linkedMapOf("Content padding addition" to read("awgCpa"), "Rekey after time" to read("awgRekeyAfter"),
+                "Rekey timeout" to read("awgRekeyTimeout"), "Reject after time" to read("awgRejectAfter"),
+                "Keepalive timeout" to read("awgKeepaliveTimeout"), "Max handshake attempts" to read("awgMaxHandshake")),
+            read("awgHpk"), (1..5).map { read("awgI$it") }
+        )
+    } else null
     val error = when {
         !validKey("privateKey") -> "Private key must contain 32 bytes in Base64."
         !validKey("peerPublicKey") -> "Public key must contain 32 bytes in Base64."
@@ -40,7 +51,7 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
         read("wgAllowedIps").isBlank() -> "Allowed IPs are required."
         read("wgListenPort").toIntOrNull()?.let { it in 0..65535 } != true -> "Invalid listen port."
         awg && awgNumbers.any { read(it).toIntOrNull()?.let { n -> n >= 0 } != true } -> "Invalid AmneziaWG numeric parameter."
-        awg && (read("awgJmin").toIntOrNull() ?: 0) > (read("awgJmax").toIntOrNull() ?: 0) -> "Jmin must not exceed Jmax."
+        awgError != null -> awgError
         awg && awgNumbers.none { (read(it).toIntOrNull() ?: 0) > 0 } && awgTexts.none { read(it).isNotBlank() } && !checked("awgRandomTrailers") && !checked("awgDisableCookies") -> "Configure AmneziaWG parameters before saving."
         else -> null
     }
@@ -158,8 +169,8 @@ fun WireGuardProfileScreen(onImport: () -> Unit, onExport: () -> Unit, onSave: (
                 }
             } }
         }
+        if (error != null) item { Text(error,color = MaterialTheme.colorScheme.error) }
         if (section.isEmpty()) item {
-            if (error != null) Text(error,color = MaterialTheme.colorScheme.error)
             Button(onClick = onSave, modifier = Modifier.fillMaxWidth(), enabled = error == null) { Text("Save profile") }
         }
     }
