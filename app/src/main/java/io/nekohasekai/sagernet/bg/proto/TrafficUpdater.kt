@@ -20,13 +20,9 @@ class TrafficUpdater(
 
     private fun updateOne(item: TrafficLooperData): TrafficLooperData {
         // last update
-        val now = System.currentTimeMillis()
-        val interval = now - item.lastUpdate
+        val now = android.os.SystemClock.elapsedRealtime()
+        val interval = if (item.lastUpdate == 0L) 0L else now - item.lastUpdate
         item.lastUpdate = now
-        if (interval <= 0) return item.apply {
-            rxRate = 0
-            txRate = 0
-        }
 
         // query
         val tx = box.queryStats(item.tag, "uplink")
@@ -35,8 +31,8 @@ class TrafficUpdater(
         // add diff
         item.rx += rx
         item.tx += tx
-        item.rxRate = rx * 1000 / interval
-        item.txRate = tx * 1000 / interval
+        item.rxRate = if (interval > 0) rx * 1000 / interval else 0L
+        item.txRate = if (interval > 0) tx * 1000 / interval else 0L
 
         // return diff
         return TrafficLooperData(

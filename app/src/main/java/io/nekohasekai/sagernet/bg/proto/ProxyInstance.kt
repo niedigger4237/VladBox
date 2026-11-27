@@ -5,7 +5,10 @@ import io.nekohasekai.sagernet.bg.ServiceNotification
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.fmt.buildConfig
 import io.nekohasekai.sagernet.ktx.Logs
-import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 
 open class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = null) :
@@ -18,6 +21,7 @@ open class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interfac
 
     // for TrafficLooper
     var looper: TrafficLooper? = null
+    private var trafficScope: CoroutineScope? = null
 
     override fun buildConfig() {
         if (notTmp) super.buildConfig() else config = buildConfig(profile, forSelectorCheck = true)
@@ -69,17 +73,24 @@ open class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interfac
         if (isBoxInitialized()) box.setAsMain()
         super.launch() // start box
         // traffic stats need the in-process core (root modes run it externally)
-        if (isBoxInitialized()) runOnDefaultDispatcher {
-            looper = service?.let { TrafficLooper(it.data, this) }
-            looper?.start()
+        if (isBoxInitialized() && looper == null) {
+            service?.let { owner ->
+                val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+                trafficScope = scope
+                looper = TrafficLooper(owner.data, scope).also { it.start() }
+            }
         }
     }
 
     override fun close() {
-        super.close()
-        runBlocking {
-            looper?.stop()
+        try {
+            // Do not let a stats query race the native box shutdown.
+            runBlocking { looper?.stop() }
+        } finally {
             looper = null
+            trafficScope?.cancel()
+            trafficScope = null
+            super.close()
         }
     }
 }

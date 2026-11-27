@@ -46,16 +46,18 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
         suspend fun looper(onRestartCallback: (suspend () -> Unit)?) {
             var running = true
             val cmdName = File(cmd.first()).nameWithoutExtension
-            val exitChannel = Channel<Int>()
+            // A waiter must be able to publish the exit even after cancellation.
+            val exitChannel = Channel<Int>(capacity = 1)
             try {
                 while (true) {
-                    thread(name = "stderr-$cmdName") {
-                        streamLogger(process.errorStream) { Libcore.nekoLogPrintln("[$cmdName] $it") }
+                    val child = process
+                    thread(name = "stderr-$cmdName", isDaemon = true) {
+                        streamLogger(child.errorStream) { Libcore.nekoLogPrintln("[$cmdName] $it") }
                     }
-                    thread(name = "stdout-$cmdName") {
-                        streamLogger(process.inputStream) { Libcore.nekoLogPrintln("[$cmdName] $it") }
-                        // this thread also acts as a daemon thread for waitFor
-                        runBlocking { exitChannel.send(process.waitFor()) }
+                    thread(name = "stdout-$cmdName", isDaemon = true) {
+                        streamLogger(child.inputStream) { Libcore.nekoLogPrintln("[$cmdName] $it") }
+                        // Non-blocking publication: the guard may already be cancelled.
+                        exitChannel.trySend(child.waitFor())
                     }
                     val startTime = SystemClock.elapsedRealtime()
                     val exitCode = exitChannel.receive()

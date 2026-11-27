@@ -22,13 +22,16 @@ class TrafficLooper
     private val tagMap = mutableMapOf<String, TrafficUpdater.TrafficLooperData>() // tag to 1 data
 
     suspend fun stop() {
-        job?.cancel()
+        val running = job ?: return
+        job = null
+        running.cancelAndJoin()
         // finally traffic post
         if (!DataStore.profileTrafficStatistics) return
         val traffic = mutableMapOf<Long, TrafficData>()
         data.proxy?.config?.trafficMap?.forEach { (_, ents) ->
             for (ent in ents) {
-                val item = idMap[ent.id] ?: return@forEach
+                val item = idMap[ent.id] ?: continue
+                if (traffic.containsKey(ent.id)) continue
                 ent.rx = item.rx
                 ent.tx = item.tx
                 ProfileManager.updateProfile(ent) // update DB
@@ -48,6 +51,7 @@ class TrafficLooper
     }
 
     fun start() {
+        if (job != null) return
         job = sc.launch { loop() }
     }
 
@@ -93,7 +97,7 @@ class TrafficLooper
         // for display
         val itemBypass = TrafficUpdater.TrafficLooperData(tag = TAG_BYPASS)
 
-        while (sc.isActive) {
+        while (currentCoroutineContext().isActive) {
             proxy = data.proxy
             if (proxy == null) {
                 delay(delayMs)
@@ -137,7 +141,7 @@ class TrafficLooper
             }
 
             trafficUpdater.updateAll()
-            if (!sc.isActive) return
+            currentCoroutineContext().ensureActive()
 
             // add all non-bypass to "main"
             var mainTxRate = 0L
