@@ -25,6 +25,8 @@ import io.nekohasekai.sagernet.fmt.socks.SOCKSBean
 import io.nekohasekai.sagernet.fmt.socks.buildSingBoxOutboundSocksBean
 import io.nekohasekai.sagernet.fmt.ssh.SSHBean
 import io.nekohasekai.sagernet.fmt.ssh.buildSingBoxOutboundSSHBean
+import io.nekohasekai.sagernet.fmt.trojan_go.TrojanGoBean
+import io.nekohasekai.sagernet.fmt.trojan_go.buildNativeTrojanGoOutbound
 import io.nekohasekai.sagernet.fmt.tuic.TuicBean
 import io.nekohasekai.sagernet.fmt.tuic.buildSingBoxOutboundTuicBean
 import io.nekohasekai.sagernet.fmt.v2ray.StandardV2RayBean
@@ -426,6 +428,9 @@ fun buildConfig(
 
                         is HysteriaBean ->
                             buildSingBoxOutboundHysteriaBean(bean)
+
+                        is TrojanGoBean ->
+                            buildNativeTrojanGoOutbound(bean)
 
                         is MieruBean ->
                             buildSingBoxOutboundMieruBean(bean)

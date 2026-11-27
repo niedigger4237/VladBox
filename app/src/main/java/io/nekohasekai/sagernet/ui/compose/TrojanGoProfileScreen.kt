@@ -75,7 +75,9 @@ fun TrojanGoProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: Li
                             }
                         }
                         "Advanced" -> {
-                            Text("Trojan-Go uses an external engine. Native sing-box dialer options are not available.",style = MaterialTheme.typography.bodySmall)
+                            val native = DataStore.serverEncryption == "none" && DataStore.serverNetwork in listOf("original", "ws")
+                            Text(if (native) "Native sing-box for compatible profiles without additional encryption." else "External Trojan-Go plugin required for additional Shadowsocks encryption.",style = MaterialTheme.typography.bodySmall)
+                            Text("Profiles with reserved plugin options retain the external engine.",style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     if (!valid) Text("Check server and connection settings.",color = MaterialTheme.colorScheme.error)
