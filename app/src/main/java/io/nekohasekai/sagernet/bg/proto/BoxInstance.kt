@@ -10,8 +10,6 @@ import io.nekohasekai.sagernet.fmt.ConfigBuildResult
 import io.nekohasekai.sagernet.fmt.buildConfig
 import io.nekohasekai.sagernet.fmt.hysteria.HysteriaBean
 import io.nekohasekai.sagernet.fmt.hysteria.buildHysteria1Config
-import io.nekohasekai.sagernet.fmt.mieru.MieruBean
-import io.nekohasekai.sagernet.fmt.mieru.buildMieruConfig
 import io.nekohasekai.sagernet.fmt.trojan_go.TrojanGoBean
 import io.nekohasekai.sagernet.fmt.trojan_go.buildTrojanGoConfig
 import io.nekohasekai.sagernet.ktx.*
@@ -60,11 +58,6 @@ abstract class BoxInstance(
                     is TrojanGoBean -> {
                         initPlugin("trojan-go-plugin")
                         pluginConfigs[port] = profile.type to bean.buildTrojanGoConfig(port)
-                    }
-
-                    is MieruBean -> {
-                        initPlugin("mieru-plugin")
-                        pluginConfigs[port] = profile.type to bean.buildMieruConfig(port)
                     }
 
                     is HysteriaBean -> {
@@ -120,26 +113,6 @@ abstract class BoxInstance(
                         )
 
                         processes.start(commands)
-                    }
-
-                    bean is MieruBean -> {
-                        val configFile = File(
-                            cacheDir, "mieru_" + SystemClock.elapsedRealtime() + ".json"
-                        )
-
-                        configFile.parentFile?.mkdirs()
-                        configFile.writeText(config)
-                        cacheFiles.add(configFile)
-
-                        val envMap = mutableMapOf<String, String>()
-                        envMap["MIERU_CONFIG_JSON_FILE"] = configFile.absolutePath
-                        envMap["MIERU_PROTECT_PATH"] = "protect_path"
-
-                        val commands = mutableListOf(
-                            initPlugin("mieru-plugin").path, "run",
-                        )
-
-                        processes.start(commands, envMap)
                     }
 
                     bean is HysteriaBean -> {

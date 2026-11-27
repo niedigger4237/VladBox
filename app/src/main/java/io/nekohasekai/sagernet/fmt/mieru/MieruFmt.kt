@@ -18,41 +18,6 @@
 
 package io.nekohasekai.sagernet.fmt.mieru
 
-import io.nekohasekai.sagernet.ktx.toStringPretty
-import org.json.JSONArray
-import org.json.JSONObject
-
-fun MieruBean.buildMieruConfig(port: Int): String {
-    val serverInfo = JSONArray().apply {
-        put(JSONObject().apply {
-            put("ipAddress", finalAddress)
-            put("portBindings", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("port", finalPort)
-                    put("protocol", protocol)
-                })
-            })
-        })
-    }
-    return JSONObject().apply {
-        put("activeProfile", "default")
-        put("socks5Port", port)
-        // TODO: follow NekoBox logging level.
-        put("loggingLevel", "INFO")
-        put("profiles", JSONArray().apply {
-            put(JSONObject().apply {
-                put("profileName", "default")
-                put("user", JSONObject().apply {
-                    put("name", username)
-                    put("password", password)
-                })
-                put("servers", serverInfo)
-                put("mtu", mtu)
-            })
-        })
-    }.toStringPretty()
-}
-
 /** Native Mieru is registered by the pinned extended core without build tags.
  * Preserve the existing bean and its serialized format. */
 fun buildSingBoxOutboundMieruBean(bean: MieruBean): moe.matsuri.nb4a.SingBoxOptions.Outbound {

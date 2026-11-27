@@ -12,7 +12,6 @@ import io.nekohasekai.sagernet.fmt.http.toUri
 import io.nekohasekai.sagernet.fmt.hysteria.*
 import io.nekohasekai.sagernet.fmt.internal.ChainBean
 import io.nekohasekai.sagernet.fmt.mieru.MieruBean
-import io.nekohasekai.sagernet.fmt.mieru.buildMieruConfig
 import io.nekohasekai.sagernet.fmt.naive.NaiveBean
 import io.nekohasekai.sagernet.fmt.naive.toUri
 import io.nekohasekai.sagernet.fmt.shadowsocks.*
@@ -309,11 +308,6 @@ data class ProxyEntity(
                             is TrojanGoBean -> {
                                 append("\n\n")
                                 append(bean.buildTrojanGoConfig(port))
-                            }
-
-                            is MieruBean -> {
-                                append("\n\n")
-                                append(bean.buildMieruConfig(port))
                             }
 
                             is HysteriaBean -> {

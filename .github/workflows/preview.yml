@@ -29,7 +29,7 @@ jobs:
       ref: ${{ github.sha }}
       fast: ${{ github.ref_name == 'native-proxy' || inputs.fast }}
       native_naive: ${{ github.ref_name == 'native-proxy' }}
-      force_core_rebuild: ${{ inputs.force_core_rebuild }}
+      force_core_rebuild: ${{ inputs.force_core_rebuild == true }}
   build:
     name: ${{ inputs.compile_only && 'Android Compile Check' || 'Build OSS APK' }}
     runs-on: ubuntu-latest

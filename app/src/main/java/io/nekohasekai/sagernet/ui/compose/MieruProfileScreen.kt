@@ -61,7 +61,7 @@ fun MieruProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                                 SimpleField("MTU",mtu) { mtu = it; DataStore.serverMTU = it.toIntOrNull() ?: 0; revision++ }
                                 TextButton(onClick = { mtu = "1400"; DataStore.serverMTU = 1400; revision++ }) { Text("Reset MTU to 1400") }
                             } else Text("MTU is available for UDP transport.")
-                            Text("Native sing-box dialer options are not available for the external Mieru engine.",style = MaterialTheme.typography.bodySmall)
+                            Text("Mieru uses the native sing-box engine. No external plugin is required.",style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     if (!valid) Text("Check server and connection settings.",color = MaterialTheme.colorScheme.error)
