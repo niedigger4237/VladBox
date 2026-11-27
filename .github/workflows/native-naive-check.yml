@@ -1,0 +1,57 @@
+name: Native NaiveProxy Check
+on:
+  push:
+    branches: [native-proxy]
+    paths:
+      - '.github/workflows/native-naive-check.yml'
+      - 'libcore/**'
+      - 'buildScript/lib/core/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cronet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NATIVE_NAIVE: "1"
+      LIBCORE_TARGETS: android/arm64
+      ROOTCORE_ABIS: arm64-v8a
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          cache: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Prepare scripts
+        run: |
+          find . -type f \( -name '*.sh' -o -name run \) -not -path './.git/*' -exec chmod +x {} +
+      - name: Build embedded Android core and ROOT core
+        run: |
+          set -e
+          ./run lib core
+          bash buildScript/lib/core/build_root_core.sh
+      - name: Inspect Android binaries
+        run: |
+          set -e
+          source buildScript/init/env_ndk.sh
+          READELF="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          test -s app/libs/libcore.aar
+          unzip -tq app/libs/libcore.aar
+          unzip -q app/libs/libcore.aar 'jni/arm64-v8a/*' -d "$RUNNER_TEMP/embedded"
+          test -s app/src/main/jniLibs/arm64-v8a/libsingbox.so
+          for binary in "$RUNNER_TEMP"/embedded/jni/arm64-v8a/*.so app/src/main/jniLibs/arm64-v8a/libsingbox.so; do
+            echo "=== $binary ==="
+            "$READELF" -h -d "$binary"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-naive-arm64
+          path: |
+            app/libs/libcore.aar
+            app/src/main/jniLibs/arm64-v8a/libsingbox.so
+          if-no-files-found: error
