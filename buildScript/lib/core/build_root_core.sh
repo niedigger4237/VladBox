@@ -9,6 +9,12 @@ source "buildScript/lib/core/get_source_env.sh"
 ROOT="$(pwd)"
 SB="$ROOT/../sing-box"
 TAGS="with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0"
+# Only Android builds get Cronet. Host-side tests keep the existing tags
+# and do not require the Linux Chromium toolchain.
+ANDROID_TAGS="$TAGS"
+if [ "${NATIVE_NAIVE:-0}" = 1 ]; then
+  ANDROID_TAGS="$ANDROID_TAGS,with_naive_outbound"
+fi
 API=24
 TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
@@ -32,7 +38,7 @@ build() { # abi goarch cc-prefix [GOARM]
   ( cd "$SB" && \
     CGO_ENABLED=1 GOOS=android GOARCH=$goarch GOARM=$goarm \
     CC="$TOOLCHAIN/${cc}${API}-clang" \
-    go build -trimpath -buildvcs=false -tags "$TAGS" \
+    go build -trimpath -buildvcs=false -tags "$ANDROID_TAGS" \
       -ldflags "-s -w -buildid= -X github.com/sagernet/sing-box/constant.Version=${SING_BOX_TAG#v}" \
       -o "$ROOT/app/src/main/jniLibs/$abi/libsingbox.so" ./cmd/sing-box )
 }
