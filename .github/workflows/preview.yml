@@ -1,11 +1,5 @@
 name: Preview Build
 on:
-  push:
-    branches: [native-proxy]
-    paths:
-      - 'app/**'
-      - '.github/workflows/preview.yml'
-      - '.github/workflows/native-build.yml'
   workflow_dispatch:
     inputs:
       fast:
