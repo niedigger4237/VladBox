@@ -58,14 +58,14 @@ fun NaiveProfileScreen(onSave: () -> Unit, onClose: () -> Unit, menuItems: List<
                         "Security" -> {
                             SimpleField("Server name (SNI)",DataStore.serverSNI) { DataStore.serverSNI = it; revision++ }
                             SimpleField("CA certificate (PEM)",DataStore.serverCertificates) { DataStore.serverCertificates = it; revision++ }
-                            Text("Custom certificates are stored in the profile but not applied by the current external NaiveProxy configuration.",style = MaterialTheme.typography.bodySmall)
+                            Text("Optional trusted CA certificates in PEM format. Leave empty to use the default trust store.",style = MaterialTheme.typography.bodySmall)
                         }
                         "Advanced" -> {
                             SimpleField("Extra HTTP headers",DataStore.serverHeaders) { DataStore.serverHeaders = it; revision++ }
                             var concurrency by rememberSaveable { mutableStateOf(DataStore.serverInsecureConcurrency.toString()) }
                             SimpleField("Insecure concurrency",concurrency) { concurrency = it; DataStore.serverInsecureConcurrency = it.toIntOrNull() ?: -1; revision++ }
                             SimpleToggle("UDP over TCP",DataStore.profileCacheStore.getBoolean("sUoT",false)) { DataStore.profileCacheStore.putBoolean("sUoT",it); revision++ }
-                            Text("Native sing-box dialer options are not available for the external NaiveProxy engine.",style = MaterialTheme.typography.bodySmall)
+                            Text("UDP over TCP requires a compatible server (for example, sing-box Naive inbound). Leave disabled for Caddy forward_proxy.",style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     if (!valid) Text("Check server and connection settings.",color = MaterialTheme.colorScheme.error)

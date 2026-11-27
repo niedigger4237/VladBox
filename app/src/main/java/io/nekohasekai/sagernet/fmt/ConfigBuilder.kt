@@ -430,8 +430,12 @@ fun buildConfig(
                         is MieruBean ->
                             buildSingBoxOutboundMieruBean(bean)
 
-                        is NaiveBean ->
+                        is NaiveBean -> {
+                            check(forExport || BuildConfig.NATIVE_NAIVE) {
+                                "NaiveProxy requires a Cronet-enabled build of NieFigger Hub"
+                            }
                             buildNativeNaiveOutbound(bean)
+                        }
 
                         is TuicBean ->
                             buildSingBoxOutboundTuicBean(bean)
@@ -469,7 +473,7 @@ fun buildConfig(
                     // udp over tcp
                     try {
                         val sUoT = bean.javaClass.getField("sUoT").get(bean)
-                        if (sUoT is Boolean && sUoT && (bean !is NaiveBean || proxyEntity.needExternal()) &&
+                        if (sUoT is Boolean && sUoT && bean !is NaiveBean &&
                             (bean !is SOCKSBean || bean.protocol == SOCKSBean.PROTOCOL_SOCKS5)) {
                             _hack_config_map["udp_over_tcp"] = true
                         }
