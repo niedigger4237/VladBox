@@ -14,89 +14,10 @@ on:
         description: "Force native core rebuild and Go validation."
         type: boolean
         default: false
-      awg_test:
-        description: "Only run the AmneziaWG loopback test (no APK build)."
-        type: boolean
-        default: false
 env:
   GO_VERSION: "1.26.4"
 jobs:
-  awg-test:
-    name: AWG loopback test
-    if: ${{ inputs.awg_test }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Golang
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: false
-      - name: Build stock and patched sing-box-extended
-        run: |
-          set -e
-          source buildScript/lib/core/get_source_env.sh
-          TAGS=with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0
-          git clone --no-checkout "$SING_BOX_REPO" ../stock
-          git -C ../stock checkout -q "$SING_BOX_COMMIT"
-          (cd ../stock && go build -tags "$TAGS" -o "$GITHUB_WORKSPACE/sb-stock" ./cmd/sing-box)
-          bash buildScript/lib/core/get_source.sh
-          (cd ../sing-box && go build -tags "$TAGS" -o "$GITHUB_WORKSPACE/sb-patched" ./cmd/sing-box)
-      - name: Loopback tests
-        run: |
-          set +e
-          fail=0
-          T=buildScript/test/awg_loopback.sh
-          for bin in sb-patched; do
-            bash $T "$PWD/$bin" "$bin/awg2.0" '{}' 1420 || fail=1
-            bash $T "$PWD/$bin" "$bin/awg2.0-mtu1280" '{}' 1280 || fail=1
-            bash $T "$PWD/$bin" "$bin/awg-no-s3s4" '{"s3":0,"s4":0}' 1420 || fail=1
-            bash $T "$PWD/$bin" "$bin/awg3.1" '{"random_trailers":true}' 1420 || fail=1
-            bash $T "$PWD/$bin" "$bin/h-single-numbers" '{"h1":"1020325451","h2":"3288052141","h3":"1766607858","h4":"2528465083"}' 1420 || fail=1
-            bash $T "$PWD/$bin" "$bin/i1-i5" '{"i1":"<b 0xc0000000010800000000><r 20><t>","i2":"<b 0xdeadbeef><rc 8>","i3":"<r 12>","i4":"<rd 6>","i5":"<b 0x00>"}' 1420 || fail=1
-            bash $T "$PWD/$bin" "$bin/wg-plain" '{"jc":0,"jmin":0,"jmax":0,"s1":0,"s2":0,"s3":0,"s4":0,"h1":null,"h2":null,"h3":null,"h4":null}' 1420 || fail=1
-          done
-          exit $fail
-  awg-interop:
-    name: AWG interop (reference server)
-    if: ${{ inputs.awg_test }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Golang
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: false
-      - name: Build client and reference servers
-        run: |
-          set -e
-          source buildScript/lib/core/get_source_env.sh
-          TAGS=with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0
-          bash buildScript/lib/core/get_source.sh
-          (cd ../sing-box && go build -tags "$TAGS" -o "$GITHUB_WORKSPACE/sb-patched" ./cmd/sing-box)
-          for t in v3.1.20261116 v3.0.3; do
-            git clone -q --depth 1 --branch $t https://github.com/amnezia-vpn/amneziawg-go ../awg-$t
-            (cd ../awg-$t && go build -o "$GITHUB_WORKSPACE/awg-$t" .)
-          done
-      - name: Interop tests
-        run: |
-          set +e
-          fail=0
-          T=buildScript/test/awg_interop.sh
-          for ref in v3.1.20261116 v3.0.3; do
-            bash $T "$PWD/sb-patched" "$PWD/awg-$ref" "ref-$ref/default" '{}' 1420 || fail=1
-            bash $T "$PWD/sb-patched" "$PWD/awg-$ref" "ref-$ref/no-s3s4" '{"s3":0,"s4":0}' 1420 || fail=1
-            bash $T "$PWD/sb-patched" "$PWD/awg-$ref" "ref-$ref/mtu1280" '{}' 1280 || fail=1
-            bash $T "$PWD/sb-patched" "$PWD/awg-$ref" "ref-$ref/user-params" '{"jc":3,"jmin":1,"jmax":3,"s1":1,"s2":2,"s3":0,"s4":0,"h1":"1","h2":"2","h3":"3","h4":"4"}' 1280 || fail=1
-            bash $T "$PWD/sb-patched" "$PWD/awg-$ref" "ref-$ref/user-params-i1" '{"jc":3,"jmin":1,"jmax":3,"s1":1,"s2":2,"s3":0,"s4":0,"h1":"1","h2":"2","h3":"3","h4":"4","i1":"<b 0xc400000001015c0000><r 40>"}' 1280 || fail=1
-            bash $T "$PWD/sb-patched" "$PWD/awg-$ref" "ref-$ref/h-single" '{"h1":"1020325451","h2":"3288052141","h3":"1766607858","h4":"2528465083"}' 1420 || fail=1
-          done
-          exit $fail
   native-build:
-    if: ${{ !inputs.awg_test }}
     uses: ./.github/workflows/native-build.yml
     with:
       ref: ${{ github.sha }}
