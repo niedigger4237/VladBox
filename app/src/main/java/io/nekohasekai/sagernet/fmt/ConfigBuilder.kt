@@ -15,6 +15,8 @@ import io.nekohasekai.sagernet.fmt.ConfigBuildResult.IndexEntity
 import io.nekohasekai.sagernet.fmt.hysteria.HysteriaBean
 import io.nekohasekai.sagernet.fmt.hysteria.buildSingBoxOutboundHysteriaBean
 import io.nekohasekai.sagernet.fmt.internal.ChainBean
+import io.nekohasekai.sagernet.fmt.mieru.MieruBean
+import io.nekohasekai.sagernet.fmt.mieru.buildSingBoxOutboundMieruBean
 import io.nekohasekai.sagernet.fmt.shadowsocks.ShadowsocksBean
 import io.nekohasekai.sagernet.fmt.shadowsocks.buildSingBoxOutboundShadowsocksBean
 import io.nekohasekai.sagernet.fmt.socks.SOCKSBean
@@ -422,6 +424,9 @@ fun buildConfig(
 
                         is HysteriaBean ->
                             buildSingBoxOutboundHysteriaBean(bean)
+
+                        is MieruBean ->
+                            buildSingBoxOutboundMieruBean(bean)
 
                         is TuicBean ->
                             buildSingBoxOutboundTuicBean(bean)
