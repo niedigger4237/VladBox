@@ -4,7 +4,7 @@ import android.text.format.Formatter
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -132,7 +132,7 @@ fun ChainProfileScreen(
                     TextButton(onClick = onDiscardMissing) { Text("Remove missing references") }
                 }
                 Text("Proxy chain", style = MaterialTheme.typography.titleLarge)
-                Text("Long press the handle and drag to reorder, or use the arrow buttons.", style = MaterialTheme.typography.bodySmall)
+                Text("Drag the handle to reorder, or use the arrow buttons.", style = MaterialTheme.typography.bodySmall)
             }
             itemsIndexed(profiles, key = { _, entry -> entry.key }) { i, entry ->
                 val profile = entry.profile
@@ -171,7 +171,7 @@ fun ChainProfileScreen(
                                     Modifier.size(48.dp)
                                         .semantics { contentDescription = "Reorder profile" }
                                         .pointerInput(entry.key) {
-                                            detectDragGesturesAfterLongPress(
+                                            detectVerticalDragGestures(
                                                 onDragStart = {
                                                     val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == entry.key }
                                                     if (info != null && draggedKey == null) {
@@ -186,7 +186,7 @@ fun ChainProfileScreen(
                                             ) { change, amount ->
                                                 if (draggedKey == entry.key) {
                                                     change.consume()
-                                                    dragTop += amount.y
+                                                    dragTop += amount
                                                     reorder()
                                                 }
                                             }
