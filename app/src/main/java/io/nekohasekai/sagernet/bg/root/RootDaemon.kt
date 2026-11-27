@@ -715,10 +715,7 @@ object RootDaemon {
         val bootEnabled = DataStore.configurationStore.getBoolean("startOnBoot", false)
         // Preview trial: ordinary managed IPv4 HEV sessions only.
         // Boot, Service Control and dual-stack remain on the previous path.
-        val gatewayEligible = HevGatewayDnsConfig.ENABLE_RUNTIME && managed && core.bundled &&
-            mode == Mode.TUN2SOCKS && DataStore.tetherHevDnsHijack && !ipv6 &&
-            !bootEnabled && serviceControl.get("enabled")?.asBoolean == false &&
-            !monitorOnly
+        val gatewayEligible = false // Experimental tether DNS interception is suspended.
         // An explicit root-owned reservation is required for the marked test.
         // Native admission validates permissions, identity, contents and conflicts again.
         val leasePath = RootShell.q("$runDir/nf-hev-ctmark-lease")
@@ -769,11 +766,7 @@ object RootDaemon {
         // selectors for daemon-managed modes when start-on-boot is enabled.
         val daemonDownstreams = if (gatewayDnsPort != null) verifiedGatewayDownstreams!!.names
             else if (mode != Mode.TUN && bootEnabled) null else dynamicDownstreams?.names
-        val dnsCaptureRequested = when (mode) {
-            Mode.TPROXY -> DataStore.tetherDnsHijack
-            Mode.TUN2SOCKS -> DataStore.tetherHevDnsHijack
-            else -> false
-        }
+        val dnsCaptureRequested = false // Ignore previously saved experimental settings.
         val tetherDnsHijack = gatewayDnsPort != null || RootTetherDnsPolicy.enabled(
             requested = dnsCaptureRequested,
             managed = managed && core.bundled,
