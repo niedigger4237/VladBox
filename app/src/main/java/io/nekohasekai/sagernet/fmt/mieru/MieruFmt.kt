@@ -52,3 +52,21 @@ fun MieruBean.buildMieruConfig(port: Int): String {
         })
     }.toStringPretty()
 }
+
+/** Native Mieru is registered by the pinned extended core without build tags.
+ * Preserve the existing bean and its serialized format. */
+fun buildSingBoxOutboundMieruBean(bean: MieruBean): moe.matsuri.nb4a.SingBoxOptions.Outbound {
+    return moe.matsuri.nb4a.SingBoxOptions.Outbound().apply {
+        require(bean.serverAddress.isNotBlank() && bean.serverPort in 1..65535) { "Invalid Mieru server" }
+        require(bean.protocol in listOf("TCP", "UDP")) { "Invalid Mieru transport" }
+        require(bean.username.isNotEmpty() && bean.password.isNotEmpty()) { "Mieru requires username and password" }
+        type = "mieru"
+        _hack_config_map["server"] = bean.serverAddress
+        _hack_config_map["server_port"] = bean.serverPort
+        _hack_config_map["transport"] = bean.protocol
+        _hack_config_map["username"] = bean.username
+        _hack_config_map["password"] = bean.password
+        require(bean.mtu > 0) { "Invalid Mieru MTU" }
+        _hack_config_map["mtu"] = bean.mtu
+    }
+}
