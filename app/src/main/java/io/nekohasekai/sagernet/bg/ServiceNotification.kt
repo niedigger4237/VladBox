@@ -55,7 +55,7 @@ class ServiceNotification(
 
     @Volatile private var destroyed = false
     private val lifecycleLock = Any()
-    @Volatile var listenPostSpeed = true
+    @Volatile var listenPostSpeed = SagerNet.power.isInteractive
 
     suspend fun postNotificationSpeedUpdate(stats: SpeedDisplayData) {
         useBuilder {
@@ -192,8 +192,12 @@ class ServiceNotification(
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (service.data.state == BaseService.State.Connected) {
-            listenPostSpeed = intent.action == Intent.ACTION_SCREEN_ON
+        // Track screen changes even while connecting or waiting for Service Control.
+        if (!destroyed) {
+            when (intent.action) {
+                Intent.ACTION_SCREEN_ON -> listenPostSpeed = true
+                Intent.ACTION_SCREEN_OFF -> listenPostSpeed = false
+            }
         }
     }
 
