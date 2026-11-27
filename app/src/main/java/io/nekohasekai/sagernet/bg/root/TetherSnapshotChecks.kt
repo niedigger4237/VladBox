@@ -64,6 +64,53 @@ internal object TetherSnapshotChecks {
         return actual == expected
     }
 
+    /** Verify the owned forwarding and source NAT chains, not only their hooks.
+     * Compare numeric prefixes because ip6tables may compress IPv6 addresses.
+     * Reject duplicates, extra matches and unexpected actions. */
+    fun hasForwardingAndNat(
+        lines: List<String>, forward: String, post: String, up: String,
+        downstreams: List<Pair<String, String>>,
+    ): Boolean {
+        fun normalized(tokens: List<String>): List<String>? {
+            val result = tokens.toMutableList()
+            for (key in listOf("-s", "-d")) {
+                val index = result.indexOf(key)
+                if (index < 0) continue
+                val raw = result.getOrNull(index + 1) ?: return null
+                val cidr = if ('/' in raw) raw else "$raw/" + if (':' in raw) "128" else "32"
+                val prefix = canonical(cidr) ?: return null
+                result[index + 1] = prefix.toString()
+            }
+            // xtables may render the state set in either order.
+            val state = result.indexOf("--ctstate")
+            if (state >= 0) {
+                val value = result.getOrNull(state + 1) ?: return null
+                result[state + 1] = value.split(',').sorted().joinToString(",")
+            }
+            return result
+        }
+        fun rules(chain: String): List<List<String>>? {
+            val found = mutableListOf<List<String>>()
+            for (line in lines) {
+                val tokens = line.trim().split(Regex("\\s+"))
+                if (tokens.take(2) == listOf("-A", chain))
+                    found.add(normalized(tokens) ?: return null)
+            }
+            return found
+        }
+        val expectedForward = mutableListOf<List<String>>()
+        val expectedPost = mutableListOf<List<String>>()
+        for ((name, subnet) in downstreams) {
+            expectedForward.add(normalized(listOf("-A", forward, "-s", subnet, "-i", name, "-o", up, "-j", "ACCEPT")) ?: return false)
+            expectedForward.add(normalized(listOf("-A", forward, "-d", subnet, "-i", up, "-o", name, "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT")) ?: return false)
+            expectedPost.add(normalized(listOf("-A", post, "-s", subnet, "-o", up, "-j", "MASQUERADE")) ?: return false)
+        }
+        val actualForward = rules(forward) ?: return false
+        val actualPost = rules(post) ?: return false
+        return actualForward.size == expectedForward.size && actualForward.toSet() == expectedForward.toSet() &&
+            actualPost.size == expectedPost.size && actualPost.toSet() == expectedPost.toSet()
+    }
+
     fun hasRouting(lines: List<String>, up: String, table: Int, pref: Int, downstreams: List<Pair<String, String>>): Boolean {
         val rows = lines.map { it.trim().split(Regex("\\s+")) }
         return downstreams.all { (name, subnet) ->
