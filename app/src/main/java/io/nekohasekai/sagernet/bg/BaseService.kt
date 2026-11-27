@@ -533,8 +533,11 @@ class BaseService {
                     DataStore.currentProfile = profile.id
 
                     proxy.processes = GuardedProcessPool {
-                        Logs.w(it)
-                        stopRunner(false, it.readableMessage)
+                        // A delayed plugin failure must not stop a replacement session.
+                        if (data.proxy === proxy && data.state != State.Stopping && !data.destroyed) {
+                            Logs.w(it)
+                            stopRunner(false, it.readableMessage)
+                        }
                     }
 
                     startProcesses()

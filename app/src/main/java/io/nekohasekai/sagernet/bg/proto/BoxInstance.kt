@@ -1,6 +1,5 @@
 package io.nekohasekai.sagernet.bg.proto
 
-import android.os.SystemClock
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.bg.AbstractInstance
 import io.nekohasekai.sagernet.bg.GuardedProcessPool
@@ -33,7 +32,16 @@ abstract class BoxInstance(
     val pluginConfigs = hashMapOf<Int, Pair<Int, String>>()
     val externalInstances = hashMapOf<Int, AbstractInstance>()
     open lateinit var processes: GuardedProcessPool
-    private var cacheFiles = ArrayList<File>()
+    private val cacheFiles = ArrayList<File>()
+
+    private fun newPluginFile(prefix: String, suffix: String): File {
+        val directory = File(SagerNet.application.cacheDir, "tmpcfg")
+        check(directory.isDirectory || directory.mkdirs() || directory.isDirectory) {
+            "Cannot create plugin configuration directory"
+        }
+        // Atomically allocate a unique name and track it before writing secrets.
+        return File.createTempFile(prefix, suffix, directory).also { cacheFiles.add(it) }
+    }
     fun isInitialized(): Boolean {
         return ::config.isInitialized && ::box.isInitialized
     }
@@ -63,12 +71,7 @@ abstract class BoxInstance(
                     is HysteriaBean -> {
                         initPlugin("hysteria-plugin")
                         pluginConfigs[port] = profile.type to bean.buildHysteria1Config(port) {
-                            File(
-                                app.cacheDir, "hysteria_" + SystemClock.elapsedRealtime() + ".ca"
-                            ).apply {
-                                parentFile?.mkdirs()
-                                cacheFiles.add(this)
-                            }
+                            newPluginFile("hysteria_", ".ca")
                         }
                     }
                 }
@@ -85,10 +88,6 @@ abstract class BoxInstance(
     /** External plugin setup remains on the service thread. ROOT can start its
      * blocking native daemon separately, without moving the plugin pool off Main. */
     protected fun launchPlugins() {
-        // TODO move, this is not box
-        val cacheDir = File(SagerNet.application.cacheDir, "tmpcfg")
-        cacheDir.mkdirs()
-
         for ((chain) in config.externalIndex) {
             chain.entries.forEach { (port, profile) ->
                 val bean = profile.requireBean()
@@ -100,12 +99,8 @@ abstract class BoxInstance(
                     }
 
                     bean is TrojanGoBean -> {
-                        val configFile = File(
-                            cacheDir, "trojan_go_" + SystemClock.elapsedRealtime() + ".json"
-                        )
-                        configFile.parentFile?.mkdirs()
+                        val configFile = newPluginFile("trojan_go_", ".json")
                         configFile.writeText(config)
-                        cacheFiles.add(configFile)
 
                         val commands = mutableListOf(
                             initPlugin("trojan-go-plugin").path, "-config", configFile.absolutePath
@@ -115,13 +110,8 @@ abstract class BoxInstance(
                     }
 
                     bean is HysteriaBean -> {
-                        val configFile = File(
-                            cacheDir, "hysteria_" + SystemClock.elapsedRealtime() + ".json"
-                        )
-
-                        configFile.parentFile?.mkdirs()
+                        val configFile = newPluginFile("hysteria_", ".json")
                         configFile.writeText(config)
-                        cacheFiles.add(configFile)
 
                         val commands = mutableListOf(
                             initPlugin("hysteria-plugin").path,
@@ -158,12 +148,17 @@ abstract class BoxInstance(
             }
         }
 
-        cacheFiles.removeAll { it.delete(); true }
-
-        if (::processes.isInitialized) processes.close(GlobalScope + Dispatchers.IO)
-
-        if (::box.isInitialized) {
-            box.close()
+        try {
+            if (::processes.isInitialized) processes.close(GlobalScope + Dispatchers.IO)
+            if (::box.isInitialized) box.close()
+        } finally {
+            cacheFiles.forEach { file ->
+                if (!file.delete() && file.exists()) Logs.w("Temporary plugin file could not be removed")
+            }
+            cacheFiles.clear()
+            pluginConfigs.clear()
+            pluginPath.clear()
+            externalInstances.clear()
         }
     }
 

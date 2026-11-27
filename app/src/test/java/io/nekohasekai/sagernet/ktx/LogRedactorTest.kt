@@ -33,6 +33,13 @@ class LogRedactorTest {
         assertFalse(LogRedactor.text("""{\"password\":\"tiny-value\"}""").contains("tiny-value"))
     }
 
+    @Test fun hidesMieruSimpleShareLink() {
+        val link = "mierus://user:short-secret@example.org?profile=test&port=443&protocol=TCP"
+        val result = LogRedactor.text("Imported " + link)
+        assertFalse(result.contains("short-secret"))
+        assertFalse(result.contains("example.org"))
+    }
+
     @Test fun hidesMultilinePrivateKey() {
         val s = LogRedactor.Stream()
         assertFalse(s.redact("-----BEGIN PRIVATE KEY-----").contains("BEGIN PRIVATE"))

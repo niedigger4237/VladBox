@@ -8,7 +8,7 @@ import android.system.OsConstants
 import androidx.annotation.MainThread
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.ktx.Logs
-import io.nekohasekai.sagernet.utils.Commandline
+import io.nekohasekai.sagernet.ktx.LogRedactor
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import libcore.Libcore
@@ -32,7 +32,10 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
         private lateinit var process: Process
 
         private fun streamLogger(input: InputStream, logger: (String) -> Unit) = try {
-            input.bufferedReader().forEachLine(logger)
+            val redactor = LogRedactor.Stream()
+            input.bufferedReader().use { reader ->
+                reader.forEachLine { logger(redactor.redact(it)) }
+            }
         } catch (_: IOException) {
         }    // ignore
 
@@ -70,13 +73,13 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
                         exitCode == 128 + OsConstants.SIGKILL -> Logs.w("$cmdName was killed")
                         else -> Logs.w(IOException("$cmdName unexpectedly exits with code $exitCode"))
                     }
-                    Logs.i("restart process: ${Commandline.toString(cmd)} (last exit code: $exitCode)")
+                    Logs.i("restart process: $cmdName (last exit code: $exitCode)")
                     start()
                     running = true
                     onRestartCallback?.invoke()
                 }
             } catch (e: IOException) {
-                Logs.w("error occurred. stop guard: ${Commandline.toString(cmd)}")
+                Logs.w("error occurred. stop guard: $cmdName")
                 GlobalScope.launch(Dispatchers.Main) { onFatal(e) }
             } finally {
                 if (running) withContext(NonCancellable) {  // clean-up cannot be cancelled
@@ -110,7 +113,7 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
         env: MutableMap<String, String> = mutableMapOf(),
         onRestartCallback: (suspend () -> Unit)? = null
     ) {
-        Logs.i("start process: ${Commandline.toString(cmd)}")
+        Logs.i("start process: ${File(cmd.first()).nameWithoutExtension}")
         Guard(cmd, env).apply {
             start() // if start fails, IOException will be thrown directly
             launch { looper(onRestartCallback) }

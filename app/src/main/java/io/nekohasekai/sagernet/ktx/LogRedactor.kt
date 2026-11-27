@@ -8,7 +8,7 @@ object LogRedactor {
     )
     private val bearer = Regex("""(?i)\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+""")
     private val splitBearer = Regex("""(?i)\b(?:Bearer|Basic)\s*["']?\s*$""")
-    private val uri = Regex("""(?i)\b(?:https?|vless|vmess|ss|ssr|trojan(?:-go)?|hysteria2?|hy2|tuic|socks(?:4a?|5h?)?|wireguard|wg|awg|amneziawg|ssh|naive(?:\+(?:https|quic))?|shadowtls|mieru|anytls):(?:\\?/){2}[^\s<>"']+""")
+    private val uri = Regex("""(?i)\b(?:https?|vless|vmess|ss|ssr|trojan(?:-go)?|hysteria2?|hy2|tuic|socks(?:4a?|5h?)?|wireguard|wg|awg|amneziawg|ssh|naive(?:\+(?:https|quic))?|shadowtls|mierus?|anytls):(?:\\?/){2}[^\s<>"']+""")
     private val uuid = Regex("""(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b""")
     private val opaque = Regex("""(?<![A-Za-z0-9_+/=-])[A-Za-z0-9_+/-]{32,}={0,2}(?![A-Za-z0-9_+/=-])""")
     private val pemBegin = Regex("""-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----""")
