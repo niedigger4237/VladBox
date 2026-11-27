@@ -1,5 +1,11 @@
 name: Preview Build
 on:
+  push:
+    branches: [native-proxy]
+    paths:
+      - 'app/**'
+      - '.github/workflows/preview.yml'
+      - '.github/workflows/native-build.yml'
   workflow_dispatch:
     inputs:
       fast:
@@ -21,7 +27,8 @@ jobs:
     uses: ./.github/workflows/native-build.yml
     with:
       ref: ${{ github.sha }}
-      fast: ${{ inputs.fast }}
+      fast: ${{ github.ref_name == 'native-proxy' || inputs.fast }}
+      native_naive: ${{ github.ref_name == 'native-proxy' }}
       force_core_rebuild: ${{ inputs.force_core_rebuild }}
   build:
     name: ${{ inputs.compile_only && 'Android Compile Check' || 'Build OSS APK' }}
@@ -75,7 +82,7 @@ jobs:
           BUILD_PLUGIN: none
         run: |
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
-          ./gradlew --build-cache --profile -PpreviewArm64Only=${{ inputs.fast }} app:compilePreviewReleaseKotlin app:compilePreviewReleaseJavaWithJavac
+          ./gradlew --build-cache --profile -PpreviewArm64Only=${{ github.ref_name == 'native-proxy' || inputs.fast }} -PnativeNaive=${{ github.ref_name == 'native-proxy' }} app:compilePreviewReleaseKotlin app:compilePreviewReleaseJavaWithJavac
       - name: Gradle Build
         if: ${{ !inputs.compile_only }}
         env:
@@ -87,7 +94,7 @@ jobs:
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           export LOCAL_PROPERTIES="${{ secrets.LOCAL_PROPERTIES }}"
           ./run init action gradle
-          ./gradlew --build-cache --profile -PpreviewArm64Only=${{ inputs.fast }} app:assemblePreviewRelease
+          ./gradlew --build-cache --profile -PpreviewArm64Only=${{ github.ref_name == 'native-proxy' || inputs.fast }} -PnativeNaive=${{ github.ref_name == 'native-proxy' }} app:assemblePreviewRelease
           APK=$(find app/build/outputs/apk -name '*arm64-v8a*.apk')
           APK=$(dirname $APK)
           echo "APK=$APK" >> $GITHUB_ENV

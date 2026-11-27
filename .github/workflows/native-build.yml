@@ -11,18 +11,40 @@ on:
       force_core_rebuild:
         type: boolean
         default: false
+      native_naive:
+        type: boolean
+        default: false
 env:
   GO_VERSION: "1.26.4"
 jobs:
   libcore:
     name: Go Compile Check (LibCore / sing-box)
     runs-on: ubuntu-latest
+    env:
+      NATIVE_NAIVE: ${{ inputs.native_naive && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
+      - name: Setup Android NDK r28 for Cronet
+        if: inputs.native_naive
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28
+      - name: Select Cronet toolchain
+        if: inputs.native_naive
+        env:
+          NATIVE_NAIVE_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          set -e
+          source buildScript/init/env_ndk.sh
+          echo "NATIVE_NAIVE_NDK=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
+          echo "NDK=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
       - name: Resolve native toolchain fingerprint
         id: toolchain
         shell: bash
@@ -45,7 +67,7 @@ jobs:
           path: |
             app/libs/libcore.aar
             app/src/main/jniLibs/*/libsingbox.so
-          key: go-core-v4-go${{ env.GO_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.ndk }}-${{ steps.gomobile.outputs.revision }}-${{ hashFiles('libcore/**', 'buildScript/init/**', 'buildScript/lib/core.sh', 'buildScript/lib/core/init.sh', 'buildScript/lib/core/build.sh', 'buildScript/lib/core/build_root_core.sh', 'buildScript/lib/core/get_source*.sh', 'buildScript/lib/core/patches/**', 'run') }}-${{ inputs.fast }}
+          key: go-core-v4-go${{ env.GO_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.ndk }}-${{ steps.gomobile.outputs.revision }}-${{ hashFiles('libcore/**', 'buildScript/init/**', 'buildScript/lib/core.sh', 'buildScript/lib/core/init.sh', 'buildScript/lib/core/build.sh', 'buildScript/lib/core/build_root_core.sh', 'buildScript/lib/core/get_source*.sh', 'buildScript/lib/core/patches/**', 'run') }}-${{ inputs.fast }}-${{ inputs.native_naive }}
       - name: Install Golang
         if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
         uses: actions/setup-go@v5
@@ -59,7 +81,7 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-build-v4-go${{ env.GO_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.ndk }}-${{ steps.gomobile.outputs.revision }}-${{ hashFiles('libcore/**', 'buildScript/init/**', 'buildScript/lib/core/get_source*.sh', 'buildScript/lib/core/patches/**', 'buildScript/lib/core/build*.sh') }}-${{ inputs.fast }}
+          key: go-build-v4-go${{ env.GO_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.ndk }}-${{ steps.gomobile.outputs.revision }}-${{ hashFiles('libcore/**', 'buildScript/init/**', 'buildScript/lib/core/get_source*.sh', 'buildScript/lib/core/patches/**', 'buildScript/lib/core/build*.sh') }}-${{ inputs.fast }}-${{ inputs.native_naive }}
           restore-keys: |
             go-build-v4-go${{ env.GO_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Compile Go libraries

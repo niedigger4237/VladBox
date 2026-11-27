@@ -92,7 +92,7 @@ fun NaiveBean.buildNaiveConfig(port: Int): String {
 }
 
 /** Prepare native Cronet options without mutating the saved profile.
- * Not selected by ConfigBuilder until the experimental native build is verified. */
+ * Selected only by builds explicitly compiled with native NaiveProxy. */
 internal fun buildNativeNaiveOutbound(bean: NaiveBean): moe.matsuri.nb4a.SingBoxOptions.Outbound =
     moe.matsuri.nb4a.SingBoxOptions.Outbound().apply {
         require(bean.serverAddress.isNotBlank() && bean.serverPort in 1..65535) { "Invalid NaiveProxy server" }

@@ -17,6 +17,8 @@ import io.nekohasekai.sagernet.fmt.hysteria.buildSingBoxOutboundHysteriaBean
 import io.nekohasekai.sagernet.fmt.internal.ChainBean
 import io.nekohasekai.sagernet.fmt.mieru.MieruBean
 import io.nekohasekai.sagernet.fmt.mieru.buildSingBoxOutboundMieruBean
+import io.nekohasekai.sagernet.fmt.naive.NaiveBean
+import io.nekohasekai.sagernet.fmt.naive.buildNativeNaiveOutbound
 import io.nekohasekai.sagernet.fmt.shadowsocks.ShadowsocksBean
 import io.nekohasekai.sagernet.fmt.shadowsocks.buildSingBoxOutboundShadowsocksBean
 import io.nekohasekai.sagernet.fmt.socks.SOCKSBean
@@ -428,6 +430,9 @@ fun buildConfig(
                         is MieruBean ->
                             buildSingBoxOutboundMieruBean(bean)
 
+                        is NaiveBean ->
+                            buildNativeNaiveOutbound(bean)
+
                         is TuicBean ->
                             buildSingBoxOutboundTuicBean(bean)
 
@@ -464,7 +469,8 @@ fun buildConfig(
                     // udp over tcp
                     try {
                         val sUoT = bean.javaClass.getField("sUoT").get(bean)
-                        if (sUoT is Boolean && sUoT && (bean !is SOCKSBean || bean.protocol == SOCKSBean.PROTOCOL_SOCKS5)) {
+                        if (sUoT is Boolean && sUoT && (bean !is NaiveBean || proxyEntity.needExternal()) &&
+                            (bean !is SOCKSBean || bean.protocol == SOCKSBean.PROTOCOL_SOCKS5)) {
                             _hack_config_map["udp_over_tcp"] = true
                         }
                     } catch (_: Exception) {

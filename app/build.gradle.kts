@@ -19,6 +19,9 @@ android {
         }
     }
     defaultConfig {
+        val nativeNaive = providers.gradleProperty("nativeNaive").orNull == "true"
+        buildConfigField("boolean", "NATIVE_NAIVE", nativeNaive.toString())
+        if (nativeNaive) minSdk = 24
         // Версия переопределяется только если переданы -PappVersionName / -PappVersionCode
         // (release workflow). Иначе остаются значения из nb4a.properties (задаются в setupApp()).
         providers.gradleProperty("appVersionName").orNull?.let { versionName = it }
