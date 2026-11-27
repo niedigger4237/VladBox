@@ -324,7 +324,7 @@ class NativeSettingsFragment : androidx.fragment.app.Fragment() {
             setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
             onPreferenceChangeListener = reloadListener
         }
-        for (k in listOf("tetherDnsHijack", "tetherHevDnsHijack", "tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet", "tetherCustom",
+        for (k in listOf("tetherWifi", "tetherBluetooth", "tetherUsb", "tetherEthernet", "tetherCustom",
             "rootTunInterfaces", "rootTunBypassRuleSets", "rootIgnoredInterfaces", "rootDisableSystemIpv6",
             "rootHevMultiQueue", "rootHevTcpFastOpen", "rootFlowMetadata", "rootEbpfMatcher")) {
             findPreference<Preference>(k)!!.onPreferenceChangeListener = reloadListener
