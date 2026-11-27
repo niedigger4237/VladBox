@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.*
 import io.nekohasekai.sagernet.fmt.AbstractBean
+import io.nekohasekai.sagernet.fmt.naive.NaiveBean
 import io.nekohasekai.sagernet.fmt.http.HttpBean
 import io.nekohasekai.sagernet.fmt.hysteria.HysteriaBean
 import io.nekohasekai.sagernet.fmt.hysteria.parseHysteria1Json
@@ -165,10 +166,16 @@ object RawUpdater : GroupUpdater() {
                 // 更新订阅，保留自定义覆写设置
                 bean.customOutboundJson = existsBean.customOutboundJson
                 bean.customConfigJson = existsBean.customConfigJson
+                // The receive-window preset is a local setting, not part of
+                // the subscription URI. Keep it when refreshing the same profile.
+                if (bean is NaiveBean && existsBean is NaiveBean) {
+                    bean.memoryProfile = existsBean.memoryProfile
+                }
                 when {
                     existsBean != bean -> {
                         changed++
                         entity.putBean(bean)
+                        entity.userOrder = userOrder
                         toUpdate.add(entity)
                         updated[entity.displayName()] = name
 
