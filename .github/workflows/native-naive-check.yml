@@ -6,6 +6,9 @@ on:
       - '.github/workflows/native-naive-check.yml'
       - 'libcore/**'
       - 'buildScript/lib/core/**'
+      - 'buildScript/init/**'
+      - 'buildScript/lib/core.sh'
+      - 'run'
   workflow_dispatch:
 permissions:
   contents: read
