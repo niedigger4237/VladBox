@@ -97,23 +97,9 @@ fun buildConfig(
     val selectorNames = ArrayList<String>()
     val group = SagerDatabase.groupDao.getById(proxy.groupId)
 
-    fun ProxyEntity.resolveChainInternal(ancestors: Set<Long> = emptySet()): MutableList<ProxyEntity> {
-        val bean = requireBean()
-        if (bean is ChainBean) {
-            require(id !in ancestors) { "Circular proxy chain: $id" }
-            val nextAncestors = ancestors + id
-            val beans = SagerDatabase.proxyDao.getEntities(bean.proxies)
-            val beansMap = beans.associateBy { it.id }
-            val beanList = ArrayList<ProxyEntity>()
-            for (proxyId in bean.proxies) {
-                val item = beansMap[proxyId] ?: error("Missing proxy in chain: $proxyId")
-                beanList.addAll(item.resolveChainInternal(nextAncestors))
-            }
-            require(beanList.isNotEmpty()) { "Empty proxy chain: $id" }
-            return beanList.asReversed()
-        }
-        return mutableListOf(this)
-    }
+    fun ProxyEntity.resolvePhysicalChain(): List<ProxyEntity> =
+        ProxyChainOrder.flatten(this, { it.id }, { (it.requireBean() as? ChainBean)?.proxies },
+            { ids -> SagerDatabase.proxyDao.getEntities(ids).associateBy { it.id } })
 
     fun selectorName(name_: String): String {
         var name = name_
@@ -128,16 +114,18 @@ fun buildConfig(
 
     fun ProxyEntity.resolveChain(): MutableList<ProxyEntity> {
         val thisGroup = SagerDatabase.groupDao.getById(groupId)
-        val frontProxy = thisGroup?.frontProxy?.let { SagerDatabase.proxyDao.getById(it) }
-        val landingProxy = thisGroup?.landingProxy?.let { SagerDatabase.proxyDao.getById(it) }
-        val list = resolveChainInternal()
-        if (frontProxy != null) {
-            list.add(frontProxy)
+        fun resolveGroupHop(id: Long?, label: String): List<ProxyEntity> {
+            if (id == null || id < 0) return emptyList()
+            // A configured group proxy can itself be selected as the active profile.
+            if (id == this.id) return emptyList()
+            val hop = SagerDatabase.proxyDao.getById(id) ?: error("Missing $label proxy: $id")
+            return hop.resolvePhysicalChain()
         }
-        if (landingProxy != null) {
-            list.add(0, landingProxy)
-        }
-        return list
+        return ProxyChainOrder.dialOrder(
+            resolveGroupHop(thisGroup?.frontProxy, "front"),
+            resolvePhysicalChain(),
+            resolveGroupHop(thisGroup?.landingProxy, "landing")
+        ).toMutableList()
     }
 
     val extraRules = if (forTest) listOf() else SagerDatabase.rulesDao.enabledRules()
@@ -331,6 +319,17 @@ fun buildConfig(
             profileList: List<ProxyEntity> = entity.resolveChain()
         ): String {
             require(profileList.none { it.type == ProxyEntity.TYPE_NEKO }) { ProxyEntity.LEGACY_NEKO_UNSUPPORTED }
+            require(profileList.none { (it.requireBean() as? ConfigBean)?.type == 0 }) {
+                "Full sing-box configurations cannot be used as individual chain hops"
+            }
+            profileList.dropLast(1).forEach { hop ->
+                if (hop.needExternal()) {
+                    val bean = hop.requireBean()
+                    require(bean.canMapping() && bean !is HysteriaBean) {
+                        "External ${hop.displayType()} cannot be safely routed through a preceding proxy"
+                    }
+                }
+            }
             val chainTrafficSet = HashSet<ProxyEntity>().apply {
                 plusAssign(profileList)
                 add(entity)
@@ -352,13 +351,18 @@ fun buildConfig(
             val defaultServerDomainStrategy = SingBoxOptionsUtil.domainStrategy("server")
 
             profileList.forEachIndexed { index, proxyEntity ->
-                val bean = proxyEntity.requireBean()
+                val sourceBean = proxyEntity.requireBean()
+                // Each external instance owns its mapping address; a repeated profile must
+                // never overwrite the runtime endpoint of another instance.
+                val runtimeProfile = if (proxyEntity.needExternal())
+                    proxyEntity.copy().putBean(sourceBean.clone()) else proxyEntity
+                val bean = runtimeProfile.requireBean()
 
                 // tagOut: v2ray outbound tag for a profile
                 // profile2 (in) (global)   tag g-(id)
                 // profile1                 tag (chainTag)-(id)
                 // profile0 (out)           tag (chainTag)-(id) / single: "proxy"
-                var tagOut = "$chainTag-${proxyEntity.id}"
+                var tagOut = "$chainTag-$index-${proxyEntity.id}"
 
                 // needGlobal: can only contain one?
                 var needGlobal = false
@@ -410,7 +414,7 @@ fun buildConfig(
 
                 if (proxyEntity.needExternal()) { // externel outbound
                     val localPort = mkPort()
-                    externalChainMap[localPort] = proxyEntity
+                    externalChainMap[localPort] = runtimeProfile
                     currentOutbound = Outbound_SocksOptions().apply {
                         type = "socks"
                         server = LOCALHOST
@@ -537,7 +541,7 @@ fun buildConfig(
                             type = "direct"
                             listen = LOCALHOST
                             listen_port = mappingPort
-                            tag = "$chainTag-mapping-${proxyEntity.id}"
+                            tag = "$chainTag-mapping-$index-${proxyEntity.id}"
 
                             override_address = bean.serverAddress
                             override_port = bean.serverPort
