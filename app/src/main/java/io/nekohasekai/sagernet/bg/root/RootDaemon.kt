@@ -678,7 +678,8 @@ object RootDaemon {
      */
     fun start(mode: Mode, core: RootCore.Active, singBoxConfig: String, tproxyPort: Int, ipv6: Boolean, managed: Boolean = false,
               serviceControl: JsonObject = ServiceControl.toJson(), monitorOnly: Boolean = false,
-              manageDnsCache: Boolean = false, dnsCacheScope: String? = null): String? {
+              manageDnsCache: Boolean = false, dnsCacheScope: String? = null,
+              allowAutonomousBoot: Boolean = true): String? {
         if (monitorOnly && !ServiceControl.hasStartRule(serviceControl))
             return "Service Control requires at least one valid start condition"
         startedWaiting = false
@@ -711,7 +712,10 @@ object RootDaemon {
         val useFlow = managed && core.patched && DataStore.rootFlowMetadata &&
             mode in listOf(Mode.TUN2SOCKS, Mode.BPF2SOCKS)
         val flowToken = if (useFlow) newFlowToken() else null
-        val bootEnabled = DataStore.configurationStore.getBoolean("startOnBoot", false)
+        val bootRequested = DataStore.configurationStore.getBoolean("startOnBoot", false)
+        val bootEnabled = bootRequested && allowAutonomousBoot
+        if (bootRequested && !allowAutonomousBoot)
+            Logs.w("ROOT boot: external plugin profiles require the Android app; autonomous startup is not armed")
         // Preview trial: ordinary managed IPv4 HEV sessions only.
         // Boot, Service Control and dual-stack remain on the previous path.
         val gatewayEligible = false // Experimental tether DNS interception is suspended.
@@ -809,7 +813,9 @@ object RootDaemon {
 
         mark("install configs")
         portConflict(mode)?.let { return it }
-        RootCore.check(core.path, File(configPath))?.let { return "sing-box check: $it" }
+        // Validate exactly the executable that the supervisor will run, including
+        // the staged persistent copy when start-on-boot is enabled.
+        RootCore.check(RootBoot.exec(File(core.path)).absolutePath, File(configPath))?.let { return "sing-box check: $it" }
         mark("validate config")
 
         // Protect selected downstreams before the daemon starts. This filter is
@@ -855,7 +861,7 @@ object RootDaemon {
                     shutdown()
                     return "ROOT tether: cannot verify IPv6 forwarding guard"
                 }
-                if (DataStore.configurationStore.getBoolean("startOnBoot", false)) {
+                if (bootEnabled) {
                     // Keep boot files independent of the live JSON. A managed ROOT TUN
                     // boots with lo only until native downstream reconciliation is available.
                     val bootCore = if (managed && mode == Mode.TUN)

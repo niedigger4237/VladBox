@@ -71,6 +71,9 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
         if (monitorOnly && !ServiceControl.hasStartRule(policy))
             throw IllegalStateException("Service Control requires at least one valid start condition")
         serviceControlArmed = policy.get("enabled").asBoolean
+        // Only the native core and ROOT helpers are available to the autonomous boot
+        // supervisor. App-side plugin processes are not recreated at system boot.
+        val allowAutonomousBoot = config.externalIndex.none { it.chain.isNotEmpty() }
         val manageDnsCache = managed && profile.type != ProxyEntity.TYPE_CONFIG &&
             (DataStore.dnsRootCacheStorage == "persistent" || DataStore.dnsRootCacheGeneration.isNotEmpty())
         fun cacheScope(active: RootCore.Active, hash: String): String? {
@@ -86,14 +89,16 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
             }.getOrNull()
         }
         var err = RootDaemon.start(mode, core, config.config, DataStore.rootTproxyPort, ipv6, managed, policy, monitorOnly,
-            manageDnsCache = manageDnsCache, dnsCacheScope = cacheScope(core, fingerprint))
+            manageDnsCache = manageDnsCache, dnsCacheScope = cacheScope(core, fingerprint),
+            allowAutonomousBoot = allowAutonomousBoot)
         if (err != null && !core.bundled && RootCore.bundled.exists()) {
             // an installed (unpatched / incompatible) core must not leave the user without root mode
             Logs.w("core ${core.label} failed: $err\nretrying with the bundled core")
             val fallback = RootCore.Active(RootCore.bundled.absolutePath, "bundled", true)
             err = RootDaemon.start(
                 mode, fallback, config.config, DataStore.rootTproxyPort, ipv6, managed, policy, monitorOnly,
-                manageDnsCache = manageDnsCache, dnsCacheScope = cacheScope(fallback, RootCore.fingerprint(fallback.path))
+                manageDnsCache = manageDnsCache, dnsCacheScope = cacheScope(fallback, RootCore.fingerprint(fallback.path)),
+                allowAutonomousBoot = allowAutonomousBoot
             )
         }
         if (err != null) throw IllegalStateException(err)
