@@ -708,7 +708,6 @@ object RootDaemon {
             cleanupEvidence() in listOf(RootCleanupEvidence.STOPPED, RootCleanupEvidence.NO_STATE)) {
             RootPersistentDnsCache.prepare(singBoxConfig, if (core.bundled) dnsCacheScope else null)
         } else singBoxConfig
-        val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
         val useFlow = managed && core.patched && DataStore.rootFlowMetadata &&
             mode in listOf(Mode.TUN2SOCKS, Mode.BPF2SOCKS)
         val flowToken = if (useFlow) newFlowToken() else null
@@ -761,28 +760,29 @@ object RootDaemon {
             val tun = managedTunInbound(com.google.gson.JsonParser.parseString(effectiveConfig).asJsonObject)
             if (tun != null) Logs.i("ROOT TUN effective config: include_interface=${tun.get("include_interface")} stack=${tun.get("stack")} mtu=${tun.get("mtu")} auto_route=${tun.get("auto_route")} auto_redirect=${tun.get("auto_redirect")}")
         }
-        val cfg = File(stage, "config.json").apply { writeText(withLogFile(effectiveConfig)) }
-        // A boot-started native daemon has no Android app monitor. Keep its native prefix
-        // selectors for daemon-managed modes when start-on-boot is enabled.
-        val daemonDownstreams = if (gatewayDnsPort != null) verifiedGatewayDownstreams!!.names
-            else if (mode != Mode.TUN && bootEnabled) null else dynamicDownstreams?.names
-        val dnsCaptureRequested = false // Ignore previously saved experimental settings.
-        val tetherDnsHijack = gatewayDnsPort != null || RootTetherDnsPolicy.enabled(
-            requested = dnsCaptureRequested,
-            managed = managed && core.bundled,
-            supportedMode = mode == Mode.TPROXY || mode == Mode.TUN2SOCKS,
-            exactDownstreams = daemonDownstreams != null,
-            startOnBoot = DataStore.configurationStore.getBoolean("startOnBoot", false),
-            coreConfig = baseConfig
-        )
-        if (dnsCaptureRequested)
-            Logs.i("ROOT ${mode.wire} tether DNS interception: ${if (gatewayDnsPort != null) "experimental gateway DNS" else if (!tetherDnsHijack) "not eligible" else if (mode == Mode.TUN2SOCKS) if (ipv6) "IPv4 and IPv6 non-local DNS only" else "IPv4 non-local unicast only" else "enabled"}")
-        val dcfg = File(stage, "asteriskd.json").apply {
-            writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, daemonDownstreams,
-                dynamicDownstreams?.ipv6Prefixes.orEmpty().map { it.subnet }, serviceControl, tetherDnsHijack, gatewayDnsPort))
-        }
-        mark("generate configs")
+        val stage = File(SagerNet.application.noBackupFilesDir, "root-stage").apply { mkdirs() }
         try {
+            val cfg = File(stage, "config.json").apply { writeText(withLogFile(effectiveConfig)) }
+            // A boot-started native daemon has no Android app monitor. Keep its native prefix
+            // selectors for daemon-managed modes when start-on-boot is enabled.
+            val daemonDownstreams = if (gatewayDnsPort != null) verifiedGatewayDownstreams!!.names
+                else if (mode != Mode.TUN && bootEnabled) null else dynamicDownstreams?.names
+            val dnsCaptureRequested = false // Ignore previously saved experimental settings.
+            val tetherDnsHijack = gatewayDnsPort != null || RootTetherDnsPolicy.enabled(
+                requested = dnsCaptureRequested,
+                managed = managed && core.bundled,
+                supportedMode = mode == Mode.TPROXY || mode == Mode.TUN2SOCKS,
+                exactDownstreams = daemonDownstreams != null,
+                startOnBoot = DataStore.configurationStore.getBoolean("startOnBoot", false),
+                coreConfig = baseConfig
+            )
+            if (dnsCaptureRequested)
+                Logs.i("ROOT ${mode.wire} tether DNS interception: ${if (gatewayDnsPort != null) "experimental gateway DNS" else if (!tetherDnsHijack) "not eligible" else if (mode == Mode.TUN2SOCKS) if (ipv6) "IPv4 and IPv6 non-local DNS only" else "IPv4 non-local unicast only" else "enabled"}")
+            val dcfg = File(stage, "asteriskd.json").apply {
+                writeText(buildConfig(mode, RootBoot.exec(File(core.path)).absolutePath, tproxyPort, ipv6, effectiveConfig, flowToken, useMatcher, daemonDownstreams,
+                    dynamicDownstreams?.ipv6Prefixes.orEmpty().map { it.subnet }, serviceControl, tetherDnsHijack, gatewayDnsPort))
+            }
+            mark("generate configs")
             val prep = RootShell.run(
                 "set -e",
                 "umask 077",
