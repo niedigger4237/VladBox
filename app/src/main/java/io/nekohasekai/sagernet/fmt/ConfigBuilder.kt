@@ -76,6 +76,7 @@ fun buildConfig(
     proxy: ProxyEntity, forTest: Boolean = false, forExport: Boolean = false, forSelectorCheck: Boolean = false
 ): ConfigBuildResult {
 
+    require(proxy.type != ProxyEntity.TYPE_NEKO) { ProxyEntity.LEGACY_NEKO_UNSUPPORTED }
     if (proxy.type == TYPE_CONFIG) {
         val bean = proxy.requireBean() as ConfigBean
         if (bean.type == 0) {
@@ -326,9 +327,10 @@ fun buildConfig(
 
         // returns outbound tag
         fun buildChain(
-            chainId: Long, entity: ProxyEntity
+            chainId: Long, entity: ProxyEntity,
+            profileList: List<ProxyEntity> = entity.resolveChain()
         ): String {
-            val profileList = entity.resolveChain()
+            require(profileList.none { it.type == ProxyEntity.TYPE_NEKO }) { ProxyEntity.LEGACY_NEKO_UNSUPPORTED }
             val chainTrafficSet = HashSet<ProxyEntity>().apply {
                 plusAssign(profileList)
                 add(entity)
@@ -571,7 +573,13 @@ fun buildConfig(
         if (buildSelector) {
             val list = group.id.let { SagerDatabase.proxyDao.getByGroup(it) }
             list.forEach {
-                tagMap[it.id] = buildChain(it.id, it)
+                val hops = it.resolveChain()
+                if (hops.any { hop -> hop.type == ProxyEntity.TYPE_NEKO }) {
+                    require(it.id != proxy.id) { ProxyEntity.LEGACY_NEKO_UNSUPPORTED }
+                    Logs.w("Skipping unsupported legacy Neko selector profile ${it.id}")
+                } else {
+                    tagMap[it.id] = buildChain(it.id, it, hops)
+                }
             }
             outbounds.add(0, Outbound_SelectorOptions().apply {
                 type = "selector"

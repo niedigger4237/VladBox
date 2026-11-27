@@ -1594,7 +1594,10 @@ class ConfigurationFragment @JvmOverloads constructor(
 
                 entity = proxyEntity
 
-                if (select) {
+                val legacyNeko = proxyEntity.type == ProxyEntity.TYPE_NEKO
+                if (legacyNeko) {
+                    view.setOnClickListener { alert(ProxyEntity.LEGACY_NEKO_UNSUPPORTED).tryToShow() }
+                } else if (select) {
                     view.setOnClickListener {
                         (requireActivity() as SelectCallback).returnProfile(proxyEntity.id)
                     }
@@ -1637,15 +1640,15 @@ class ConfigurationFragment @JvmOverloads constructor(
                     Formatter.formatFileSize(view.context, rx)
                 ) else ""
                 val address = proxyEntity.displayAddress()
-                val errorDetail = if (proxyEntity.status == 3) proxyEntity.error ?: "<?>" else null
-                val status = when (proxyEntity.status) {
+                val errorDetail = if (legacyNeko) ProxyEntity.LEGACY_NEKO_UNSUPPORTED else if (proxyEntity.status == 3) proxyEntity.error ?: "<?>" else null
+                val status = if (legacyNeko) ProxyEntity.LEGACY_NEKO_UNSUPPORTED else when (proxyEntity.status) {
                     1 -> getString(R.string.available, proxyEntity.ping)
                     2 -> proxyEntity.error.orEmpty()
                     3 -> Protocols.genFriendlyMsg(errorDetail!!).let { if (it != errorDetail) it else getString(R.string.unavailable) }
                     else -> ""
                 }
                 editAction = {
-                    if (!DataStore.serviceState.started || DataStore.currentProfile != proxyEntity.id) {
+                    if (!legacyNeko && (!DataStore.serviceState.started || DataStore.currentProfile != proxyEntity.id)) {
                         view.context.startActivity(proxyEntity.settingIntent(view.context, proxyGroup.type == GroupType.SUBSCRIPTION))
                     }
                 }
@@ -1662,10 +1665,10 @@ class ConfigurationFragment @JvmOverloads constructor(
                 cardState.value = io.nekohasekai.sagernet.ui.compose.ProfileUiState(
                     id = proxyEntity.id, name = proxyEntity.displayName().orEmpty(),
                     protocol = proxyEntity.displayType().orEmpty(), address = address,
-                    traffic = traffic, status = status, statusCode = proxyEntity.status,
+                    traffic = traffic, status = status, statusCode = if (legacyNeko) 3 else proxyEntity.status,
                     errorDetail = errorDetail,
                     selected = (selectedItem?.id ?: DataStore.selectedProxy) == proxyEntity.id,
-                    editEnabled = !(DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id),
+                    editEnabled = !legacyNeko && !(DataStore.serviceState.started && DataStore.currentProfile == proxyEntity.id),
                     canShare = !select && proxyEntity.type != ProxyEntity.TYPE_CHAIN && proxyEntity.nekoBean == null
                 )
                 shareAction = {}

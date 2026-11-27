@@ -94,7 +94,9 @@ data class ProxyEntity(
         const val TYPE_ANYTLS = 22
 
         const val TYPE_CONFIG = 998
+        // Reserved for decoding old databases and backups. Not a runnable protocol.
         const val TYPE_NEKO = 999
+        const val LEGACY_NEKO_UNSUPPORTED = "Legacy Neko plugin profiles are no longer supported"
 
         const val TYPE_CHAIN = 8
 
@@ -221,7 +223,7 @@ data class ProxyEntity(
         TYPE_SHADOWTLS -> ProtocolDetails("ShadowTLS")
         TYPE_ANYTLS -> ProtocolDetails("AnyTLS", security = "tls")
         TYPE_CHAIN -> ProtocolDetails(chainName)
-        TYPE_NEKO -> ProtocolDetails(nekoBean!!.displayType())
+        TYPE_NEKO -> ProtocolDetails("Legacy Neko (unsupported)")
         TYPE_CONFIG -> ProtocolDetails(configBean!!.displayType())
         else -> ProtocolDetails("Undefined type $type")
     }
@@ -256,7 +258,7 @@ data class ProxyEntity(
 
     fun haveLink(): Boolean {
         return when (type) {
-            TYPE_CHAIN -> false
+            TYPE_CHAIN, TYPE_NEKO -> false
             else -> true
         }
     }
@@ -329,7 +331,6 @@ data class ProxyEntity(
         return when (type) {
             TYPE_TROJAN_GO -> !trojanGoBean!!.canUseNativeTrojan()
             TYPE_HYSTERIA -> !hysteriaBean!!.canUseSingBox()
-            TYPE_NEKO -> true
             else -> false
         }
     }
