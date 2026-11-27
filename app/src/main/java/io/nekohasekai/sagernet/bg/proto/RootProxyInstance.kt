@@ -133,7 +133,13 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
             Key.MODE_ROOT_BPF2SOCKS -> RootDaemon.Mode.BPF2SOCKS
             else -> null
         }
-        if (started && initial != null && mode != null) {
+        // No downstream can appear when every selector is disabled.
+        // Retain the monitor for manual TUN interfaces and IPv6 guard repair.
+        val needsTetherMonitor = mode != null && initial != null &&
+            (initial.names.isNotEmpty() || initial.blockIpv6 ||
+                RootDaemon.tetherSelectors().isNotEmpty() ||
+                (mode == RootDaemon.Mode.TUN && RootDaemon.configuredTunInterfaces().isNotEmpty()))
+        if (started && initial != null && mode != null && needsTetherMonitor) {
             tunNetworkMonitor = RootTunNetworkMonitor(mode, initial) {
                 val owner = service
                 if (owner != null && owner.data.proxy === this && started &&
