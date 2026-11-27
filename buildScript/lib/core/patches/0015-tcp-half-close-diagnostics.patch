@@ -1,0 +1,155 @@
+diff --git a/route/conn.go b/route/conn.go
+--- a/route/conn.go
++++ b/route/conn.go
+@@ -275,41 +275,54 @@
+-func (m *ConnectionManager) connectionCopy(ctx context.Context, source net.Conn, destination net.Conn, direction bool, done *atomic.Bool, onClose N.CloseHandlerFunc) {
+-	_, err := bufio.CopyWithIncreateBuffer(destination, source, bufio.DefaultIncreaseBufferAfter, bufio.DefaultBatchSize)
+-	if err != nil {
+-		common.Close(source, destination)
+-	} else {
+-		destinationWriter, _ := N.UnwrapCountWriter(destination, nil)
+-		duplexDst, isDuplex := N.UnwrapWriter(destinationWriter).(N.WriteCloser)
+-		if isDuplex {
+-			err = duplexDst.CloseWrite()
+-			if err != nil {
+-				common.Close(source, destination)
+-			}
+-		} else {
+-			destination.Close()
+-		}
+-	}
+-	if done.Swap(true) {
+-		if onClose != nil {
+-			onClose(err)
+-		}
+-		common.Close(source, destination)
+-	}
+-	if !direction {
+-		if err == nil {
+-			m.logger.DebugContext(ctx, "connection upload finished")
+-		} else if !E.IsClosedOrCanceled(err) && !strings.Contains(err.Error(), "NO_ERROR") && !strings.Contains(err.Error(), "CANCEL") && !strings.Contains(err.Error(), "body closed") {
+-			m.logger.ErrorContext(ctx, "connection upload closed: ", err)
+-		} else {
+-			m.logger.TraceContext(ctx, "connection upload closed")
+-		}
+-	} else {
+-		if err == nil {
+-			m.logger.DebugContext(ctx, "connection download finished")
+-		} else if !E.IsClosedOrCanceled(err) && !strings.Contains(err.Error(), "NO_ERROR") && !strings.Contains(err.Error(), "response body closed") {
+-			m.logger.ErrorContext(ctx, "connection download closed: ", err)
+-		} else {
+-			m.logger.TraceContext(ctx, "connection download closed")
+-		}
+-	}
+-}
+-
++func (m *ConnectionManager) connectionCopy(ctx context.Context, source net.Conn, destination net.Conn, direction bool, done *atomic.Bool, onClose N.CloseHandlerFunc) {
++	_, err := bufio.CopyWithIncreateBuffer(destination, source, bufio.DefaultIncreaseBufferAfter, bufio.DefaultBatchSize)
++	var disconnectedHalfClose bool
++	if err != nil {
++		common.Close(source, destination)
++	} else {
++		destinationWriter, _ := N.UnwrapCountWriter(destination, nil)
++		duplexDst, isDuplex := N.UnwrapWriter(destinationWriter).(N.WriteCloser)
++		if isDuplex {
++			err = duplexDst.CloseWrite()
++			disconnectedHalfClose = isDisconnectedTCPHalfClose(err)
++			if err != nil {
++				common.Close(source, destination)
++			}
++		} else {
++			destination.Close()
++		}
++	}
++	if done.Swap(true) {
++		if onClose != nil {
++			onClose(err)
++		}
++		common.Close(source, destination)
++	}
++	// Copy succeeded; only the final half-close reported an already
++	// disconnected TCP endpoint. Preserve cleanup and callback errors, but
++	// distinguish this from transport read/write failures in diagnostics.
++	if disconnectedHalfClose {
++		if direction {
++			m.logger.DebugContext(ctx, "connection download closed: TCP endpoint already disconnected during half-close")
++		} else {
++			m.logger.DebugContext(ctx, "connection upload closed: TCP endpoint already disconnected during half-close")
++		}
++		return
++	}
++	if !direction {
++		if err == nil {
++			m.logger.DebugContext(ctx, "connection upload finished")
++		} else if !E.IsClosedOrCanceled(err) && !strings.Contains(err.Error(), "NO_ERROR") && !strings.Contains(err.Error(), "CANCEL") && !strings.Contains(err.Error(), "body closed") {
++			m.logger.ErrorContext(ctx, "connection upload closed: ", err)
++		} else {
++			m.logger.TraceContext(ctx, "connection upload closed")
++		}
++	} else {
++		if err == nil {
++			m.logger.DebugContext(ctx, "connection download finished")
++		} else if !E.IsClosedOrCanceled(err) && !strings.Contains(err.Error(), "NO_ERROR") && !strings.Contains(err.Error(), "response body closed") {
++			m.logger.ErrorContext(ctx, "connection download closed: ", err)
++		} else {
++			m.logger.TraceContext(ctx, "connection download closed")
++		}
++	}
++}
++
+diff --git a/route/niefigger_tcp_close.go b/route/niefigger_tcp_close.go
+new file mode 100644
+--- /dev/null
++++ b/route/niefigger_tcp_close.go
+@@ -0,0 +1,15 @@
++package route
++
++import (
++	"errors"
++	"net"
++)
++
++// gVisor reports ErrNotConnected as a plain error inside net.OpError
++// when a TCP endpoint no longer accepts Shutdown. Only use this helper
++// for CloseWrite errors after a successful copy, not I/O errors.
++func isDisconnectedTCPHalfClose(err error) bool {
++	var opErr *net.OpError
++	return errors.As(err, &opErr) && opErr.Op == "close" && opErr.Net == "tcp" &&
++		opErr.Err != nil && opErr.Err.Error() == "endpoint not connected"
++}
+diff --git a/route/niefigger_tcp_close_test.go b/route/niefigger_tcp_close_test.go
+new file mode 100644
+--- /dev/null
++++ b/route/niefigger_tcp_close_test.go
+@@ -0,0 +1,31 @@
++package route
++
++import (
++	"errors"
++	"fmt"
++	"net"
++	"testing"
++)
++
++func TestDisconnectedTCPHalfClose(t *testing.T) {
++	for _, tt := range []struct {
++		name string
++		err error
++		want bool
++	}{
++		{"nil", nil, false},
++		{"half-close", &net.OpError{Op: "close", Net: "tcp", Err: errors.New("endpoint not connected")}, true},
++		{"wrapped", fmt.Errorf("close: %w", &net.OpError{Op: "close", Net: "tcp", Err: errors.New("endpoint not connected")}), true},
++		{"read", &net.OpError{Op: "read", Net: "tcp", Err: errors.New("endpoint not connected")}, false},
++		{"write", &net.OpError{Op: "write", Net: "tcp", Err: errors.New("endpoint not connected")}, false},
++		{"udp", &net.OpError{Op: "close", Net: "udp", Err: errors.New("endpoint not connected")}, false},
++		{"reset", &net.OpError{Op: "close", Net: "tcp", Err: errors.New("connection reset by peer")}, false},
++		{"untyped", errors.New("endpoint not connected"), false},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			if got := isDisconnectedTCPHalfClose(tt.err); got != tt.want {
++				t.Fatalf("got %v, want %v", got, tt.want)
++			}
++		})
++	}
++}
