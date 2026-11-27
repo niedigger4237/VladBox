@@ -44,6 +44,7 @@ jobs:
     with:
       ref: refs/tags/${{ inputs.tag }}
       fast: false
+      native_naive: true
   build:
     name: Build OSS APK
     runs-on: ubuntu-latest
@@ -110,7 +111,7 @@ jobs:
           echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
           export LOCAL_PROPERTIES="${{ secrets.LOCAL_PROPERTIES }}"
           ./run init action gradle
-          ./gradlew --build-cache app:assembleOssRelease \
+          ./gradlew --build-cache -PnativeNaive=true app:assembleOssRelease \
             -PappVersionName="${TAG#v}" \
             -PappVersionCode="$((1000 + ${{ github.run_number }}))"
           APK_DIR=app/build/outputs/apk
@@ -212,7 +213,7 @@ jobs:
           echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
           export LOCAL_PROPERTIES="${{ secrets.LOCAL_PROPERTIES }}"
           ./run init action gradle
-          ./gradlew --build-cache bundlePlayRelease \
+          ./gradlew --build-cache -PnativeNaive=true app:bundlePlayRelease \
             -PappVersionName="${TAG#v}" \
             -PappVersionCode="$((1000 + ${{ github.run_number }}))"
       - uses: actions/upload-artifact@v4

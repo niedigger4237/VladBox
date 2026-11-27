@@ -88,7 +88,7 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
         env:
           GOMOBILE_REVISION: ${{ steps.gomobile.outputs.revision }}
-          LIBCORE_TARGETS: ${{ inputs.fast && 'android/arm64' || '' }}
+          LIBCORE_TARGETS: ${{ inputs.fast && 'android/arm64' || (inputs.native_naive && 'android/arm64,android/arm,android/amd64' || '') }}
           ROOTCORE_ABIS: ${{ inputs.fast && 'arm64-v8a' || '' }}
         run: |
           set -e

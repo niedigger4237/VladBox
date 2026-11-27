@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       fast:
-        description: "Fast: arm64 only (debug builds). Disable for a full multi-ABI build."
+        description: "Fast: arm64 only. Disable for all three supported ABIs."
         type: boolean
         default: true
       compile_only:
@@ -21,8 +21,8 @@ jobs:
     uses: ./.github/workflows/native-build.yml
     with:
       ref: ${{ github.sha }}
-      fast: ${{ github.ref_name == 'native-proxy' || inputs.fast }}
-      native_naive: ${{ github.ref_name == 'native-proxy' }}
+      fast: ${{ inputs.fast }}
+      native_naive: true
       force_core_rebuild: ${{ inputs.force_core_rebuild == true }}
   build:
     name: ${{ inputs.compile_only && 'Android Compile Check' || 'Build OSS APK' }}
@@ -76,7 +76,7 @@ jobs:
           BUILD_PLUGIN: none
         run: |
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
-          ./gradlew --build-cache --profile -PpreviewArm64Only=${{ github.ref_name == 'native-proxy' || inputs.fast }} -PnativeNaive=${{ github.ref_name == 'native-proxy' }} app:compilePreviewReleaseKotlin app:compilePreviewReleaseJavaWithJavac
+          ./gradlew --build-cache --profile -PpreviewArm64Only=${{ inputs.fast }} -PnativeNaive=true app:compilePreviewReleaseKotlin app:compilePreviewReleaseJavaWithJavac
       - name: Gradle Build
         if: ${{ !inputs.compile_only }}
         env:
@@ -88,10 +88,11 @@ jobs:
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           export LOCAL_PROPERTIES="${{ secrets.LOCAL_PROPERTIES }}"
           ./run init action gradle
-          ./gradlew --build-cache --profile -PpreviewArm64Only=${{ github.ref_name == 'native-proxy' || inputs.fast }} -PnativeNaive=${{ github.ref_name == 'native-proxy' }} app:assemblePreviewRelease
-          APK=$(find app/build/outputs/apk -name '*arm64-v8a*.apk')
-          APK=$(dirname $APK)
-          echo "APK=$APK" >> $GITHUB_ENV
+          ./gradlew --build-cache --profile -PpreviewArm64Only=${{ inputs.fast }} -PnativeNaive=true app:assemblePreviewRelease
+          APK=app/build/outputs/apk/preview/release
+          test -d "$APK"
+          test "$(find "$APK" -type f -name '*.apk' | wc -l)" -gt 0
+          echo "APK=$APK" >> "$GITHUB_ENV"
       - name: Upload Gradle profile
         if: always()
         uses: actions/upload-artifact@v4

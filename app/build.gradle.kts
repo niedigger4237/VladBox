@@ -21,7 +21,14 @@ android {
     defaultConfig {
         val nativeNaive = providers.gradleProperty("nativeNaive").orNull == "true"
         buildConfigField("boolean", "NATIVE_NAIVE", nativeNaive.toString())
-        if (nativeNaive) minSdk = 24
+        if (nativeNaive) {
+            minSdk = 24
+            // AABs must not contain x86-only JNI libraries without their matching core.
+            ndk {
+                abiFilters += if (providers.gradleProperty("previewArm64Only").orNull == "true")
+                    setOf("arm64-v8a") else setOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            }
+        }
         // Версия переопределяется только если переданы -PappVersionName / -PappVersionCode
         // (release workflow). Иначе остаются значения из nb4a.properties (задаются в setupApp()).
         providers.gradleProperty("appVersionName").orNull?.let { versionName = it }

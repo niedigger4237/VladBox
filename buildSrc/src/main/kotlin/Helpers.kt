@@ -172,6 +172,9 @@ fun Project.setupApp() {
             isUniversalApk = false
             if (providers.gradleProperty("previewArm64Only").orNull == "true") {
                 include("arm64-v8a")
+            } else if (providers.gradleProperty("nativeNaive").orNull == "true") {
+                // Match the ROOT core and helper ABIs supplied by native-build.
+                include("armeabi-v7a", "arm64-v8a", "x86_64")
             } else {
                 include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
             }
