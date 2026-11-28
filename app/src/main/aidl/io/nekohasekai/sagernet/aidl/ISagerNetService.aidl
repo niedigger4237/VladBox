@@ -17,4 +17,6 @@ interface ISagerNetService {
   String getSelectorProbeTag(long sessionId, long profileId);
   // Presentation metadata only; never serialize full beans or credentials.
   String getDashboardProfiles(long sessionId);
+  // Self-measured PSS, or -1 if unavailable / same process as caller.
+  long getServicePssBytes();
 }

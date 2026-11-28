@@ -6,6 +6,8 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,13 +26,14 @@ internal fun DashboardProxiesTab(
     connected: Boolean,
     groups: List<DashboardProxyGroup> = emptyList(),
     onSelect: ((String, String) -> Unit)? = null,
-    onTest: ((String) -> Unit)? = null
+    onTest: ((String) -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
     var selectedGroup by remember { mutableStateOf<String?>(null) }
     var expanded by remember { mutableStateOf(false) }
     val group = groups.firstOrNull { it.name == selectedGroup } ?: groups.firstOrNull()
     val colors = MaterialTheme.colorScheme
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+    Card(modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant.copy(alpha = .45f))) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Proxy groups", style = MaterialTheme.typography.titleMedium)
@@ -70,9 +73,9 @@ internal fun DashboardProxiesTab(
             if (group == null || group.nodes.isEmpty()) {
                 Text("No servers available", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             } else {
-                OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                    Column {
-                        group.nodes.forEachIndexed { index, node ->
+                OutlinedCard(Modifier.weight(1f).fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        itemsIndexed(group.nodes, key = { _, node -> node.name }) { index, node ->
                             val active = node.name == group.selected
                             Surface(color = if (active) colors.secondaryContainer else Color.Transparent,
                                 shape = RoundedCornerShape(10.dp),
@@ -178,7 +181,7 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
                     displayName = label ?: tag, protocol = protocol, historyKey = key,
                     failed = outcome != null && outcome.delay == null)
             }
-            DashboardProxyGroup(name, item.optString("type"), item.optString("now"), nodes,
+            DashboardProxyGroup(name, item.optString("type"), item.optString("now"), nodes.distinctBy { it.name },
                 synthetic = name == "GLOBAL" && item.optString("type").equals("Fallback", true))
         }.sortedBy { DashboardProxyPolicy.priority(it.name, it.synthetic, managedSelector) }.toList()
         val confirmedSession = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { binder.selectorSessionId }
@@ -219,7 +222,8 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
             finally { busy = false }
         }
     }
-    DashboardProxiesTab(connected, groups,
+    Column(Modifier.fillMaxSize()) {
+    DashboardProxiesTab(connected, groups, modifier = Modifier.weight(1f),
         onSelect = if (busy || displayedSessionId == 0L) null else { group, node ->
             val sessionId = displayedSessionId
             action(refreshAfter = false) {
@@ -281,4 +285,5 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
         })
     if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    }
 }

@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import com.caverock.androidsvg.SVG
 
 private val serviceDomains = listOf(
@@ -117,7 +118,10 @@ private val serviceDomains = listOf(
     "nvidia" to listOf("nvidia.com"),
     "amd" to listOf("amd.com")
 )
-private val serviceBitmaps = LruCache<String, Bitmap>(96)
+private val serviceBitmaps = object : LruCache<String, Bitmap>(2 * 1024 * 1024) {
+    override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount
+}
+private val brandRenderLock = kotlinx.coroutines.sync.Mutex()
 private val serviceSuffixes = serviceDomains.flatMap { (name, domains) ->
     domains.map { name to it }
 }.sortedByDescending { it.second.length }
@@ -175,12 +179,16 @@ internal fun DashboardBrandIcon(host: String, fallback: @Composable () -> Unit) 
         value = null
         if (asset != null) value = withContext(Dispatchers.IO) {
             val cacheKey = "$asset:$dark"
-            serviceBitmaps.get(cacheKey) ?: runCatching {
-                val svg = SVG.getFromAsset(context.assets, "dashboard-icons/$asset.svg")
-                val image = Bitmap.createBitmap(192, 192, Bitmap.Config.ARGB_8888)
-                svg.renderToCanvas(Canvas(image), android.graphics.RectF(0f, 0f, 192f, 192f))
-                normalizeBrand(image, dark)?.also { serviceBitmaps.put(cacheKey, it) }
-            }.getOrNull()
+            serviceBitmaps.get(cacheKey) ?: brandRenderLock.withLock {
+                serviceBitmaps.get(cacheKey) ?: runCatching {
+                    val svg = SVG.getFromAsset(context.assets, "dashboard-icons/$asset.svg")
+                    val image = Bitmap.createBitmap(192, 192, Bitmap.Config.ARGB_8888)
+                    try {
+                        svg.renderToCanvas(Canvas(image), android.graphics.RectF(0f, 0f, 192f, 192f))
+                        normalizeBrand(image, dark)?.also { serviceBitmaps.put(cacheKey, it) }
+                    } finally { image.recycle() }
+                }.getOrNull()
+            }
         }
     }
     val image = bitmap

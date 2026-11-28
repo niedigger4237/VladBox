@@ -290,6 +290,17 @@ class BaseService {
                 data?.takeIf { it.state == State.Connected && !it.destroyed }?.selectorSessionId ?: 0L
             }
 
+        override fun getServicePssBytes(): Long {
+            // Measure the service's own address space on the Binder thread.
+            // Android throttles ActivityManager queries for other processes.
+            if (android.os.Binder.getCallingPid() == android.os.Process.myPid()) return -1L
+            return runCatching {
+                val info = android.os.Debug.MemoryInfo()
+                android.os.Debug.getMemoryInfo(info)
+                info.totalPss.toLong().takeIf { it > 0 }?.times(1024) ?: -1L
+            }.getOrDefault(-1L)
+        }
+
         override fun getDashboardProfiles(sessionId: Long): String =
             runBlocking(Dispatchers.Main.immediate) {
                 data?.getDashboardProfiles(sessionId).orEmpty()
