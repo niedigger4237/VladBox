@@ -48,7 +48,7 @@ internal object LogicalRulePolicy {
     )
     private val dnsGroups = listOf(
         setOf("domain", "domain_suffix", "domain_keyword", "domain_regex"),
-        setOf("query_type")
+        setOf("rule_set"), setOf("query_type")
     )
 
     private fun present(value: Any?): Boolean = when (value) {

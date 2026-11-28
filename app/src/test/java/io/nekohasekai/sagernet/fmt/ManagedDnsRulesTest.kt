@@ -75,4 +75,27 @@ class ManagedDnsRulesTest {
         assertTrue(runCatching { ManagedDnsRules.validate(base.copy(target = "block", cacheMode = "no_cache")) }.isFailure)
         assertTrue(runCatching { ManagedDnsRules.validate(base.copy(operation = "respond", responseFrom = "one", rewriteTtl = 60L)) }.isFailure)
     }
+    @Test fun systemDnsAndSrsCopy() {
+        val rule = ManagedDnsRules.copyDomainConditions("Direct Geosite",
+            "geosite:category-ru\ngeosite:yandex\nfull:example.org\ndomain:example.net\nkeyword:test")
+        assertEquals("dns-local", rule.target)
+        assertEquals(listOf("geosite:category-ru", "geosite:yandex"), ManagedDnsRules.ruleSets(rule))
+        val result = ManagedDnsRules.options(listOf(rule), true).single()
+        assertEquals("dns-local", result.server)
+        assertEquals(listOf("example.org"), result.domain)
+        assertEquals(listOf("example.net"), result.domain_suffix)
+        assertEquals(listOf("test"), result.domain_keyword)
+        assertEquals(listOf("geosite:category-ru", "geosite:yandex"), result.rule_set)
+        val srsOnly = rule.copy(domains = "")
+        assertEquals("dns-local", ManagedDnsRules.options(listOf(srsOnly), false).single().server)
+        assertTrue(runCatching { ManagedDnsRules.validate(srsOnly.copy(srs = listOf("geoip:ru"))) }.isFailure)
+    }
+
+    @Test fun bootstrapIsPausedWithItsDependentResponse() {
+        val eval = ManagedDnsRules.Rule(id = "bootstrap", name = "Bootstrap", domains = "example.org",
+            target = "dns-bootstrap", operation = "evaluate")
+        val respond = ManagedDnsRules.Rule(name = "Respond", operation = "respond", responseFrom = "bootstrap")
+        assertTrue(ManagedDnsRules.options(listOf(eval, respond), true, false).isEmpty())
+        assertEquals("dns-bootstrap", ManagedDnsRules.options(listOf(eval, respond), false, true).first().server)
+    }
 }

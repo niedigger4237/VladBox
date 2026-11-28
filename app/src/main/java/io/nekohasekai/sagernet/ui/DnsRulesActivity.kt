@@ -15,6 +15,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.RouteProfiles
+import io.nekohasekai.sagernet.database.SagerDatabase
+import io.nekohasekai.sagernet.SagerNet
+import androidx.compose.foundation.lazy.items
 import io.nekohasekai.sagernet.fmt.ManagedDnsRules
 import io.nekohasekai.sagernet.fmt.ManagedDnsRules.Rule
 import io.nekohasekai.sagernet.ui.compose.HubTheme
@@ -36,6 +39,10 @@ class DnsRulesActivity : ThemedActivity() {
         var profileName by remember { mutableStateOf("") }
         var modern by remember { mutableStateOf(false) }
         var remote by remember { mutableStateOf(false) }
+        var bootstrapAvailable by remember { mutableStateOf(false) }
+        var installedSrs by remember { mutableStateOf<List<String>>(emptyList()) }
+        var routingSources by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+        var copyPicker by remember { mutableStateOf(false) }
         var ready by remember { mutableStateOf(false) }
         var busy by remember { mutableStateOf(false) }
         var error by remember { mutableStateOf<String?>(null) }
@@ -50,7 +57,14 @@ class DnsRulesActivity : ThemedActivity() {
                     val parsed = ManagedDnsRules.decode(json)
                     val modernMode = DataStore.dnsEngineMode == "modern"
                     val useRemote = DataStore.dnsMain != "direct_only"
+                    val useBootstrap = DataStore.dnsBootstrapPreset != "system"
+                    val sets = SagerNet.application.externalAssets.listFiles().orEmpty()
+                        .filter { it.isFile && it.length() > 0 && it.name.matches(Regex("geosite-[A-Za-z0-9._!-]+[.]srs")) }
+                        .map { "geosite:" + it.name.removePrefix("geosite-").removeSuffix(".srs") }.distinct().sorted()
+                    val sources = SagerDatabase.rulesDao.allRules().filter { it.domains.isNotBlank() }
+                        .map { it.displayName() to it.domains }
                     withContext(Dispatchers.Main) {
+                        bootstrapAvailable = useBootstrap; installedSrs = sets; routingSources = sources
                         source = json; profileId = id; profileName = name
                         rules = parsed; modern = modernMode; remote = useRemote; ready = true
                     }
@@ -75,8 +89,8 @@ class DnsRulesActivity : ThemedActivity() {
                 finally { busy = false }
             }
         }
-        val activeIds = remember(rules, remote) {
-            ManagedDnsRules.effective(rules, remote).map { it.id }.toSet()
+        val activeIds = remember(rules, remote, bootstrapAvailable) {
+            ManagedDnsRules.effective(rules, remote, bootstrapAvailable).map { it.id }.toSet()
         }
         Surface(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
@@ -96,6 +110,8 @@ class DnsRulesActivity : ThemedActivity() {
                         if (!ready && error == null) CircularProgressIndicator()
                         Button(onClick = { editor = Rule() }, enabled = ready && !busy && rules.size < 256,
                             modifier = Modifier.fillMaxWidth()) { Text("+ Add DNS rule") }
+                        OutlinedButton(onClick = { copyPicker = true }, enabled = ready && !busy && rules.size < 256 && routingSources.isNotEmpty(),
+                            modifier = Modifier.fillMaxWidth()) { Text("Copy domains from Routing Rule") }
                         if (ready && rules.isEmpty()) Text("No explicit rules. Automatic DNS routing is unchanged.")
                     }
                     itemsIndexed(rules, key = { _, rule -> rule.id }) { index, rule ->
@@ -104,11 +120,17 @@ class DnsRulesActivity : ThemedActivity() {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
                                         Text(rule.name, style = MaterialTheme.typography.titleMedium)
-                                        Text(rule.domains.ifBlank { "All domains" }, style = MaterialTheme.typography.bodySmall)
+                                        val sets = ManagedDnsRules.ruleSets(rule)
+                                        if (rule.domains.isNotBlank()) Text(rule.domains, style = MaterialTheme.typography.bodySmall, maxLines = 3)
+                                        if (sets.isNotEmpty()) {
+                                            Text("Geosite SRS: ${sets.size}", style = MaterialTheme.typography.bodySmall)
+                                            if (sets.any { it !in installedSrs }) Text("Missing SRS assets", color = MaterialTheme.colorScheme.error)
+                                        }
+                                        if (rule.domains.isBlank() && sets.isEmpty()) Text("No domain restriction", style = MaterialTheme.typography.bodySmall)
                                         val actionLabel = when (ManagedDnsRules.operation(rule)) {
-                                            "evaluate" -> "Evaluate · ${rule.target}"
+                                            "evaluate" -> "Evaluate · ${ManagedDnsRules.targetLabel(rule.target)}"
                                             "respond" -> "Respond"
-                                            else -> rule.target
+                                            else -> ManagedDnsRules.targetLabel(rule.target)
                                         }
                                         Text(actionLabel + if (rule.queries.isBlank()) "" else " · " + rule.queries)
                                         rules.firstOrNull { it.id == ManagedDnsRules.responseId(rule) }?.let {
@@ -139,12 +161,29 @@ class DnsRulesActivity : ThemedActivity() {
                 }
             }
         }
+        if (copyPicker) {
+            AlertDialog(onDismissRequest = { copyPicker = false }, title = { Text("Copy domain conditions") }, text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Copies domains and Geosite SRS only. IP, app, transport, logical mode and outbound are not copied. Review the new rule before saving.")
+                    LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                        itemsIndexed(routingSources) { _, (name, domains) ->
+                            TextButton(onClick = {
+                                try {
+                                    editor = ManagedDnsRules.copyDomainConditions(name, domains)
+                                    copyPicker = false; error = null
+                                } catch (e: Exception) { error = e.message ?: "Cannot copy domains"; copyPicker = false }
+                            }, modifier = Modifier.fillMaxWidth()) { Text(name) }
+                        }
+                    }
+                }
+            }, confirmButton = { TextButton(onClick = { copyPicker = false }) { Text("Cancel") } })
+        }
         editor?.let { original ->
             key(original.id) {
                 val index = rules.indexOfFirst { it.id == original.id }
                 val priorEvaluations = (if (index < 0) rules else rules.take(index))
                     .filter { ManagedDnsRules.operation(it) == "evaluate" }
-                RuleDialog(original, priorEvaluations, busy, error, onDismiss = { if (!busy) { editor = null; error = null } }) { updated ->
+                RuleDialog(original, priorEvaluations, installedSrs, bootstrapAvailable, busy, error, onDismiss = { if (!busy) { editor = null; error = null } }) { updated ->
                     val next = if (rules.any { it.id == updated.id }) rules.map { if (it.id == updated.id) updated else it } else rules + updated
                     save(next)
                 }
@@ -159,9 +198,12 @@ class DnsRulesActivity : ThemedActivity() {
         }
     }
 
-    @Composable private fun RuleDialog(rule: Rule, evaluations: List<Rule>, busy: Boolean, saveError: String?, onDismiss: () -> Unit, onSave: (Rule) -> Unit) {
+    @Composable private fun RuleDialog(rule: Rule, evaluations: List<Rule>, installedSrs: List<String>,
+        bootstrapAvailable: Boolean, busy: Boolean, saveError: String?, onDismiss: () -> Unit, onSave: (Rule) -> Unit) {
         var name by remember { mutableStateOf(rule.name) }
         var domains by remember { mutableStateOf(rule.domains) }
+        var selectedSrs by remember { mutableStateOf(ManagedDnsRules.ruleSets(rule).toSet()) }
+        var srsPicker by remember { mutableStateOf(false) }
         var queries by remember { mutableStateOf(rule.queries) }
         var match by remember { mutableStateOf(rule.match) }
         var target by remember { mutableStateOf(rule.target) }
@@ -182,8 +224,14 @@ class DnsRulesActivity : ThemedActivity() {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text("Rule name") }, singleLine = true)
                 OutlinedTextField(domains, { domains = it }, label = { Text("Domains") },
-                    supportingText = { Text("One domain per line or comma-separated") })
-                Text("Domain match")
+                    supportingText = { Text("One per line or comma-separated. Prefixes: full:, domain:, regexp:, keyword:") })
+                OutlinedButton(onClick = { srsPicker = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Select Geosite SRS · ${selectedSrs.size}")
+                }
+                if (selectedSrs.isNotEmpty()) Text(selectedSrs.sorted().joinToString("\n"), style = MaterialTheme.typography.bodySmall)
+                val missing = selectedSrs.filterNot { it in installedSrs }
+                if (missing.isNotEmpty()) Text("Missing SRS: ${missing.joinToString()}. Install in Assets before use.", color = MaterialTheme.colorScheme.error)
+                Text("Domain match (unprefixed entries)")
                 Row {
                     FilterChip(selected = match == "suffix", onClick = { match = "suffix" }, label = { Text("Suffix") })
                     Spacer(Modifier.width(8.dp))
@@ -206,8 +254,11 @@ class DnsRulesActivity : ThemedActivity() {
                     }
                 }
                 if (operation != "respond") {
-                    val servers = listOf("dns-direct" to "Direct DNS", "dns-remote" to "Remote DNS")
-                    Choice("DNS target", target, if (operation == "route") servers + ("block" to "Block (NXDOMAIN)") else servers) { target = it }
+                    val servers = ManagedDnsRules.targets.filter { operation == "route" || it.first != "block" }
+                        .map { if (it.first == "dns-bootstrap" && !bootstrapAvailable) it.first to "Bootstrap DNS (not configured)" else it }
+                    Choice("DNS target", target, servers) { target = it }
+                    if (target == "dns-local") Text("Uses the system resolver; Android Private DNS or network settings may affect the upstream.", style = MaterialTheme.typography.bodySmall)
+                    if (target == "dns-bootstrap" && !bootstrapAvailable) Text("Paused until a separate Bootstrap DNS is configured.", style = MaterialTheme.typography.bodySmall)
                 }
                 if (operation == "evaluate") Text("Query the server and retain its response for later rules.")
                 else {
@@ -267,12 +318,42 @@ class DnsRulesActivity : ThemedActivity() {
                         queryTimeout = queryTimeout.takeIf { performsQuery && it.isNotEmpty() },
                         rewriteTtl = ttl, cacheMode = cacheMode.takeIf { performsQuery && it.isNotEmpty() },
                         removeClientSubnet = true.takeIf { performsQuery && removeClientSubnet },
-                        logicalMode = logicalMode.takeIf { it.isNotEmpty() && responseFrom.isEmpty() && operation != "respond" })
+                        logicalMode = logicalMode.takeIf { it.isNotEmpty() && responseFrom.isEmpty() && operation != "respond" },
+                        srs = selectedSrs.sorted().takeIf { it.isNotEmpty() })
                     ManagedDnsRules.validate(updated); error = null; onSave(updated)
                 } catch (e: Exception) { error = e.message ?: "Invalid DNS rule" }
             }) { Text("Save") }
         }, dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") } })
+        if (srsPicker) {
+            SrsPicker(installedSrs, selectedSrs, { srsPicker = false }) {
+                selectedSrs = it; srsPicker = false
+            }
+        }
     }
+
+    @Composable private fun SrsPicker(installed: List<String>, initial: Set<String>, dismiss: () -> Unit, apply: (Set<String>) -> Unit) {
+        var search by remember { mutableStateOf("") }
+        var selected by remember { mutableStateOf(initial) }
+        val entries = (installed + initial).distinct().sorted().filter { it.contains(search, ignoreCase = true) }
+        AlertDialog(onDismissRequest = dismiss, title = { Text("Geosite SRS · ${selected.size}") }, text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(search, { search = it }, singleLine = true, label = { Text("Search") })
+                if (entries.isEmpty()) Text("No matching installed Geosite sets. Install them in Assets.")
+                LazyColumn(Modifier.heightIn(max = 340.dp)) {
+                    items(entries, key = { it }) { tag ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = tag in selected, onCheckedChange = { checked ->
+                                selected = if (checked) selected + tag else selected - tag
+                            })
+                            Text(tag + if (tag !in installed) " (missing)" else "")
+                        }
+                    }
+                }
+            }
+        }, confirmButton = { TextButton(onClick = { apply(selected) }) { Text("Apply") } },
+            dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
+    }
+
     @Composable private fun Choice(label: String, selected: String, options: List<Pair<String, String>>, change: (String) -> Unit) {
         var expanded by remember { mutableStateOf(false) }
         Column {

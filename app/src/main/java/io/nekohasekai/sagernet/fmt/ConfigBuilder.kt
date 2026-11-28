@@ -885,8 +885,17 @@ fun buildConfig(
         // Explicit DNS rules override automatic route-derived DNS rules.
         // The mandatory server bootstrap rules inserted below retain priority.
         if (modernDns && !forTest) {
-            dns.rules.addAll(ManagedDnsRules.options(
-                ManagedDnsRules.decode(DataStore.activeDnsRulesJson), dnsRouting.useRemote))
+            val managedRules = ManagedDnsRules.decode(DataStore.activeDnsRulesJson)
+            val bootstrapAvailable = bootstrap != null
+            val activeRules = ManagedDnsRules.effective(managedRules, dnsRouting.useRemote, bootstrapAvailable)
+            val dnsRuleSets = activeRules.flatMap { ManagedDnsRules.ruleSets(it) }.distinct()
+            val missingTags = dnsRuleSets.filterNot { tag -> route.rule_set.any { it.tag == tag } }
+            if (missingTags.isNotEmpty()) {
+                val additions = mutableListOf<RuleSet>()
+                generateRuleSet(missingTags, additions)
+                route.rule_set = route.rule_set + additions
+            }
+            dns.rules.addAll(ManagedDnsRules.options(managedRules, dnsRouting.useRemote, bootstrapAvailable))
         }
 
         // dns object user rules

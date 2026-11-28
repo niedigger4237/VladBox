@@ -28,17 +28,55 @@ internal object ManagedDnsRules {
         val rewriteTtl: Long? = null,
         val cacheMode: String? = null,
         val removeClientSubnet: Boolean? = null,
-        val logicalMode: String? = null
+        val logicalMode: String? = null,
+        val srs: List<String>? = null
     )
     private val gson = Gson()
     private val type = object : TypeToken<List<Rule>>() {}.type
     private val queryTypes = setOf("A", "AAAA", "HTTPS", "SVCB", "TXT", "MX", "NS", "PTR", "SRV", "CNAME", "CAA", "SOA", "DNSKEY", "DS")
     private fun tokens(value: String) = value.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-    private fun domains(rule: Rule): List<String> = tokens(rule.domains).map { raw ->
+    val targets = listOf("dns-local" to "System DNS", "dns-direct" to "Direct DNS",
+        "dns-remote" to "Remote DNS", "dns-bootstrap" to "Bootstrap DNS", "block" to "Block (NXDOMAIN)")
+    fun targetLabel(target: String) = targets.firstOrNull { it.first == target }?.second ?: target
+
+    private fun domainName(raw: String): String {
         val value = IDN.toASCII(raw.removePrefix(".").removeSuffix("."), IDN.USE_STD3_ASCII_RULES).lowercase(Locale.ROOT)
         require(value.isNotBlank() && value.length <= 253 && value.split('.').all { it.isNotBlank() && it.length <= 63 }) { "Invalid DNS domain" }
-        value
-    }.distinct()
+        return value
+    }
+    private fun domainFields(rule: Rule): Map<String, List<String>> {
+        val entries = tokens(rule.domains).map { raw ->
+            when {
+                raw.startsWith("full:") -> "domain" to domainName(raw.removePrefix("full:"))
+                raw.startsWith("domain:") -> "domain_suffix" to domainName(raw.removePrefix("domain:"))
+                raw.startsWith("regexp:") -> "domain_regex" to raw.removePrefix("regexp:").also {
+                    require(it.isNotBlank() && runCatching { Regex(it) }.isSuccess) { "Invalid domain regular expression" }
+                }
+                raw.startsWith("keyword:") -> "domain_keyword" to raw.removePrefix("keyword:").also {
+                    require(it.isNotBlank()) { "Empty domain keyword" }
+                }.lowercase(Locale.ROOT)
+                else -> (if (rule.match == "exact") "domain" else "domain_suffix") to domainName(raw)
+            }
+        }
+        return entries.groupBy({ it.first }, { it.second }).mapValues { it.value.distinct() }
+    }
+    fun ruleSets(rule: Rule): List<String> = rule.srs.orEmpty().distinct().also { sets ->
+        require(sets.size <= 512 && sets.all { it.matches(Regex("geosite:[A-Za-z0-9._!-]+")) }) {
+            "DNS query matching supports Geosite SRS only"
+        }
+    }
+
+    /** Copy only the domain part, not transport/IP/application predicates or actions.
+     * The user reviews the new independent DNS rule before saving it.
+     */
+    fun copyDomainConditions(name: String, input: String): Rule {
+        val entries = tokens(input)
+        val result = Rule(name = name, domains = entries.filterNot { it.startsWith("geosite:") }.joinToString("\n"),
+            srs = entries.filter { it.startsWith("geosite:") }, target = "dns-local")
+        validate(result)
+        return result
+    }
+
     private fun queries(rule: Rule) = tokens(rule.queries).map { it.uppercase(Locale.ROOT) }.distinct().also {
         require(it.all { q -> q in queryTypes }) { "Unsupported DNS query type" }
     }
@@ -87,7 +125,7 @@ internal object ManagedDnsRules {
         val code = rule.responseCode.orEmpty()
         val ip = rule.responseIp.orEmpty()
         require(op in setOf("route", "evaluate", "respond")) { "Invalid DNS action" }
-        require(rule.target in setOf("dns-direct", "dns-remote", "block")) { "Invalid DNS server" }
+        require(targets.any { it.first == rule.target }) { "Invalid DNS server" }
         require(op != "evaluate" || rule.target != "block") { "Evaluate requires a real DNS server" }
         require(op != "evaluate" || ref.isEmpty()) { "Evaluate cannot reference another response" }
         require(op != "respond" || ref.isNotEmpty()) { "Respond requires an Evaluate rule" }
@@ -100,7 +138,10 @@ internal object ManagedDnsRules {
         }
         require(ip.isEmpty() || prefixes.isEmpty()) { "Choose IP mode or CIDR ranges, not both" }
         require(ref.isNotEmpty() || (code.isEmpty() && ip.isEmpty() && prefixes.isEmpty())) { "Response filters require Evaluate" }
-        require(domains(rule).isNotEmpty() || queries(rule).isNotEmpty() || ref.isNotEmpty()) { "Specify a domain, query type or evaluated response" }
+        val sets = ruleSets(rule)
+        require(domainFields(rule).isNotEmpty() || sets.isNotEmpty() || queries(rule).isNotEmpty() || ref.isNotEmpty()) {
+            "Specify a domain, Geosite SRS, query type or evaluated response"
+        }
         require(rule.queryTimeout.isNullOrEmpty() || rule.queryTimeout in queryTimeouts) { "Invalid DNS query timeout" }
         require(rule.rewriteTtl == null || rule.rewriteTtl in 0L..4294967295L) { "TTL must be between 0 and 4294967295 seconds" }
         require(rule.cacheMode.orEmpty() in setOf("", "no_cache", "no_optimistic")) { "Invalid DNS cache mode" }
@@ -135,27 +176,31 @@ internal object ManagedDnsRules {
     fun encode(rules: List<Rule>): String = gson.toJson(rules).also { decode(it) }
     // When Remote DNS is unavailable, pause both its Evaluate and dependent
     // actions; never bind a response to a different DNS server.
-    fun effective(rules: List<Rule>, remoteAvailable: Boolean): List<Rule> {
+    fun effective(rules: List<Rule>, remoteAvailable: Boolean, bootstrapAvailable: Boolean = false): List<Rule> {
         validateOrder(rules)
         val available = mutableSetOf<String>()
         return rules.filter { rule ->
             val ref = responseId(rule)
             val active = rule.enabled &&
                 (remoteAvailable || operation(rule) == "respond" || rule.target != "dns-remote") &&
+                (bootstrapAvailable || operation(rule) == "respond" || rule.target != "dns-bootstrap") &&
                 (ref.isEmpty() || ref in available)
             if (active && operation(rule) == "evaluate") available.add(rule.id)
             active
         }
     }
 
-    fun options(rules: List<Rule>, remoteAvailable: Boolean): List<DNSRule_DefaultOptions> = effective(rules, remoteAvailable)
+    fun options(rules: List<Rule>, remoteAvailable: Boolean, bootstrapAvailable: Boolean = false): List<DNSRule_DefaultOptions> =
+        effective(rules, remoteAvailable, bootstrapAvailable)
         .map { rule ->
             validate(rule)
             DNSRule_DefaultOptions().apply {
-                val names = domains(rule)
-                if (names.isNotEmpty()) {
-                    if (rule.match == "exact") domain = names else domain_suffix = names
-                }
+                val fields = domainFields(rule)
+                domain = fields["domain"]
+                domain_suffix = fields["domain_suffix"]
+                domain_regex = fields["domain_regex"]
+                domain_keyword = fields["domain_keyword"]
+                rule_set = ruleSets(rule).takeIf { it.isNotEmpty() }
                 query_type = queries(rule).takeIf { it.isNotEmpty() }
                 val ref = responseId(rule)
                 if (ref.isNotEmpty()) {
