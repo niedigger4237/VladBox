@@ -42,7 +42,14 @@ class UrlTest(private val service: ISagerNetService? = null) {
             }
         }
         if (DataStore.serviceState.connected && profile.id == DataStore.currentProfile && !profile.isRawCoreConfig()) {
-            return activeProfileDelay(profile.id, link)
+            // Even the same profile ID can reconnect while a probe is running.
+            val binder = service
+            val session = if (binder != null) readService { binder.selectorSessionId } else null
+            if (binder != null && (session == null || session == 0L))
+                throw ActiveProfileChangedException()
+            return activeProfileDelay(profile.id, link) {
+                binder == null || readService { binder.selectorSessionId == session } == true
+            }
         }
         return LatencyPolicy.requirePositive(TestInstance(profile, link, timeout).doTest())
     }

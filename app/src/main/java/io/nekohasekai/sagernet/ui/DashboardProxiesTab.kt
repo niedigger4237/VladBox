@@ -221,13 +221,24 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
                 }
             }
         },
-        onTest = if (busy) null else { group ->
+        onTest = if (busy || displayedSessionId == 0L) null else { group ->
+            val sessionId = displayedSessionId
             action(refreshAfter = false) {
+                val binder = service() ?: error("Service unavailable")
+                suspend fun verifySession() {
+                    check(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        binder.selectorSessionId == sessionId
+                    }) { "Service session changed" }
+                }
+                verifySession()
                 val nodes = groups.firstOrNull { it.name == group }?.nodes.orEmpty()
                 val tags = nodes.map { it.name }.distinct()
                 val results = io.nekohasekai.sagernet.bg.proto.clashGroupDelay(group, tags)
+                verifySession()
                 // Refresh real history/selection from the core, then apply this test's result.
                 refresh()
+                verifySession()
+                check(displayedSessionId == sessionId) { "Service session changed" }
                 groups = groups.map { g -> g.copy(nodes = g.nodes.map { n ->
                     if (n.name in tags) n.copy(delay = results[n.name]) else n
                 }) }

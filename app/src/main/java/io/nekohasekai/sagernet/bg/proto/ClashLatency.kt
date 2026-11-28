@@ -104,9 +104,14 @@ internal suspend fun clashGroupDelay(group: String, tags: List<String>, url: Str
 
 internal class ActiveProfileChangedException : IllegalStateException("Active profile changed or disconnected during test")
 
-internal suspend fun activeProfileDelay(expectedProfile: Long = DataStore.currentProfile, url: String = DataStore.connectionTestURL): Int {
-    fun verify() {
-        if (!DataStore.serviceState.connected || expectedProfile <= 0 || DataStore.currentProfile != expectedProfile)
+internal suspend fun activeProfileDelay(
+    expectedProfile: Long = DataStore.currentProfile,
+    url: String = DataStore.connectionTestURL,
+    sameSession: suspend () -> Boolean = { true }
+): Int {
+    suspend fun verify() {
+        if (!DataStore.serviceState.connected || expectedProfile <= 0 ||
+            DataStore.currentProfile != expectedProfile || !sameSession())
             throw ActiveProfileChangedException()
     }
     verify()
@@ -176,6 +181,12 @@ internal suspend fun clashRequest(path: String, method: String = "GET", body: JS
                     // A failed read after PUT may still mean the core applied
                     // the mutation. Never blindly replay it through root.
                     if (!rootMode || method != "GET") throw e
+                    // Once a latency request reaches the core, a failed read
+                    // must not launch another expensive probe via su.
+                    if (path.contains("/delay?") && e !is java.net.ConnectException &&
+                        e !is java.net.NoRouteToHostException &&
+                        !(e is java.net.SocketTimeoutException &&
+                            e.message.orEmpty().contains("connect", ignoreCase = true))) throw e
                     dashboardRoot(path, method, body, handle, readTimeoutMs).also {
                         handle.checkActive()
                         rootApiHint = RootApiHint(mode, profile, android.os.SystemClock.elapsedRealtime() + 15000L)

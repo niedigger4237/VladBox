@@ -144,7 +144,10 @@ class BaseService {
             if (state != State.Connected || destroyed || sessionId == 0L ||
                 selectorSessionId != sessionId) return ""
             val owner = proxy ?: return ""
-            if (!owner.isInitialized()) return ""
+            // ROOT owns an external daemon and intentionally has no LibCore box.
+            val ready = if (owner is io.nekohasekai.sagernet.bg.proto.RootProxyInstance)
+                owner.isStartedForProbe() else owner.isInitialized()
+            if (!ready) return ""
             val config = owner.config
             val groupId = config.selectorGroupId
             if (groupId < 0) return ""
@@ -195,6 +198,11 @@ class BaseService {
 
         fun changeState(s: State, msg: String? = null) {
             if (state == s && msg == null) return
+            // Service Control may stop and recreate the external core without
+            // replacing the Android service. Invalidate all old probe handles.
+            if (s == State.Waiting) selectorSessionId = 0L
+            if (s == State.Connected && selectorSessionId == 0L)
+                selectorSessionId = android.os.SystemClock.elapsedRealtimeNanos().coerceAtLeast(1L)
             state = s
             DataStore.serviceState = s
             binder.stateChanged(s, msg)

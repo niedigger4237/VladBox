@@ -30,6 +30,7 @@ class RootProxyInstance(profile: ProxyEntity, service: BaseService.Interface?) :
     ProxyInstance(profile, service) {
 
     @Volatile private var started = false
+    internal fun isStartedForProbe(): Boolean = started
     internal var startWaitingOverride: Boolean? = null
     internal var waitingAtStart = false
         private set

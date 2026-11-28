@@ -45,7 +45,11 @@ class TestInstance(profile: ProxyEntity, val link: String, private val timeout: 
                         val worker = async {
                             init()
                             ensureActive()
-                            launch()
+                            // GuardedProcessPool.start is Main-thread-owned.
+                            // Keep the blocking native startup on IO.
+                            withContext(Dispatchers.Main.immediate) { launchPlugins() }
+                            ensureActive()
+                            startCore()
                             if (processes.processCount > 0) delay(500)
                             ensureActive()
                             box.urlTest(link, timeout).also { ensureActive() }
@@ -65,6 +69,7 @@ class TestInstance(profile: ProxyEntity, val link: String, private val timeout: 
                 withContext(NonCancellable) {
                     // close() cancels the guards asynchronously; wait for their
                     // cleanup before letting the next temporary core start.
+                    pool.cancel()
                     pool.coroutineContext[Job]?.join()
                 }
             }
