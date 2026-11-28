@@ -22,7 +22,7 @@ internal object LogicalRulePolicy {
         val obj = json(config)
         if (mode.isEmpty()) obj.remove(KEY)
         else {
-            require(obj.keySet().all { it == KEY || it in advancedKeys }) {
+            require(obj.keySet().all { it == KEY || it == RouteDnsChoice.KEY || it in advancedKeys }) {
                 "Logical mode supports the visual match fields only. Use Custom configuration for other options."
             }
             obj.addProperty(KEY, mode)

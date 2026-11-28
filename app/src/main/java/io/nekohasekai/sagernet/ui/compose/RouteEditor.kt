@@ -57,6 +57,7 @@ fun installRouteEditor(activity: RouteSettingsActivity, host: ComposeView) {
                                 if (it == "3") activity.selectProfileForAdd.launch(Intent(activity, ProfileSelectActivity::class.java))
                                 else { it.toIntOrNull()?.let { value -> DataStore.routeOutbound = value }; activity.refreshEditor() }
                             }
+                            RouteDnsTargetChoice(custom) { custom = it; DataStore.serverConfig = it }
                         }
                     }
                 }
@@ -144,5 +145,22 @@ fun installRouteEditor(activity: RouteSettingsActivity, host: ComposeView) {
     if (policy.mode(config).isNotEmpty()) Text(
         "Combine match categories. Values within a category are alternatives. NOT negates the AND group. Define DNS policy separately.",
         style = MaterialTheme.typography.bodySmall)
+    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+}
+
+@Composable private fun RouteDnsTargetChoice(config: String, change: (String) -> Unit) {
+    val policy = io.nekohasekai.sagernet.fmt.RouteDnsChoice
+    var error by remember { mutableStateOf<String?>(null) }
+    RouteChoice("DNS target", policy.choices.map { it.second }.toTypedArray(),
+        policy.choices.map { it.first }.toTypedArray(), policy.read(config)) {
+        try { change(policy.update(config, it)); error = null }
+        catch (e: Exception) { error = e.message ?: "Invalid DNS target" }
+    }
+    Text("Automatic follows the existing DNS routing policy. Explicit targets are for domain and application rules without traffic-only conditions.",
+        style = MaterialTheme.typography.bodySmall)
+    if (policy.read(config) == "dns-remote" && DataStore.dnsMain == "direct_only")
+        Text("Remote DNS is unavailable in Direct Only; this DNS override is paused.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (policy.read(config) == "dns-bootstrap" && DataStore.dnsBootstrapPreset == "system")
+        Text("Bootstrap currently uses System DNS.", style = MaterialTheme.typography.bodySmall)
     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 }

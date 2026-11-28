@@ -710,7 +710,25 @@ fun buildConfig(
                     }
                 }
 
-                if (RouteAdvancedConditions.deriveDns(rule.config, rule.network)) when (rule.outbound) {
+                val dnsChoice = RouteDnsChoice.read(rule.config)
+                if (dnsChoice.isNotEmpty()) {
+                    if (RouteDnsChoice.eligible(rule.config, rule.domains, rule.packages, rule.ip, rule.port,
+                            rule.sourcePort, rule.network, rule.source, rule.protocol) &&
+                        (rule.packages.isEmpty() || (isVPN && uidList.isNotEmpty()))) {
+                        val target = RouteDnsChoice.resolve(dnsChoice, dnsRouting.useRemote, DataStore.dnsBootstrapPreset != "system")
+                        if (target != null) {
+                            userDNSRuleList += makeDnsRuleObj().apply {
+                                if (target == "block") {
+                                    action = "predefined"
+                                    rcode = "NXDOMAIN"
+                                } else {
+                                    action = "route"
+                                    server = target
+                                }
+                            }
+                        } else Logs.w("Skipping unavailable DNS target for routing rule ${rule.id}")
+                    } else Logs.w("Skipping DNS override for routing rule ${rule.id}: incompatible or unavailable match conditions")
+                } else if (enableDnsRouting && RouteAdvancedConditions.deriveDns(rule.config, rule.network)) when (rule.outbound) {
                     -1L -> {
                         userDNSRuleList += makeDnsRuleObj().apply {
                             server = "dns-direct"
@@ -749,7 +767,7 @@ fun buildConfig(
                     else -> SelectorRoutingPolicy.explicitRouteTag(buildSelector, proxy.id, outId, tagMap)
                 }
 
-                _hack_custom_config = LogicalRulePolicy.clean(rule.config)
+                _hack_custom_config = RouteDnsChoice.clean(LogicalRulePolicy.clean(rule.config))
             }
 
             if (logicalMode.isNotEmpty() || !ruleObj.checkEmpty()) {
@@ -899,10 +917,10 @@ fun buildConfig(
         }
 
         // dns object user rules
-        if (enableDnsRouting) {
-            userDNSRuleList.forEach {
-                if (!it.checkEmpty()) dns.rules.add(it)
-            }
+        // Automatic entries are generated only when DNS routing is enabled;
+        // explicit per-rule targets remain effective independently of that switch.
+        userDNSRuleList.forEach {
+            if (!it.checkEmpty()) dns.rules.add(it)
         }
 
         if (forTest) {

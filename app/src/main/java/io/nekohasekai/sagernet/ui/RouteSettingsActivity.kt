@@ -572,6 +572,22 @@ class RouteSettingsActivity(
             return
         }
 
+        val dnsChoice = io.nekohasekai.sagernet.fmt.RouteDnsChoice
+        val selectedDns = dnsChoice.read(DataStore.serverConfig)
+        if (selectedDns.isNotEmpty() &&
+            (dnsChoice.choices.none { it.first == selectedDns } ||
+                !dnsChoice.eligible(DataStore.serverConfig, DataStore.routeDomain,
+                    DataStore.routePackages.lines().filter { it.isNotBlank() },
+                    DataStore.routeIP, DataStore.routePort, DataStore.routeSourcePort,
+                    DataStore.routeNetwork, DataStore.routeSource, DataStore.routeProtocol))) {
+            onMainDispatcher {
+                MaterialAlertDialogBuilder(this@RouteSettingsActivity)
+                    .setMessage("Choose Automatic DNS for traffic-only or custom conditions, or use a domain/application-only rule. Advanced DNS matching is available in DNS Rules.")
+                    .setPositiveButton(android.R.string.ok, null).show()
+            }
+            return
+        }
+
         val logical = io.nekohasekai.sagernet.fmt.LogicalRulePolicy
         if (logical.mode(DataStore.serverConfig).isNotEmpty()) {
             val validation = runCatching {

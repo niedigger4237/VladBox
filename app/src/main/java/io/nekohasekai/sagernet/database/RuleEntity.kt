@@ -33,7 +33,9 @@ data class RuleEntity(
 
     fun mkSummary(): String {
         var summary = ""
-        if (config.isNotBlank()) summary += "[config]\n"
+        val dnsTarget = io.nekohasekai.sagernet.fmt.RouteDnsChoice
+        if (dnsTarget.read(config).isNotEmpty()) summary += "DNS: ${dnsTarget.label(config)}\n"
+        if (dnsTarget.clean(config).isNotBlank()) summary += "[config]\n"
         if (domains.isNotBlank()) summary += "$domains\n"
         if (ip.isNotBlank()) summary += "$ip\n"
         if (source.isNotBlank()) summary += "src ip: $source\n"
