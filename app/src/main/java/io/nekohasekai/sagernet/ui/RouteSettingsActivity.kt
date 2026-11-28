@@ -572,6 +572,27 @@ class RouteSettingsActivity(
             return
         }
 
+        val logical = io.nekohasekai.sagernet.fmt.LogicalRulePolicy
+        if (logical.mode(DataStore.serverConfig).isNotEmpty()) {
+            val validation = runCatching {
+                logical.clean(DataStore.serverConfig)
+                require(listOf(DataStore.routeDomain, DataStore.routeIP, DataStore.routePort,
+                    DataStore.routeSourcePort, DataStore.routeNetwork, DataStore.routeSource,
+                    DataStore.routeProtocol, DataStore.routePackages).any { it.isNotBlank() } ||
+                    io.nekohasekai.sagernet.fmt.RouteAdvancedConditions.hasConditions(DataStore.serverConfig)) {
+                    "Logical rule requires at least one condition"
+                }
+            }
+            if (validation.isFailure) {
+                onMainDispatcher {
+                    MaterialAlertDialogBuilder(this@RouteSettingsActivity)
+                        .setMessage(validation.exceptionOrNull()?.message ?: "Invalid logical rule")
+                        .setPositiveButton(android.R.string.ok, null).show()
+                }
+                return
+            }
+        }
+
         if (!skipSrsWarning) {
             val missing = missingRouteSrs()
             if (missing.isNotEmpty()) {

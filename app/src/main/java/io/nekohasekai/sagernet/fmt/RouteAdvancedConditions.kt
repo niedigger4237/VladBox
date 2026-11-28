@@ -81,7 +81,7 @@ internal object RouteAdvancedConditions {
     /** An advanced traffic-only condition must never become an unconditional or
      * domain-only DNS rule. Users can define its DNS policy separately. */
     fun deriveDns(config: String, transport: String): Boolean =
-        !hasConditions(config) && transport != "icmp"
+        !hasConditions(config) && LogicalRulePolicy.mode(config).isEmpty() && transport != "icmp"
 
     fun supported(config: String, transport: String, vpn: Boolean, rootTun: Boolean, outbound: Long): Boolean {
         if (hasPackageRegex(config) && !vpn) return false

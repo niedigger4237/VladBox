@@ -36,6 +36,7 @@ fun installRouteEditor(activity: RouteSettingsActivity, host: ComposeView) {
                         OutlinedTextField(custom, { custom = it; DataStore.serverConfig = it },
                             Modifier.fillMaxWidth(), label = { Text("Custom configuration") })
                         AdvancedRouteConditions(custom) { custom = it; DataStore.serverConfig = it }
+                        LogicalMatchChoice(custom) { custom = it; DataStore.serverConfig = it }
                         Text(stringResource(R.string.cag_route), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
                         key(revision) {
                             OutlinedButton(onClick = { activity.selectAppList.launch(Intent(activity, AppListActivity::class.java)) }, modifier = Modifier.fillMaxWidth()) {
@@ -131,4 +132,17 @@ fun installRouteEditor(activity: RouteSettingsActivity, host: ComposeView) {
             },
             dismissButton = { TextButton(onClick = { draft = null; error = null }) { Text("Cancel") } })
     }
+}
+
+@Composable private fun LogicalMatchChoice(config: String, change: (String) -> Unit) {
+    val policy = io.nekohasekai.sagernet.fmt.LogicalRulePolicy
+    var error by remember { mutableStateOf<String?>(null) }
+    RouteChoice("Match logic", policy.labels.toTypedArray(), policy.modes.toTypedArray(), policy.mode(config)) {
+        try { change(policy.update(config, it)); error = null }
+        catch (e: Exception) { error = e.message ?: "Invalid logical rule" }
+    }
+    if (policy.mode(config).isNotEmpty()) Text(
+        "Combine match categories. Values within a category are alternatives. NOT negates the AND group. Define DNS policy separately.",
+        style = MaterialTheme.typography.bodySmall)
+    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 }

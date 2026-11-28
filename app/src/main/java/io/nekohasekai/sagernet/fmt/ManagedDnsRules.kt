@@ -27,7 +27,8 @@ internal object ManagedDnsRules {
         val queryTimeout: String? = null,
         val rewriteTtl: Long? = null,
         val cacheMode: String? = null,
-        val removeClientSubnet: Boolean? = null
+        val removeClientSubnet: Boolean? = null,
+        val logicalMode: String? = null
     )
     private val gson = Gson()
     private val type = object : TypeToken<List<Rule>>() {}.type
@@ -93,6 +94,10 @@ internal object ManagedDnsRules {
         require(code.isEmpty() || code in responseCodes) { "Invalid DNS response code" }
         require(ip in setOf("", "any", "private")) { "Invalid IP response filter" }
         val prefixes = cidrs(rule)
+        require(rule.logicalMode.orEmpty() in LogicalRulePolicy.modes) { "Invalid logical mode" }
+        require(rule.logicalMode.isNullOrEmpty() || ref.isEmpty()) {
+            "Logical request matching cannot be combined with Match Response or Respond"
+        }
         require(ip.isEmpty() || prefixes.isEmpty()) { "Choose IP mode or CIDR ranges, not both" }
         require(ref.isNotEmpty() || (code.isEmpty() && ip.isEmpty() && prefixes.isEmpty())) { "Response filters require Evaluate" }
         require(domains(rule).isNotEmpty() || queries(rule).isNotEmpty() || ref.isNotEmpty()) { "Specify a domain, query type or evaluated response" }
@@ -185,6 +190,11 @@ internal object ManagedDnsRules {
                         "no_optimistic" -> _hack_config_map["disable_optimistic_cache"] = true
                     }
                     if (rule.removeClientSubnet == true) _hack_config_map["remove_client_subnet"] = true
+                }
+            }.let { flat ->
+                val mode = rule.logicalMode.orEmpty()
+                if (mode.isEmpty()) flat else DNSRule_DefaultOptions().apply {
+                    _hack_config_map.putAll(LogicalRulePolicy.dns(mode, flat.asMap()))
                 }
             }
         }

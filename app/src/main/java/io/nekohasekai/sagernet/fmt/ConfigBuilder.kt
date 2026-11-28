@@ -649,6 +649,10 @@ fun buildConfig(
                 }
                 PackageCache[it]?.takeIf { uid -> uid >= 1000 }
             }.toHashSet().filterNotNull()
+            val logicalMode = LogicalRulePolicy.mode(rule.config)
+            if (logicalMode.isNotEmpty() && rule.packages.isNotEmpty() && uidList.isEmpty()) {
+                error("Logical rule ${rule.displayName()}: selected applications are unavailable")
+            }
             val ruleSets = mutableListOf<RuleSet>()
 
             val ruleObj = Rule_DefaultOptions().apply {
@@ -745,10 +749,10 @@ fun buildConfig(
                     else -> SelectorRoutingPolicy.explicitRouteTag(buildSelector, proxy.id, outId, tagMap)
                 }
 
-                _hack_custom_config = rule.config
+                _hack_custom_config = LogicalRulePolicy.clean(rule.config)
             }
 
-            if (!ruleObj.checkEmpty()) {
+            if (logicalMode.isNotEmpty() || !ruleObj.checkEmpty()) {
                 if (ruleObj.outbound.isNullOrBlank()) {
                     Toast.makeText(
                         SagerNet.application,
@@ -761,7 +765,10 @@ fun buildConfig(
                         ruleObj.outbound = null
                         ruleObj.action = "reject"
                     }
-                    route.rules.add(ruleObj)
+                    val compiledRule = if (logicalMode.isEmpty()) ruleObj else Rule_DefaultOptions().apply {
+                        _hack_config_map.putAll(LogicalRulePolicy.route(logicalMode, ruleObj.asMap()))
+                    }
+                    route.rules.add(compiledRule)
                     route.rule_set.addAll(ruleSets)
                 }
             }

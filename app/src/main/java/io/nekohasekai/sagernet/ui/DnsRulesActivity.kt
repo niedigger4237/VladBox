@@ -166,6 +166,7 @@ class DnsRulesActivity : ThemedActivity() {
         var match by remember { mutableStateOf(rule.match) }
         var target by remember { mutableStateOf(rule.target) }
         var operation by remember { mutableStateOf(ManagedDnsRules.operation(rule)) }
+        var logicalMode by remember { mutableStateOf(rule.logicalMode.orEmpty()) }
         var responseFrom by remember { mutableStateOf(ManagedDnsRules.responseId(rule)) }
         var responseCode by remember { mutableStateOf(rule.responseCode.orEmpty()) }
         var responseIp by remember { mutableStateOf(rule.responseIp.orEmpty()) }
@@ -190,8 +191,15 @@ class DnsRulesActivity : ThemedActivity() {
                 }
                 OutlinedTextField(queries, { queries = it }, label = { Text("Query types (optional)") },
                     supportingText = { Text("A, AAAA, HTTPS, TXT, MX…") })
+                if (responseFrom.isEmpty() && operation != "respond") {
+                    val policy = io.nekohasekai.sagernet.fmt.LogicalRulePolicy
+                    Choice("Match logic", logicalMode, policy.modes.zip(policy.labels)) { logicalMode = it }
+                    if (logicalMode.isNotEmpty()) Text("Combine domains and query types. NOT negates the AND group.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
                 Choice("Action", operation, listOf("route" to "Route / Block", "evaluate" to "Evaluate", "respond" to "Respond")) {
                     operation = it
+                    if (it == "respond") logicalMode = ""
                     if (it == "evaluate") {
                         responseFrom = ""; responseCode = ""; responseIp = ""; responseCidrs = ""
                         if (target == "block") target = "dns-direct"
@@ -206,6 +214,7 @@ class DnsRulesActivity : ThemedActivity() {
                     val refs = evaluations.map { it.id to (it.name + if (it.enabled) "" else " (disabled)") }
                     Choice("Match response", responseFrom, listOf("" to "None") + refs) {
                         responseFrom = it
+                        if (it.isNotEmpty()) logicalMode = ""
                         if (it.isEmpty()) { responseCode = ""; responseIp = ""; responseCidrs = "" }
                     }
                     if (responseFrom.isNotEmpty()) {
@@ -257,7 +266,8 @@ class DnsRulesActivity : ThemedActivity() {
                         responseIp = responseIp, responseCidrs = responseCidrs,
                         queryTimeout = queryTimeout.takeIf { performsQuery && it.isNotEmpty() },
                         rewriteTtl = ttl, cacheMode = cacheMode.takeIf { performsQuery && it.isNotEmpty() },
-                        removeClientSubnet = true.takeIf { performsQuery && removeClientSubnet })
+                        removeClientSubnet = true.takeIf { performsQuery && removeClientSubnet },
+                        logicalMode = logicalMode.takeIf { it.isNotEmpty() && responseFrom.isEmpty() && operation != "respond" })
                     ManagedDnsRules.validate(updated); error = null; onSave(updated)
                 } catch (e: Exception) { error = e.message ?: "Invalid DNS rule" }
             }) { Text("Save") }
