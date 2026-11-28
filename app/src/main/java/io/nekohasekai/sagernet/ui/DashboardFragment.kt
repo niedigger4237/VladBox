@@ -213,9 +213,9 @@ class DashboardFragment : ToolbarFragment() {
                             } else if (tab == 2) {
                                 DashboardLiveProxies(connected) { activity.connection.service }
                             } else if (tab == 3) {
-                                DashboardLiveRules(connected, searchOpen, { searchOpen = it })
+                                DashboardLiveRules(connected, searchOpen, { searchOpen = it }) { activity.connection.service }
                             } else {
-                                DashboardLiveTab(tab, connected, searchOpen, { searchOpen = it })
+                                DashboardLiveTab(tab, connected, searchOpen, { searchOpen = it }) { activity.connection.service }
                             }
                         }
                     }

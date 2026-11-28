@@ -172,14 +172,19 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
         groups = refreshedGroups
         } finally { refreshLock.unlock() }
     }
-    LaunchedEffect(connected) {
-        if (!connected) return@LaunchedEffect
+    LaunchedEffect(connected, busy) {
+        // A user operation owns the refresh until it completes; cancel the
+        // polling read instead of stacking it behind the operation.
+        if (!connected || busy) return@LaunchedEffect
         var retryMs = 5000L
         while (true) {
-            if (!busy) {
-                try { refresh(); error = null; retryMs = 5000L }
-                catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                catch (e: Exception) { error = "Local API unavailable; refresh failed"; retryMs = (retryMs * 2).coerceAtMost(30000L) }
+            try { refresh(); error = null; retryMs = 5000L }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                displayedSessionId = 0L
+                groups = emptyList()
+                error = "Local API unavailable; refresh failed"
+                retryMs = (retryMs * 2).coerceAtMost(30000L)
             }
             kotlinx.coroutines.delay(retryMs)
         }

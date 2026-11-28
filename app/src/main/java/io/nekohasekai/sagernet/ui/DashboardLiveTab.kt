@@ -13,7 +13,24 @@ import org.json.JSONObject
 internal suspend fun dashboardGet(path: String): JSONObject = dashboardRequest(path)
 
 internal suspend fun dashboardRequest(path: String, method: String = "GET", body: JSONObject? = null): JSONObject =
-    io.nekohasekai.sagernet.bg.proto.clashRequest(path, method, body)
+    kotlinx.coroutines.withTimeoutOrNull(io.nekohasekai.sagernet.bg.proto.ClashRequestPolicy.CONTROL_DEADLINE_MS) {
+        io.nekohasekai.sagernet.bg.proto.clashRequest(path, method, body, readTimeoutMs = 4000)
+    } ?: throw java.net.SocketTimeoutException("Local API request timed out")
+
+// Capture the same binder/session for the entire read; do not publish a
+// snapshot obtained from a core that restarted while the request was running.
+internal suspend fun <T> dashboardSessionRead(
+    service: () -> io.nekohasekai.sagernet.aidl.ISagerNetService?,
+    block: suspend () -> T
+): T {
+    val binder = service() ?: error("Service unavailable")
+    suspend fun session() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { binder.selectorSessionId }
+    val expected = session()
+    check(expected != 0L) { "Service not connected" }
+    val result = block()
+    check(service() === binder && session() == expected) { "Service session changed" }
+    return result
+}
 
 private data class DashboardEntry(val title: String, val subtitle: String, val detail: String, val address: String = "", val download: String = "", val upload: String = "")
 
@@ -56,7 +73,8 @@ private fun dashboardEntries(tab: Int, data: JSONObject): List<DashboardEntry> {
 }
 
 @Composable
-internal fun DashboardLiveTab(tab: Int, connected: Boolean, searching: Boolean = false, onSearchChange: (Boolean) -> Unit = {}) {
+internal fun DashboardLiveTab(tab: Int, connected: Boolean, searching: Boolean = false, onSearchChange: (Boolean) -> Unit = {},
+    service: () -> io.nekohasekai.sagernet.aidl.ISagerNetService?) {
     var entries by remember(tab, connected) { mutableStateOf(emptyList<DashboardEntry>()) }
     var error by remember(tab, connected) { mutableStateOf<String?>(null) }
     var loaded by remember(tab, connected) { mutableStateOf(false) }
@@ -67,8 +85,10 @@ internal fun DashboardLiveTab(tab: Int, connected: Boolean, searching: Boolean =
         var retryMs = normalMs
         while (true) {
             try {
-                val response = dashboardGet(listOf("", "connections", "proxies", "rules")[tab])
-                entries = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { dashboardEntries(tab, response) }
+                entries = dashboardSessionRead(service) {
+                    val response = dashboardGet(listOf("", "connections", "proxies", "rules")[tab])
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { dashboardEntries(tab, response) }
+                }
                 retryMs = normalMs
                 error = null
                 loaded = true

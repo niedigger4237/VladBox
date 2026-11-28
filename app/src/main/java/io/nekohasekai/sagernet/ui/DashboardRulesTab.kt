@@ -93,7 +93,8 @@ private fun RuleTypeIcon(type: String) {
 
 
 @Composable
-internal fun DashboardLiveRules(connected: Boolean, searchOpen: Boolean = false, onSearchChange: (Boolean) -> Unit = {}) {
+internal fun DashboardLiveRules(connected: Boolean, searchOpen: Boolean = false, onSearchChange: (Boolean) -> Unit = {},
+    service: () -> io.nekohasekai.sagernet.aidl.ISagerNetService?) {
     var rules by remember(connected) { mutableStateOf(emptyList<DashboardRule>()) }
     var status by remember(connected) { mutableStateOf<String?>("Loading…") }
     LaunchedEffect(connected) {
@@ -101,17 +102,24 @@ internal fun DashboardLiveRules(connected: Boolean, searchOpen: Boolean = false,
         var retryMs = 5000L
         while (true) {
             try {
-                val array = dashboardGet("rules").getJSONArray("rules")
-                rules = (0 until array.length()).mapNotNull { index ->
-                    val item = array.optJSONObject(index) ?: return@mapNotNull null
-                    DashboardRule(item.optString("type"), item.optString("payload"), item.optString("proxy"))
+                rules = dashboardSessionRead(service) {
+                    val response = dashboardGet("rules")
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        val array = response.getJSONArray("rules")
+                        (0 until array.length()).mapNotNull { index ->
+                            val item = array.optJSONObject(index) ?: return@mapNotNull null
+                            DashboardRule(item.optString("type"), item.optString("payload"), item.optString("proxy"))
+                        }
+                    }
                 }
                 status = null
                 retryMs = 30000L
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                status = if (rules.isEmpty()) "Rules unavailable from local API" else "Rules refresh failed; showing last snapshot"
+                // Never leave old rules visible after a possible session change.
+                rules = emptyList()
+                status = "Rules unavailable from local API"
                 retryMs = (retryMs * 2).coerceIn(5000L, 30000L)
             }
             kotlinx.coroutines.delay(retryMs)

@@ -127,12 +127,14 @@ internal suspend fun activeProfileDelay(
     return delay
 }
 
-// Group latency fallback uses batches of five. Reserve one additional
-// worker for a foreground dashboard read, and bound the pending queue.
-private val dashboardExecutor = ThreadPoolExecutor(
-    6, 6, 30L, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(24),
-    { task -> Thread(task, "clash-api").apply { isDaemon = true } },
+// Keep ordinary reads and selection commands responsive during mass URL tests.
+private fun clashExecutor(workers: Int, capacity: Int, name: String) = ThreadPoolExecutor(
+    workers, workers, 30L, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(capacity),
+    { task -> Thread(task, name).apply { isDaemon = true } },
 ).apply { allowCoreThreadTimeOut(true) }
+
+private val dashboardExecutor = clashExecutor(ClashRequestPolicy.CONTROL_WORKERS, 8, "clash-control")
+private val latencyExecutor = clashExecutor(ClashRequestPolicy.PROBE_WORKERS, 16, "clash-probe")
 
 private data class RootApiHint(val mode: String, val profile: Long, val expires: Long)
 @Volatile private var rootApiHint: RootApiHint? = null
@@ -161,6 +163,7 @@ internal suspend fun clashRequest(path: String, method: String = "GET", body: JS
     readTimeoutMs: Int = LATENCY_TEST_TIMEOUT_MS + 3000): JSONObject =
     suspendCancellableCoroutine { continuation ->
         val handle = DashboardRequestHandle()
+        val executor = if (ClashRequestPolicy.isProbe(path, method)) latencyExecutor else dashboardExecutor
         val task = FutureTask<Unit> {
             try {
                 handle.checkActive()
@@ -183,7 +186,7 @@ internal suspend fun clashRequest(path: String, method: String = "GET", body: JS
                     if (!rootMode || method != "GET") throw e
                     // Once a latency request reaches the core, a failed read
                     // must not launch another expensive probe via su.
-                    if (path.contains("/delay?") && e !is java.net.ConnectException &&
+                    if (ClashRequestPolicy.isProbe(path, method) && e !is java.net.ConnectException &&
                         e !is java.net.NoRouteToHostException &&
                         !(e is java.net.SocketTimeoutException &&
                             e.message.orEmpty().contains("connect", ignoreCase = true))) throw e
@@ -192,6 +195,7 @@ internal suspend fun clashRequest(path: String, method: String = "GET", body: JS
                         rootApiHint = RootApiHint(mode, profile, android.os.SystemClock.elapsedRealtime() + 15000L)
                     }
                 }
+                handle.checkActive()
                 if (continuation.isActive) continuation.resume(result)
             } catch (e: Exception) {
                 if (continuation.isActive) continuation.resumeWithException(e)
@@ -199,11 +203,15 @@ internal suspend fun clashRequest(path: String, method: String = "GET", body: JS
         }
         continuation.invokeOnCancellation {
             task.cancel(true)
-            dashboardExecutor.remove(task)
+            executor.remove(task)
             handle.cancel()
         }
         try {
-            dashboardExecutor.execute(task)
+            if (continuation.isActive) {
+                executor.execute(task)
+                // Cancellation can race the initial enqueue.
+                if (!continuation.isActive) executor.remove(task)
+            }
         } catch (e: RejectedExecutionException) {
             if (continuation.isActive) continuation.resumeWithException(
                 IllegalStateException("Local API request queue is full"))
