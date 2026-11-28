@@ -74,10 +74,23 @@ internal suspend fun clashGroupDelay(group: String, tags: List<String>, url: Str
     }
 }
 
+internal class ActiveProfileChangedException : IllegalStateException("Active profile changed or disconnected during test")
+
 internal suspend fun activeProfileDelay(expectedProfile: Long = DataStore.currentProfile, url: String = DataStore.connectionTestURL): Int {
-    check(DataStore.serviceState.connected && expectedProfile > 0 && DataStore.currentProfile == expectedProfile) { "Active profile changed or disconnected" }
-    val delay = clashDelay(url = url)
-    check(DataStore.serviceState.connected && DataStore.currentProfile == expectedProfile) { "Active profile changed during test" }
+    fun verify() {
+        if (!DataStore.serviceState.connected || expectedProfile <= 0 || DataStore.currentProfile != expectedProfile)
+            throw ActiveProfileChangedException()
+    }
+    verify()
+    val delay = try {
+        clashDelay(url = url)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        verify()
+        throw e
+    }
+    verify()
     return delay
 }
 

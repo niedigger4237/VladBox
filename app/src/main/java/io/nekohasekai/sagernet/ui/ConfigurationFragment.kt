@@ -928,9 +928,13 @@ class ConfigurationFragment @JvmOverloads constructor(
                             while (isActive) {
                                 val profile = queue.poll() ?: break
                                 try {
+                                    // Snapshot before the builder mutates runtime-only bean fields.
+                                    val testedBean = profile.requireBean().clone()
                                     val result = withContext(Dispatchers.IO) {
                                         try {
                                             Triple(1, tester.doTest(profile), null)
+                                        } catch (e: io.nekohasekai.sagernet.bg.proto.ActiveProfileChangedException) {
+                                            null
                                         } catch (e: PluginManager.PluginNotFoundException) {
                                             Triple(2, 0, e.readableMessage)
                                         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
@@ -944,11 +948,18 @@ class ConfigurationFragment @JvmOverloads constructor(
                                         }
                                     }
                                     ensureActive()
-                                    withContext(Dispatchers.IO) {
+                                    if (result != null) withContext(Dispatchers.IO) {
                                         val (status, ping, error) = result
-                                        if (SagerDatabase.proxyDao.updateTestResult(profile.id, groupId, status, ping, error) > 0) {
-                                            ProfileManager.postUpdate(profile.id)
-                                        }
+                                        // A subscription refresh or edit can replace the bean
+                                        // while a latency probe is running. Commit only against
+                                        // the same configuration, atomically with the comparison.
+                                        val stored = SagerDatabase.instance.runInTransaction(java.util.concurrent.Callable {
+                                            val latest = SagerDatabase.proxyDao.getById(profile.id)
+                                            latest != null && latest.groupId == groupId &&
+                                                latest.type == profile.type && latest.requireBean() == testedBean &&
+                                                SagerDatabase.proxyDao.updateTestResult(profile.id, groupId, status, ping, error) > 0
+                                        })
+                                        if (stored) ProfileManager.postUpdate(profile.id)
                                     }
                                 } catch (e: kotlinx.coroutines.CancellationException) {
                                     throw e

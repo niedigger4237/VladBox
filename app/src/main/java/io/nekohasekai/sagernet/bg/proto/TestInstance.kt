@@ -4,37 +4,42 @@ import io.nekohasekai.sagernet.bg.GuardedProcessPool
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.fmt.buildConfig
 import io.nekohasekai.sagernet.ktx.Logs
-import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
-import io.nekohasekai.sagernet.ktx.tryResume
-import io.nekohasekai.sagernet.ktx.tryResumeWithException
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
+import kotlinx.coroutines.selects.select
 import io.nekohasekai.sagernet.bg.core.LibcoreBox
 import libcore.Libcore
 import moe.matsuri.nb4a.net.LocalResolverImpl
-import kotlin.coroutines.suspendCoroutine
 
 class TestInstance(profile: ProxyEntity, val link: String, private val timeout: Int) :
     BoxInstance(profile) {
 
-    suspend fun doTest(): Int {
-        return suspendCoroutine { c ->
-            processes = GuardedProcessPool {
-                Logs.w(it)
-                c.tryResumeWithException(it)
-            }
-            runOnDefaultDispatcher {
-                use {
-                    try {
-                        init()
-                        launch()
-                        if (processes.processCount > 0) {
-                            // wait for plugin start
-                            delay(500)
-                        }
-                        c.tryResume(box.urlTest(link, timeout))
-                    } catch (e: Exception) {
-                        c.tryResumeWithException(e)
+    suspend fun doTest(): Int = withContext(Dispatchers.IO) {
+        // The test job owns the temporary core until all native calls return.
+        // Never close a Go instance concurrently with its blocking urlTest.
+        use {
+            coroutineScope {
+                val fatal = CompletableDeferred<java.io.IOException>()
+                processes = GuardedProcessPool {
+                    Logs.w(it)
+                    fatal.complete(it)
+                }
+                val worker = async {
+                    init()
+                    ensureActive()
+                    launch()
+                    if (processes.processCount > 0) delay(500)
+                    ensureActive()
+                    box.urlTest(link, timeout).also { ensureActive() }
+                }
+                try {
+                    select<Int> {
+                        worker.onAwait { it }
+                        fatal.onAwait { throw it }
                     }
+                } finally {
+                    worker.cancel()
+                    fatal.cancel()
+                    // coroutineScope joins worker before use closes the core.
                 }
             }
         }
