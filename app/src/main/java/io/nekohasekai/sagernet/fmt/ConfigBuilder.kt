@@ -66,6 +66,7 @@ class ConfigBuildResult(
     var profileTagMap: Map<Long, String>,
     val selectorGroupId: Long,
     val tunAddressPlan: TunAddressPlan? = null,
+    val selectorProfileTags: Map<Long, String> = emptyMap(),
 ) {
     data class IndexEntity(var chain: LinkedHashMap<Int, ProxyEntity>)
 }
@@ -92,7 +93,8 @@ fun buildConfig(
     }
 
     val trafficMap = HashMap<String, List<ProxyEntity>>()
-    val tagMap = HashMap<Long, String>()
+    val tagMap = LinkedHashMap<Long, String>()
+    val selectorProfileTags = LinkedHashMap<Long, String>()
     val globalOutbounds = HashMap<Long, String>()
     val selectorNames = ArrayList<String>()
     val group = SagerDatabase.groupDao.getById(proxy.groupId)
@@ -104,7 +106,8 @@ fun buildConfig(
     fun selectorName(name_: String): String {
         var name = name_
         var count = 0
-        while (selectorNames.contains(name)) {
+        while (selectorNames.contains(name) || name in setOf(TAG_PROXY, TAG_DIRECT, TAG_BYPASS, TAG_BLOCK) ||
+            name.matches(Regex("g-\\d+|c-\\d+-\\d+-\\d+"))) {
             count++
             name = "$name_-$count"
         }
@@ -384,7 +387,7 @@ fun buildConfig(
 
                 // selector human readable name
                 if (buildSelector && index == 0) {
-                    tagOut = selectorName(bean.displayName())
+                    tagOut = selectorName(entity.displayName())
                 }
 
 
@@ -588,18 +591,19 @@ fun buildConfig(
                     tagMap[it.id] = buildChain(it.id, it, hops)
                 }
             }
+            selectorProfileTags.putAll(tagMap)
             outbounds.add(0, Outbound_SelectorOptions().apply {
                 type = "selector"
                 tag = TAG_PROXY
                 default_ = tagMap[proxy.id]
-                outbounds = tagMap.values.toList()
+                outbounds = selectorProfileTags.values.distinct()
             })
         } else {
             buildChain(0, proxy)
         }
         // build outbounds from route item
         extraProxies.forEach { (key, p) ->
-            tagMap[key] = buildChain(key, p)
+            if (!tagMap.containsKey(key)) tagMap[key] = buildChain(key, p)
         }
 
         // apply user rules
@@ -958,7 +962,8 @@ fun buildConfig(
             trafficMap,
             tagMap,
             if (buildSelector) group.id else -1L,
-            tunPlan
+            tunPlan,
+            selectorProfileTags.toMap()
         )
     }
 

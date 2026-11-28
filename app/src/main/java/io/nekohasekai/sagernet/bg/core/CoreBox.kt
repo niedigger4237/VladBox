@@ -9,7 +9,7 @@ interface CoreBox {
     fun setAsMain()
     fun sleep()
     fun wake()
-    fun selectOutbound(tag: String)
+    fun selectOutbound(tag: String): Boolean
     /** latency in ms, throws when the test fails */
     fun urlTest(url: String, timeoutMs: Int): Int
     /** bytes of an outbound tag since the last query of that direction ("uplink" / "downlink") */
@@ -25,7 +25,7 @@ class LibcoreBox(val raw: libcore.BoxInstance) : CoreBox {
     override fun setAsMain() = raw.setAsMain()
     override fun sleep() = raw.sleep()
     override fun wake() = raw.wake()
-    override fun selectOutbound(tag: String) { raw.selectOutbound(tag) }
+    override fun selectOutbound(tag: String): Boolean = raw.selectOutbound(tag)
     override fun urlTest(url: String, timeoutMs: Int): Int = Libcore.urlTest(raw, url, timeoutMs)
     override fun queryStats(tag: String, direction: String): Long = raw.queryStats(tag, direction)
     override fun enableStats(tags: String) = raw.setV2rayStats(tags)

@@ -209,17 +209,30 @@ class BaseService {
         fun reload() {
             if (DataStore.selectedProxy == 0L) {
                 stopRunner(false, (this as Context).getString(R.string.profile_empty))
+                return
             }
             if (canReloadSelector()) {
+                val owner = data.proxy
                 val ent = SagerDatabase.proxyDao.getById(DataStore.selectedProxy)
-                val tag = data.proxy!!.config.profileTagMap[ent?.id] ?: ""
-                if (tag.isNotBlank() && ent != null) {
-                    // select from GUI
-                    if (data.proxy!!.isInitialized()) data.proxy!!.box.selectOutbound(tag)
-                    // or select from webui
-                    // => selector_OnProxySelected
+                val tag = owner?.config?.selectorProfileTags?.get(ent?.id)
+                if (owner != null && ent != null && !tag.isNullOrBlank()) {
+                    val accepted = runCatching { owner.box.selectOutbound(tag) }.getOrDefault(false)
+                    if (accepted) {
+                        val title = ServiceNotification.genTitle(ent)
+                        DataStore.currentProfile = ent.id
+                        owner.displayProfileName = title
+                        data.binder.stateChanged(State.Connected, null)
+                        data.binder.launch {
+                            if (data.proxy === owner && data.state == State.Connected &&
+                                DataStore.currentProfile == ent.id) {
+                                data.notification?.postNotificationTitle(title)
+                            }
+                        }
+                        Logs.i("Selector: active profile changed to ${ent.id}")
+                        return
+                    }
+                    Logs.w("Selector: core rejected profile selection; restarting session")
                 }
-                return
             }
             val s = data.state
             if (s == State.Waiting && !io.nekohasekai.sagernet.bg.root.ServiceControl.hasStartRule(
@@ -239,15 +252,24 @@ class BaseService {
         fun canReloadSelector(): Boolean {
             // ROOT runs an external core; the in-process selector API cannot switch its outbound.
             // Use the normal service restart instead of silently treating the selection as applied.
-            if (data.proxy is io.nekohasekai.sagernet.bg.proto.RootProxyInstance) return false
-            if ((data.proxy?.config?.selectorGroupId ?: -1L) < 0) return false
+            val owner = data.proxy ?: return false
+            if (owner is io.nekohasekai.sagernet.bg.proto.RootProxyInstance ||
+                data.state != State.Connected || !owner.isInitialized()) return false
+            val groupId = owner.config.selectorGroupId
+            if (groupId < 0) return false
             val ent = SagerDatabase.proxyDao.getById(DataStore.selectedProxy) ?: return false
-            val tmpBox = ProxyInstance(ent)
-            tmpBox.buildConfigTmp()
-            if (tmpBox.lastSelectorGroupId == data.proxy?.lastSelectorGroupId) {
-                return true
-            }
-            return false
+            if (ent.id == DataStore.currentProfile || ent.groupId != groupId ||
+                SagerDatabase.groupDao.getById(groupId)?.isSelector != true) return false
+            val tag = owner.config.selectorProfileTags[ent.id] ?: return false
+            // An edited profile must be rebuilt rather than selecting stale runtime options.
+            val running = owner.config.trafficMap[tag]?.firstOrNull { it.id == ent.id } ?: return false
+            if (running.requireBean() != ent.requireBean()) return false
+            // Explicit rules referencing the original or requested profile may depend
+            // on the generated main-profile mapping. Preserve their restart semantics.
+            if (SagerDatabase.rulesDao.enabledRules().any {
+                    it.outbound == owner.config.mainEntId || it.outbound == ent.id
+                }) return false
+            return true
         }
 
         suspend fun startProcesses() {
