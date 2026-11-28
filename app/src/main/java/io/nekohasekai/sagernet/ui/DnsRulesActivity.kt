@@ -75,6 +75,9 @@ class DnsRulesActivity : ThemedActivity() {
                 finally { busy = false }
             }
         }
+        val activeIds = remember(rules, remote) {
+            ManagedDnsRules.effective(rules, remote).map { it.id }.toSet()
+        }
         Surface(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
                 Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -86,7 +89,7 @@ class DnsRulesActivity : ThemedActivity() {
                 }
                 LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     item {
-                        Text(if (modern) "Explicit rules run before automatic DNS routing rules. First matching rule wins."
+                        Text(if (modern) "Explicit rules run before automatic DNS routing rules. Evaluate continues; matching final actions stop processing."
                             else "Legacy mode: these rules are saved but not applied.", style = MaterialTheme.typography.bodyMedium)
                         if (!remote) Text("Remote DNS rules are paused in Direct Only mode.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (error != null) Text(error.orEmpty(), color = MaterialTheme.colorScheme.error)
@@ -102,8 +105,16 @@ class DnsRulesActivity : ThemedActivity() {
                                     Column(Modifier.weight(1f)) {
                                         Text(rule.name, style = MaterialTheme.typography.titleMedium)
                                         Text(rule.domains.ifBlank { "All domains" }, style = MaterialTheme.typography.bodySmall)
-                                        Text(rule.target + if (rule.queries.isBlank()) "" else " · " + rule.queries)
-                                        if (!remote && rule.target == "dns-remote") Text("Paused", color = MaterialTheme.colorScheme.error)
+                                        val actionLabel = when (ManagedDnsRules.operation(rule)) {
+                                            "evaluate" -> "Evaluate · ${rule.target}"
+                                            "respond" -> "Respond"
+                                            else -> rule.target
+                                        }
+                                        Text(actionLabel + if (rule.queries.isBlank()) "" else " · " + rule.queries)
+                                        rules.firstOrNull { it.id == ManagedDnsRules.responseId(rule) }?.let {
+                                            Text("Match response: ${it.name}", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                        if (rule.enabled && (!modern || rule.id !in activeIds)) Text("Paused", color = MaterialTheme.colorScheme.error)
                                     }
                                     Switch(checked = rule.enabled, onCheckedChange = { enabled ->
                                         save(rules.map { if (it.id == rule.id) it.copy(enabled = enabled) else it })
@@ -127,7 +138,10 @@ class DnsRulesActivity : ThemedActivity() {
         }
         editor?.let { original ->
             key(original.id) {
-                RuleDialog(original, busy, error, onDismiss = { if (!busy) { editor = null; error = null } }) { updated ->
+                val index = rules.indexOfFirst { it.id == original.id }
+                val priorEvaluations = (if (index < 0) rules else rules.take(index))
+                    .filter { ManagedDnsRules.operation(it) == "evaluate" }
+                RuleDialog(original, priorEvaluations, busy, error, onDismiss = { if (!busy) { editor = null; error = null } }) { updated ->
                     val next = if (rules.any { it.id == updated.id }) rules.map { if (it.id == updated.id) updated else it } else rules + updated
                     save(next)
                 }
@@ -136,17 +150,23 @@ class DnsRulesActivity : ThemedActivity() {
         deleting?.let { rule ->
             AlertDialog(onDismissRequest = { if (!busy) deleting = null },
                 title = { Text("Delete ${rule.name}?") },
+                text = { Text(error ?: "Rules that reference this Evaluate must be removed or changed first.") },
                 confirmButton = { TextButton(enabled = !busy, onClick = { save(rules.filter { it.id != rule.id }) }) { Text("Delete") } },
                 dismissButton = { TextButton(enabled = !busy, onClick = { deleting = null }) { Text("Cancel") } })
         }
     }
 
-    @Composable private fun RuleDialog(rule: Rule, busy: Boolean, saveError: String?, onDismiss: () -> Unit, onSave: (Rule) -> Unit) {
+    @Composable private fun RuleDialog(rule: Rule, evaluations: List<Rule>, busy: Boolean, saveError: String?, onDismiss: () -> Unit, onSave: (Rule) -> Unit) {
         var name by remember { mutableStateOf(rule.name) }
         var domains by remember { mutableStateOf(rule.domains) }
         var queries by remember { mutableStateOf(rule.queries) }
         var match by remember { mutableStateOf(rule.match) }
         var target by remember { mutableStateOf(rule.target) }
+        var operation by remember { mutableStateOf(ManagedDnsRules.operation(rule)) }
+        var responseFrom by remember { mutableStateOf(ManagedDnsRules.responseId(rule)) }
+        var responseCode by remember { mutableStateOf(rule.responseCode.orEmpty()) }
+        var responseIp by remember { mutableStateOf(rule.responseIp.orEmpty()) }
+        var responseCidrs by remember { mutableStateOf(rule.responseCidrs.orEmpty()) }
         var error by remember { mutableStateOf<String?>(null) }
         AlertDialog(onDismissRequest = onDismiss, title = { Text("DNS Rule") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -161,23 +181,62 @@ class DnsRulesActivity : ThemedActivity() {
                 }
                 OutlinedTextField(queries, { queries = it }, label = { Text("Query types (optional)") },
                     supportingText = { Text("A, AAAA, HTTPS, TXT, MX…") })
-                Text("Action")
-                Column {
-                    listOf("dns-direct" to "Direct DNS", "dns-remote" to "Remote DNS", "block" to "Block (NXDOMAIN)").forEach { (value, label) ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = target == value, onClick = { target = value })
-                            Text(label)
-                        }
+                Choice("Action", operation, listOf("route" to "Route / Block", "evaluate" to "Evaluate", "respond" to "Respond")) {
+                    operation = it
+                    if (it == "evaluate") {
+                        responseFrom = ""; responseCode = ""; responseIp = ""; responseCidrs = ""
+                        if (target == "block") target = "dns-direct"
                     }
+                }
+                if (operation != "respond") {
+                    val servers = listOf("dns-direct" to "Direct DNS", "dns-remote" to "Remote DNS")
+                    Choice("DNS target", target, if (operation == "route") servers + ("block" to "Block (NXDOMAIN)") else servers) { target = it }
+                }
+                if (operation == "evaluate") Text("Query the server and retain its response for later rules.")
+                else {
+                    val refs = evaluations.map { it.id to (it.name + if (it.enabled) "" else " (disabled)") }
+                    Choice("Match response", responseFrom, listOf("" to "None") + refs) {
+                        responseFrom = it
+                        if (it.isEmpty()) { responseCode = ""; responseIp = ""; responseCidrs = "" }
+                    }
+                    if (responseFrom.isNotEmpty()) {
+                        Choice("Response code", responseCode, listOf("" to "Any") + ManagedDnsRules.responseCodes.map { it to it }) { responseCode = it }
+                        Choice("Response IP", responseIp, listOf("" to "Any / CIDR filter", "any" to "Contains an IP", "private" to "Private IP")) {
+                            responseIp = it
+                            if (it.isNotEmpty()) responseCidrs = ""
+                        }
+                        if (responseIp.isEmpty()) OutlinedTextField(responseCidrs, { responseCidrs = it },
+                            label = { Text("Response IP / CIDR (optional)") },
+                            supportingText = { Text("IPv4 or IPv6, one per line or comma-separated") })
+                    }
+                    if (operation == "respond") Text("Return the selected Evaluate response. No new DNS request.")
                 }
                 (error ?: saveError)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         }, confirmButton = {
             TextButton(enabled = !busy, onClick = {
-                val updated = rule.copy(name = name.trim(), domains = domains, queries = queries, match = match, target = target)
+                val updated = rule.copy(name = name.trim(), domains = domains, queries = queries, match = match, target = target,
+                    operation = operation, responseFrom = responseFrom, responseCode = responseCode,
+                    responseIp = responseIp, responseCidrs = responseCidrs)
                 try { ManagedDnsRules.validate(updated); error = null; onSave(updated) }
                 catch (e: Exception) { error = e.message ?: "Invalid DNS rule" }
             }) { Text("Save") }
         }, dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") } })
+    }
+    @Composable private fun Choice(label: String, selected: String, options: List<Pair<String, String>>, change: (String) -> Unit) {
+        var expanded by remember { mutableStateOf(false) }
+        Column {
+            Text(label, style = MaterialTheme.typography.labelMedium)
+            Box {
+                OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(options.firstOrNull { it.first == selected }?.second ?: "Select")
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    options.forEach { (value, title) ->
+                        DropdownMenuItem(text = { Text(title) }, onClick = { expanded = false; change(value) })
+                    }
+                }
+            }
+        }
     }
 }

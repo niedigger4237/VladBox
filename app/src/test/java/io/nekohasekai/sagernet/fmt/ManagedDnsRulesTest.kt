@@ -23,4 +23,28 @@ class ManagedDnsRulesTest {
         val exact = ManagedDnsRules.Rule(name = "Exact", domains = "EXAMPLE.ORG.", match = "exact")
         assertEquals(listOf("example.org"), ManagedDnsRules.options(listOf(exact), true).single().domain)
     }
+    @Test fun taggedEvaluateAndRespond() {
+        val evaluate = ManagedDnsRules.Rule(id = "one", name = "Evaluate", domains = "example.org", operation = "evaluate")
+        val respond = ManagedDnsRules.Rule(name = "Respond", operation = "respond", responseFrom = "one",
+            responseCode = "NOERROR", responseCidrs = "192.0.2.0/24, 2001:db8::/32")
+        val generated = ManagedDnsRules.options(listOf(evaluate, respond), true)
+        assertEquals("evaluate", generated[0].action)
+        assertEquals("nf-eval-one", generated[0]._hack_config_map["tag"])
+        assertEquals("respond", generated[1].action)
+        assertNull(generated[1].server)
+        assertEquals("nf-eval-one", generated[1]._hack_config_map["match_response"])
+        assertEquals("NOERROR", generated[1]._hack_config_map["response_rcode"])
+        assertEquals(listOf("192.0.2.0/24", "2001:db8::/32"), generated[1]._hack_config_map["ip_cidr"])
+        assertTrue(runCatching { ManagedDnsRules.encode(listOf(respond, evaluate)) }.isFailure)
+        assertTrue(runCatching { ManagedDnsRules.encode(listOf(evaluate.copy(enabled = false), respond)) }.isFailure)
+        assertTrue(runCatching { ManagedDnsRules.encode(listOf(respond)) }.isFailure)
+        assertTrue(ManagedDnsRules.options(listOf(evaluate.copy(target = "dns-remote"), respond), false).isEmpty())
+    }
+    @Test fun oldJsonAndInvalidResponseFilters() {
+        val old = """[{"id":"old","name":"Old","enabled":true,"domains":"example.org","match":"suffix","queries":"","target":"dns-direct"}]"""
+        assertEquals("route", ManagedDnsRules.options(ManagedDnsRules.decode(old), true).single().action)
+        val invalid = ManagedDnsRules.Rule(name = "Invalid", domains = "example.org", responseCode = "NXDOMAIN")
+        assertTrue(runCatching { ManagedDnsRules.validate(invalid) }.isFailure)
+        assertTrue(runCatching { ManagedDnsRules.validate(invalid.copy(responseFrom = "one", responseCidrs = "300.0.0.1/24")) }.isFailure)
+    }
 }
