@@ -32,12 +32,13 @@ internal object ManagedDnsRules {
         val srs: List<String>? = null
     )
     private val gson = Gson()
-    private val type = object : TypeToken<List<Rule>>() {}.type
+    // Explicit runtime type: an anonymous TypeToken subclass loses its
+    // generic superclass signature in minified APKs.
+    private val type by lazy { TypeToken.getParameterized(List::class.java, Rule::class.java).type }
     private val queryTypes = setOf("A", "AAAA", "HTTPS", "SVCB", "TXT", "MX", "NS", "PTR", "SRV", "CNAME", "CAA", "SOA", "DNSKEY", "DS")
     private fun tokens(value: String) = value.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-    val targets = listOf("dns-local" to "System DNS", "dns-direct" to "Direct DNS",
-        "dns-remote" to "Remote DNS", "dns-bootstrap" to "Bootstrap DNS", "block" to "Block (NXDOMAIN)")
-    fun targetLabel(target: String) = targets.firstOrNull { it.first == target }?.second ?: target
+    val targets get() = DnsTargetCatalog.entries
+    fun targetLabel(target: String) = DnsTargetCatalog.label(target)
 
     private fun domainName(raw: String): String {
         val value = IDN.toASCII(raw.removePrefix(".").removeSuffix("."), IDN.USE_STD3_ASCII_RULES).lowercase(Locale.ROOT)
@@ -173,7 +174,7 @@ internal object ManagedDnsRules {
             preceding[rule.id] = rule
         }
     }
-    fun encode(rules: List<Rule>): String = gson.toJson(rules).also { decode(it) }
+    fun encode(rules: List<Rule>): String = gson.toJson(rules, type).also { decode(it) }
     // When Remote DNS is unavailable, pause both its Evaluate and dependent
     // actions; never bind a response to a different DNS server.
     fun effective(rules: List<Rule>, remoteAvailable: Boolean, bootstrapAvailable: Boolean = false): List<Rule> {

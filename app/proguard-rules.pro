@@ -26,7 +26,12 @@
 -keep class org.yaml.snakeyaml.** { *; }
 
 -dontobfuscate
--keepattributes SourceFile
+-keepattributes SourceFile,Signature
+
+# Gson 2.9 reflective types: preserve generic field signatures (e.g. DNS
+# rule SRS lists and routing-profile snapshots) and TypeToken subclasses.
+-keep class com.google.gson.reflect.TypeToken { *; }
+-keep class * extends com.google.gson.reflect.TypeToken { *; }
 
 -dontwarn java.beans.BeanInfo
 -dontwarn java.beans.FeatureDescriptor

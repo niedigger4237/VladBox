@@ -98,4 +98,14 @@ class ManagedDnsRulesTest {
         assertTrue(ManagedDnsRules.options(listOf(eval, respond), true, false).isEmpty())
         assertEquals("dns-bootstrap", ManagedDnsRules.options(listOf(eval, respond), false, true).first().server)
     }
+    @Test fun explicitRuntimeTypePreservesStoredRulesAndSrs() {
+        val json = """[{"id":"saved","name":"Direct Geosite","enabled":true,"domains":"","match":"suffix","queries":"","target":"dns-local","srs":["geosite:category-ru","geosite:yandex"]}]"""
+        val rule = ManagedDnsRules.decode(json).single()
+        assertEquals("saved", rule.id)
+        assertEquals("dns-local", rule.target)
+        assertEquals(listOf("geosite:category-ru", "geosite:yandex"), rule.srs)
+        assertEquals(rule, ManagedDnsRules.decode(ManagedDnsRules.encode(listOf(rule))).single())
+        assertTrue(ManagedDnsRules.decode("[]").isEmpty())
+        assertEquals("System DNS", RouteDnsChoice.label(RouteDnsChoice.update("", "dns-local")))
+    }
 }

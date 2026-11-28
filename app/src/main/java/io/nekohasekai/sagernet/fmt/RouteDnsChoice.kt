@@ -6,7 +6,7 @@ import com.google.gson.JsonParser
 /** A per-route DNS target is app metadata, not a sing-box route field. */
 internal object RouteDnsChoice {
     const val KEY = "_nf_dns_target"
-    val choices = listOf("" to "Automatic") + ManagedDnsRules.targets
+    val choices = listOf("" to "Automatic") + DnsTargetCatalog.entries
     private fun json(config: String): JsonObject =
         if (config.isBlank()) JsonObject() else JsonParser.parseString(config).asJsonObject
     fun read(config: String): String = runCatching {
