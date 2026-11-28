@@ -146,9 +146,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var dnsMain by configurationStore.string(Key.DNS_MAIN) { "direct" }
     var dnsEngineMode by configurationStore.string(Key.DNS_ENGINE_MODE) { "modern" }
     var dnsGlobalStrategy by configurationStore.string(Key.DNS_GLOBAL_STRATEGY) { "auto" }
-    var dnsOptimisticWindow by configurationStore.string(Key.DNS_OPTIMISTIC_WINDOW) { "off" }
+    var dnsOptimisticWindow by configurationStore.string(Key.DNS_OPTIMISTIC_WINDOW) { "72h" }
     var dnsQueryTimeout by configurationStore.string(Key.DNS_QUERY_TIMEOUT) { "default" }
-    var dnsCacheCapacity by configurationStore.string(Key.DNS_CACHE_CAPACITY) { "default" }
+    var dnsCacheCapacity by configurationStore.string(Key.DNS_CACHE_CAPACITY) { "4096" }
     var dnsCacheStorage by configurationStore.string(Key.DNS_CACHE_STORAGE) { "memory" }
     var dnsCacheGeneration by configurationStore.string(Key.DNS_CACHE_GENERATION) { "" }
     var dnsRootCacheStorage by configurationStore.string(Key.ROOT_DNS_CACHE_STORAGE) { "memory" }
