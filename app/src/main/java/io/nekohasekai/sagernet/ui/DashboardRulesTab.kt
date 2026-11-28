@@ -3,6 +3,10 @@ package io.nekohasekai.sagernet.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,19 +19,33 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-internal data class DashboardRule(val type: String, val payload: String, val target: String)
+internal data class DashboardRule(val type: String, val payload: String, val target: String, val order: Int = 0)
 
 @Composable
 internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = emptyList(), status: String? = null, searchOpen: Boolean = false, onSearchChange: (Boolean) -> Unit = {}) {
     var query by rememberSaveable { mutableStateOf("") }
-    var detail by remember { mutableStateOf<DashboardRule?>(null) }
+    var detail by remember(connected, rules) { mutableStateOf<DashboardRule?>(null) }
     val colors = MaterialTheme.colorScheme
     LaunchedEffect(searchOpen) { if (!searchOpen) query = "" }
-    detail?.let { rule -> AlertDialog(onDismissRequest = { detail = null }, title = { Text(ruleLabel(rule)) }, text = { Text(rule.payload + "\n\n" + rule.target) }, confirmButton = { TextButton(onClick = { detail = null }) { Text("Close") } }) }
-    val filtered = rules.filter { "${ruleLabel(it)} ${it.type} ${it.payload} ${it.target}".contains(query, ignoreCase = true) }
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+    detail?.let { rule ->
+        AlertDialog(onDismissRequest = { detail = null },
+            title = { Text("#${rule.order} · ${ruleLabel(rule)}") },
+            text = {
+                Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Type: " + rule.type)
+                    Text("Conditions: " + rule.payload.ifBlank { "No conditions reported" })
+                    Text("Action: " + ruleAction(rule.target))
+                    Text("Core action: " + rule.target.ifBlank { "—" })
+                }
+            }, confirmButton = { TextButton(onClick = { detail = null }) { Text("Close") } })
+    }
+    val filtered = remember(rules, query) {
+        rules.filter { "${it.order} ${ruleLabel(it)} ${it.type} ${it.payload} ${ruleAction(it.target)} ${it.target}".contains(query, ignoreCase = true) }
+    }
+    Card(Modifier.fillMaxSize(), shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant.copy(alpha = .45f))) {
-        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Routing rules" + if (rules.isNotEmpty()) " (${rules.size})" else "",
                     Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
@@ -43,21 +61,24 @@ internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = 
                 Text(if (!connected) "Service is not running" else if (rules.isEmpty()) status ?: "No routing rules returned" else "No matching rules",
                     Modifier.padding(vertical = 12.dp), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
-            filtered.forEach { rule ->
+            Text("Core routing rules · evaluation order", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+              itemsIndexed(filtered, key = { index, rule -> if (rule.order > 0) rule.order else -index - 1 }) { _, rule ->
                 OutlinedCard(Modifier.fillMaxWidth().clickable { detail = rule }, border = androidx.compose.foundation.BorderStroke(0.5.dp, colors.outlineVariant.copy(alpha = .55f)), shape = RoundedCornerShape(10.dp),
                     colors = CardDefaults.outlinedCardColors(containerColor = colors.surfaceVariant.copy(alpha = .35f))) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         RuleTypeIcon(ruleLabel(rule))
                         Column(Modifier.weight(1f)) {
-                            Text(ruleLabel(rule), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text((if (rule.order > 0) "#${rule.order} · " else "") + ruleLabel(rule), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(rule.payload.ifBlank { if (ruleLabel(rule) == "Final") "All remaining traffic" else "—" }, style = MaterialTheme.typography.bodySmall,
                                 color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_arrow_forward), contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.onSurfaceVariant)
-                        val targetColor = when (rule.target.lowercase(java.util.Locale.ROOT)) {
-                            "direct", "bypass", "route(bypass)", "route(direct)" -> Color(0xFF81D99A)
-                            "block", "reject" -> colors.error
+                        val targetColor = when (DashboardRulePolicy.action(rule.target).kind) {
+                            DashboardRulePolicy.Kind.DIRECT -> Color(0xFF81D99A)
+                            DashboardRulePolicy.Kind.BLOCK -> colors.error
+                            DashboardRulePolicy.Kind.OTHER -> colors.onSurfaceVariant
                             else -> colors.primary
                         }
                         Surface(shape = RoundedCornerShape(20.dp), color = targetColor.copy(alpha = .15f)) {
@@ -66,6 +87,7 @@ internal fun DashboardRulesTab(connected: Boolean, rules: List<DashboardRule> = 
                         }
                     }
                 }
+              }
             }
         }
     }
@@ -105,10 +127,15 @@ internal fun DashboardLiveRules(connected: Boolean, searchOpen: Boolean = false,
                 rules = dashboardSessionRead(service) {
                     val response = dashboardGet("rules")
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                        val array = response.getJSONArray("rules")
-                        (0 until array.length()).mapNotNull { index ->
+                        // Go encodes an empty nil slice as JSON null.
+                        check(response.has("rules")) { "Missing rules snapshot" }
+                        val array = response.optJSONArray("rules")
+                        if (array == null) {
+                            check(response.isNull("rules")) { "Invalid rules snapshot" }
+                            emptyList()
+                        } else (0 until array.length()).mapNotNull { index ->
                             val item = array.optJSONObject(index) ?: return@mapNotNull null
-                            DashboardRule(item.optString("type"), item.optString("payload"), item.optString("proxy"))
+                            DashboardRule(item.optString("type"), item.optString("payload"), item.optString("proxy"), index + 1)
                         }
                     }
                 }
@@ -128,43 +155,6 @@ internal fun DashboardLiveRules(connected: Boolean, searchOpen: Boolean = false,
     DashboardRulesTab(connected, rules, status, searchOpen, onSearchChange)
 }
 
-private fun ruleLabel(rule: DashboardRule): String {
-    val type = rule.type.lowercase(java.util.Locale.ROOT).replace("-", "").replace("_", "")
-    val payload = rule.payload.lowercase(java.util.Locale.ROOT)
-    return when (type) {
-        "match", "final" -> "Final"
-        "domain" -> "Domain"
-        "domainsuffix" -> "Domain suffix"
-        "domainkeyword" -> "Domain keyword"
-        "domainregex" -> "Domain regex"
-        "ipcidr", "ipcidr6" -> "IP CIDR"
-        "geoip" -> "GeoIP"
-        "geosite" -> "Geosite"
-        "ruleset" -> "Rule set"
-        "default" -> when {
-            payload.startsWith("inbound=") -> "Inbound"
-            payload.startsWith("protocol=") -> "Protocol"
-            payload.startsWith("port=") -> "Destination port"
-            payload.startsWith("ip_is_private=") -> "Private IP / Rule set"
-            payload.startsWith("source_ip_cidr=") -> "Source / Destination IP"
-            payload.startsWith("rule_set=") || payload.startsWith("rule_set:") -> "Rule set"
-            payload.startsWith("domain_suffix=") || payload.startsWith("domain_suffix:") -> "Domain suffix"
-            payload.startsWith("domain_keyword=") || payload.startsWith("domain_keyword:") -> "Domain keyword"
-            payload.startsWith("domain_regex=") || payload.startsWith("domain_regex:") -> "Domain regex"
-            payload.startsWith("domain=") || payload.startsWith("domain:") -> "Domain"
-            payload.startsWith("ip_cidr=") || payload.startsWith("ip_cidr:") -> "IP CIDR"
-            payload.startsWith("process_name=") || payload.startsWith("package_name=") -> "Application"
-            else -> "Routing rule"
-        }
-        else -> rule.type.ifBlank { "Routing rule" }
-    }
-}
+private fun ruleLabel(rule: DashboardRule): String = DashboardRulePolicy.label(rule.type, rule.payload)
 
-private fun ruleAction(target: String): String = when (target.lowercase(java.util.Locale.ROOT)) {
-    "route(bypass)", "route(direct)", "bypass", "direct" -> "Direct"
-    "reject", "block" -> "Block"
-    "hijack-dns" -> "DNS Hijack"
-    "sniff" -> "Sniff"
-    "route(proxy)", "proxy" -> "Proxy"
-    else -> target.ifBlank { "—" }
-}
+private fun ruleAction(target: String): String = DashboardRulePolicy.action(target).label

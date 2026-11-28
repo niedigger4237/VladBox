@@ -119,7 +119,7 @@ class DashboardFragment : ToolbarFragment() {
                         val tabScroll = key(tab) { rememberScrollState() }
                         // Connections owns a LazyColumn and must receive a finite height.
                         val contentModifier = Modifier.weight(1f).fillMaxWidth().let {
-                            if (tab == 1) it else it.verticalScroll(tabScroll)
+                            if (tab == 1 || tab == 3) it else it.verticalScroll(tabScroll)
                         }.padding(10.dp)
                         Column(contentModifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             if (!dashboardVisible) {
