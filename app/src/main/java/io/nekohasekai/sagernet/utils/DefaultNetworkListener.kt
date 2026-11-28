@@ -39,7 +39,7 @@ object DefaultNetworkListener {
     private val messages = Channel<NetworkMessage>(Channel.UNLIMITED)
     private var registeredCallback: Callback? = null
 
-    init {
+    private fun consumeMessages() {
         processCoroutineScope.launch(Dispatchers.Default) {
             val listeners = mutableMapOf<Any, (Network?) -> Unit>()
             var network: Network? = null
@@ -149,6 +149,9 @@ object DefaultNetworkListener {
         }
     }.build()
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Start after all registration fields have been initialized.
+    init { consumeMessages() }
 
     /**
      * Unfortunately registerDefaultNetworkCallback is going to return VPN interface since Android P DP1:

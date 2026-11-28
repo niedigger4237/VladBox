@@ -19,6 +19,7 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.util.*
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.Executors
 
 @Suppress("EXPERIMENTAL_API_USAGE")
 abstract class GroupUpdater {
@@ -40,7 +41,6 @@ abstract class GroupUpdater {
         profiles: List<AbstractBean>, groupId: Long?
     ) {
         val ipv6Mode = DataStore.ipv6Mode
-        val lookupPool = newFixedThreadPoolContext(5, "DNS Lookup")
         val progress = Progress(profiles.size)
         if (groupId != null) {
             GroupUpdater.progress[groupId] = progress
@@ -48,49 +48,41 @@ abstract class GroupUpdater {
         }
         val ipv6First = ipv6Mode >= IPv6Mode.PREFER
 
-        try {
+        // Preserve five workers per group, without the delicate coroutine
+        // thread-pool factory. The dispatcher is closed even on cancellation.
+        Executors.newFixedThreadPool(5).asCoroutineDispatcher().use { lookupPool ->
             coroutineScope {
-        for (profile in profiles) {
-            when (profile) {
-                // SNI rewrite unsupported
-                is NaiveBean -> continue
-            }
-
-            if (profile.serverAddress.isIpAddress()) continue
-
-            launch(lookupPool) {
-                try {
-                    val underlying = SagerNet.underlyingNetwork
-                    val results = if (
-                        underlying != null &&
-                        DataStore.enableFakeDns &&
-                        DataStore.serviceState.started &&
-                        DataStore.serviceMode == Key.MODE_VPN
-                    ) {
-                        // FakeDNS
-                        underlying.getAllByName(profile.serverAddress)
-                            .filterNotNull()
-                    } else {
-                        // System DNS is enough (when VPN connected, it uses v2ray-core)
-                        InetAddress.getAllByName(profile.serverAddress).filterNotNull()
+                for (profile in profiles) {
+                    if (profile is NaiveBean || profile.serverAddress.isIpAddress()) continue
+                    launch(lookupPool) {
+                        try {
+                            val underlying = SagerNet.underlyingNetwork
+                            val results = if (
+                                underlying != null &&
+                                DataStore.enableFakeDns &&
+                                DataStore.serviceState.started &&
+                                DataStore.serviceMode == Key.MODE_VPN
+                            ) {
+                                underlying.getAllByName(profile.serverAddress).filterNotNull()
+                            } else {
+                                InetAddress.getAllByName(profile.serverAddress).filterNotNull()
+                            }
+                            ensureActive()
+                            if (results.isEmpty()) error("empty response")
+                            rewriteAddress(profile, results, ipv6First)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Logs.d("Lookup ${profile.serverAddress} failed: ${e.readableMessage}", e)
+                        }
+                        ensureActive()
+                        if (groupId != null) {
+                            synchronized(progress) { progress.progress++ }
+                            GroupManager.postReload(groupId)
+                        }
                     }
-                    if (results.isEmpty()) error("empty response")
-                    rewriteAddress(profile, results, ipv6First)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Logs.d("Lookup ${profile.serverAddress} failed: ${e.readableMessage}", e)
-                }
-                ensureActive()
-                if (groupId != null) {
-                    synchronized(progress) { progress.progress++ }
-                    GroupManager.postReload(groupId)
                 }
             }
-        }
-            }
-        } finally {
-            lookupPool.close()
         }
     }
 
@@ -137,22 +129,19 @@ abstract class GroupUpdater {
 
         suspend fun executeUpdate(proxyGroup: ProxyGroup, byUser: Boolean): Boolean {
             return coroutineScope {
-                if (!updating.add(proxyGroup.id)) cancel()
-                GroupManager.postReload(proxyGroup.id)
-
-                val subscription = proxyGroup.subscription!!
-                val connected = DataStore.serviceState.connected
+                if (!updating.add(proxyGroup.id)) return@coroutineScope false
                 val userInterface = GroupManager.userInterface
-
-                if (byUser && (subscription.link?.startsWith("http://") == true || subscription.updateWhenConnectedOnly) && !connected) {
-                    if (userInterface == null || !userInterface.confirm(app.getString(R.string.update_subscription_warning))) {
-                        finishUpdate(proxyGroup)
-                        cancel()
-                        return@coroutineScope true
-                    }
-                }
-
                 try {
+                    GroupManager.postReload(proxyGroup.id)
+                    val subscription = requireNotNull(proxyGroup.subscription)
+                    val connected = DataStore.serviceState.connected
+
+                    if (byUser && (subscription.link?.startsWith("http://") == true || subscription.updateWhenConnectedOnly) && !connected) {
+                        if (userInterface == null || !userInterface.confirm(app.getString(R.string.update_subscription_warning))) {
+                            finishUpdate(proxyGroup)
+                            return@coroutineScope false
+                        }
+                    }
                     RawUpdater.doUpdate(proxyGroup, subscription, userInterface, byUser)
                     true
                 } catch (e: CancellationException) {
