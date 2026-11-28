@@ -140,7 +140,13 @@ fun buildConfig(
         ).toMutableList()
     }
 
-    val extraRules = if (forTest) listOf() else SagerDatabase.rulesDao.enabledRules()
+    val extraRules = if (forTest) listOf() else SagerDatabase.rulesDao.enabledRules().filter { rule ->
+        val mode = DataStore.serviceMode
+        RouteAdvancedConditions.supported(rule.config, rule.network, mode == Key.MODE_VPN,
+            mode == Key.MODE_ROOT_TUN, rule.outbound).also { supported ->
+            if (!supported) Logs.w("Skipping routing rule ${rule.id}: conditions or ICMP action unsupported in selected mode")
+        }
+    }
     val extraProxies =
         if (forTest) mapOf() else SagerDatabase.proxyDao.getEntities(extraRules.mapNotNull { rule ->
             rule.outbound.takeIf { it > 0 && it != proxy.id }
@@ -700,7 +706,7 @@ fun buildConfig(
                     }
                 }
 
-                when (rule.outbound) {
+                if (RouteAdvancedConditions.deriveDns(rule.config, rule.network)) when (rule.outbound) {
                     -1L -> {
                         userDNSRuleList += makeDnsRuleObj().apply {
                             server = "dns-direct"

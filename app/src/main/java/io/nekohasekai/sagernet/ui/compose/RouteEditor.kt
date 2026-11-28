@@ -32,7 +32,10 @@ fun installRouteEditor(activity: RouteSettingsActivity, host: ComposeView) {
                     }
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         RouteField("Rule name", DataStore.routeName) { DataStore.routeName = it }
-                        RouteField("Custom configuration", DataStore.serverConfig) { DataStore.serverConfig = it }
+                        var custom by remember { mutableStateOf(DataStore.serverConfig) }
+                        OutlinedTextField(custom, { custom = it; DataStore.serverConfig = it },
+                            Modifier.fillMaxWidth(), label = { Text("Custom configuration") })
+                        AdvancedRouteConditions(custom) { custom = it; DataStore.serverConfig = it }
                         Text(stringResource(R.string.cag_route), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
                         key(revision) {
                             OutlinedButton(onClick = { activity.selectAppList.launch(Intent(activity, AppListActivity::class.java)) }, modifier = Modifier.fillMaxWidth()) {
@@ -44,7 +47,8 @@ fun installRouteEditor(activity: RouteSettingsActivity, host: ComposeView) {
                             RouteField("Destination ports", DataStore.routePort, "Remote service ports or port ranges") { DataStore.routePort = it }
                             RouteField("Source IP addresses", DataStore.routeSource, "Client IP addresses or CIDR ranges") { DataStore.routeSource = it }
                             RouteField("Source ports", DataStore.routeSourcePort, "Client ports or port ranges") { DataStore.routeSourcePort = it }
-                            RouteChoice("Network type", activity.resources.getStringArray(R.array.route_protocol_entry), activity.resources.getStringArray(R.array.route_protocol_value), DataStore.routeNetwork) {
+                            RouteChoice("Transport protocol", arrayOf("Any", "TCP", "UDP", "ICMP (VPN / ROOT TUN)"),
+                                arrayOf("", "tcp", "udp", "icmp"), DataStore.routeNetwork) {
                                 DataStore.routeNetwork = it; activity.refreshEditor()
                             }
                             RouteField("Protocol", DataStore.routeProtocol, "Application-layer protocol") { DataStore.routeProtocol = it }
@@ -77,5 +81,54 @@ fun installRouteEditor(activity: RouteSettingsActivity, host: ComposeView) {
                 }
             }
         }
+    }
+}
+
+@Composable private fun AdvancedRouteConditions(config: String, change: (String) -> Unit) {
+    var draft by remember { mutableStateOf<io.nekohasekai.sagernet.fmt.RouteAdvancedConditions.Fields?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val active = io.nekohasekai.sagernet.fmt.RouteAdvancedConditions.hasConditions(config)
+    OutlinedButton(onClick = {
+        try {
+            draft = io.nekohasekai.sagernet.fmt.RouteAdvancedConditions.read(config)
+            error = null
+        } catch (e: Exception) {
+            error = e.message ?: "Invalid custom configuration"
+        }
+    }, modifier = Modifier.fillMaxWidth()) { Text(if (active) "Advanced conditions · configured" else "Advanced conditions") }
+    if (draft == null) error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    draft?.let { fields ->
+        AlertDialog(onDismissRequest = { draft = null; error = null },
+            title = { Text("Advanced conditions") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RouteChoice("IP version", arrayOf("Any", "IPv4", "IPv6"), arrayOf("", "4", "6"), fields.ipVersion) {
+                        draft = fields.copy(ipVersion = it)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Private destination IP", Modifier.weight(1f))
+                        Switch(fields.destinationPrivate, { draft = fields.copy(destinationPrivate = it) })
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Private source IP", Modifier.weight(1f))
+                        Switch(fields.sourcePrivate, { draft = fields.copy(sourcePrivate = it) })
+                    }
+                    OutlinedTextField(fields.packageRegex, { draft = fields.copy(packageRegex = it) },
+                        label = { Text("Package name regex") },
+                        supportingText = { Text("One expression per line. Ordinary VPN only; the rule is paused in ROOT modes.") })
+                    Text("Advanced traffic conditions do not generate DNS rules. Use DNS Rules for separate DNS policy.",
+                        style = MaterialTheme.typography.bodySmall)
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    try {
+                        change(io.nekohasekai.sagernet.fmt.RouteAdvancedConditions.update(config, fields))
+                        draft = null; error = null
+                    } catch (e: Exception) { error = e.message ?: "Invalid condition" }
+                }) { Text("Apply") }
+            },
+            dismissButton = { TextButton(onClick = { draft = null; error = null }) { Text("Cancel") } })
     }
 }

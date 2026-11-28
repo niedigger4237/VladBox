@@ -557,6 +557,21 @@ class RouteSettingsActivity(
             return
         }
 
+        val outbound = when (DataStore.routeOutbound) {
+            0 -> 0L
+            1 -> -1L
+            2 -> -2L
+            else -> DataStore.routeOutboundRule
+        }
+        if (DataStore.routeNetwork == "icmp" && outbound !in setOf(-1L, -2L)) {
+            onMainDispatcher {
+                MaterialAlertDialogBuilder(this@RouteSettingsActivity)
+                    .setMessage("ICMP rules currently support only Bypass or Block. Choose one of these actions.")
+                    .setPositiveButton(android.R.string.ok, null).show()
+            }
+            return
+        }
+
         if (!skipSrsWarning) {
             val missing = missingRouteSrs()
             if (missing.isNotEmpty()) {
