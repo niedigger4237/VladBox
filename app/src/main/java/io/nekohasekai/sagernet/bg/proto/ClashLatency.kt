@@ -83,23 +83,33 @@ internal suspend fun clashGroupDelay(group: String, tags: List<String>, url: Str
     } catch (e: Exception) {
         throw LatencyControlException("Local group latency API unavailable", e)
     }
-    // Some cores expose a synthetic GLOBAL in /proxies but no matching real group.
-    // Limit concurrency and preserve cancellation; never retry real group timeouts.
-    return kotlinx.coroutines.coroutineScope {
-        val results = linkedMapOf<String, Int>()
-        for (chunk in distinct.chunked(5)) {
-            val batch = chunk.map { tag ->
-                async {
-                    try { tag to clashDelay(tag, url) }
-                    catch (e: CancellationException) { throw e }
-                    catch (e: LatencyControlException) { throw e }
-                    catch (_: Exception) { null }
-                }
-            }.awaitAll()
-            batch.filterNotNull().forEach { (tag, delay) -> results[tag] = delay }
-        }
-        results
+    // Some cores expose a group in /proxies without a matching group endpoint.
+    // Never retry a real group timeout.
+    return clashOutboundDelays(distinct, url)
+}
+
+/** Test explicit outbounds on the running core, without invoking group fan-out. */
+internal suspend fun clashOutboundDelays(
+    tags: List<String>,
+    url: String = DataStore.connectionTestURL,
+    verifySession: suspend () -> Unit = {}
+): Map<String, Int> = kotlinx.coroutines.coroutineScope {
+    val results = linkedMapOf<String, Int>()
+    for (chunk in tags.distinct().chunked(ClashRequestPolicy.PROBE_WORKERS)) {
+        verifySession()
+        val batch = chunk.map { tag ->
+            async {
+                verifySession()
+                try { tag to clashDelay(tag, url) }
+                catch (e: CancellationException) { throw e }
+                catch (e: LatencyControlException) { throw e }
+                catch (_: Exception) { null }
+            }
+        }.awaitAll()
+        verifySession()
+        batch.filterNotNull().forEach { (tag, delay) -> results[tag] = delay }
     }
+    results
 }
 
 internal class ActiveProfileChangedException : IllegalStateException("Active profile changed or disconnected during test")

@@ -66,7 +66,7 @@ internal fun DashboardProxiesTab(
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(group?.let { "Servers (" + it.label + ")" } ?: "Servers", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                IconButton(onClick = { group?.let { onTest?.invoke(it.name) } }, enabled = connected && group != null && !group.synthetic && onTest != null) {
+                IconButton(onClick = { group?.let { onTest?.invoke(it.name) } }, enabled = connected && group != null && group.nodes.isNotEmpty() && onTest != null) {
                     Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_refresh), contentDescription = "Test server latency")
                 }
             }
@@ -259,14 +259,19 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
             action(refreshAfter = false) {
                 val binder = service() ?: error("Service unavailable")
                 suspend fun verifySession() {
-                    check(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    check(service() === binder && kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         binder.selectorSessionId == sessionId
                     }) { "Service session changed" }
                 }
                 verifySession()
-                val nodes = groups.firstOrNull { it.name == group }?.nodes.orEmpty()
-                val tags = nodes.map { it.name }.distinct()
-                val results = io.nekohasekai.sagernet.bg.proto.clashGroupDelay(group, tags)
+                val testedGroup = groups.firstOrNull { it.name == group } ?: error("Proxy group unavailable")
+                val tags = testedGroup.nodes.map { it.name }.distinct()
+                val results = if (testedGroup.synthetic) {
+                    // GLOBAL is an overview, not a real group endpoint in sing-box.
+                    io.nekohasekai.sagernet.bg.proto.clashOutboundDelays(tags, verifySession = { verifySession() })
+                } else {
+                    io.nekohasekai.sagernet.bg.proto.clashGroupDelay(group, tags)
+                }
                 verifySession()
                 // Refresh real history/selection from the core, then apply this test's result.
                 refresh()
