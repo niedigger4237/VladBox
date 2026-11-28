@@ -68,15 +68,15 @@ class DashboardFragment : ToolbarFragment() {
                     var tab by rememberSaveable { mutableStateOf(0) }
                     var searchOpen by rememberSaveable { mutableStateOf(false) }
                     var menuOpen by remember { mutableStateOf(false) }
-                    // Keep collecting across Overview, Connections, Proxies and Rules.
-                    val history = remember { mutableStateListOf<Pair<Long, Long>>() }
-                    LaunchedEffect(connected, dashboardVisible) {
-                        history.clear()
-                        while (connected && dashboardVisible) {
-                            val current = model.state.value
-                            if (history.size >= 60) history.removeAt(0)
-                            history.add(current.rxBytes to current.txBytes)
-                            delay(1000)
+                    // History is fed by the existing service speed callbacks.
+                    // The clock only ages the visible chart; it never polls the core.
+                    var chartNow by remember { mutableStateOf(android.os.SystemClock.elapsedRealtime()) }
+                    LaunchedEffect(connected, dashboardVisible, tab) {
+                        if (tab == 0 && connected && dashboardVisible) {
+                            while (true) {
+                                chartNow = android.os.SystemClock.elapsedRealtime()
+                                delay(1000)
+                            }
                         }
                     }
                     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -153,8 +153,10 @@ class DashboardFragment : ToolbarFragment() {
                                         }
                                         val primary = MaterialTheme.colorScheme.primary
                                         val grid = MaterialTheme.colorScheme.outlineVariant
-                                        val samples = history.toList()
-                                        val rawPeak = maxOf(125L, samples.maxOfOrNull { maxOf(it.first, it.second) } ?: 0L)
+                                        val now = maxOf(chartNow, ui.trafficHistory.lastOrNull()?.elapsedMs ?: 0L)
+                                        val samples = DashboardTrafficHistory.visible(ui.trafficHistory, now)
+                                        val segments = DashboardTrafficHistory.segments(samples)
+                                        val rawPeak = maxOf(125L, samples.maxOfOrNull { maxOf(it.rx, it.tx) } ?: 0L)
                                         val magnitude = Math.pow(10.0, kotlin.math.floor(kotlin.math.log10(rawPeak.toDouble())))
                                         val peak = (kotlin.math.ceil(rawPeak / magnitude) * magnitude).toLong().coerceAtLeast(rawPeak)
                                         val divisor = if (peak >= 125000) 1000000.0 else 1000.0
@@ -170,29 +172,33 @@ class DashboardFragment : ToolbarFragment() {
                                             }
                                             for (series in 0..1) {
                                                 val tint = if (series == 0) green else primary
-                                                val path = Path()
-                                                samples.forEachIndexed { index, pair ->
-                                                    val x = size.width * (60 - samples.size + index) / 59f
-                                                    val value = if (series == 0) pair.first else pair.second
-                                                    val y = size.height * (1f - value.toFloat() / peak)
-                                                    if (index == 0) path.moveTo(x,y) else {
-                                                        val prev = samples[index - 1]
-                                                        val px = size.width * (59 - samples.size + index) / 59f
-                                                        val py = size.height * (1f - (if (series == 0) prev.first else prev.second).toFloat() / peak)
-                                                        val mid = (px + x) / 2
-                                                        path.cubicTo(mid, py, mid, y, x, y)
+                                                // A missing callback is a gap, not zero traffic.
+                                                fun x(sample: DashboardTrafficSample): Float =
+                                                    size.width * DashboardTrafficHistory.position(sample.elapsedMs, now)
+                                                fun y(sample: DashboardTrafficSample): Float =
+                                                    size.height * (1f - (if (series == 0) sample.rx else sample.tx).toFloat() / peak)
+                                                for (segment in segments) {
+                                                    val path = Path()
+                                                    segment.forEachIndexed { index, sample ->
+                                                        if (index == 0) path.moveTo(x(sample), y(sample)) else {
+                                                            val prev = segment[index - 1]
+                                                            val mid = (x(prev) + x(sample)) / 2
+                                                            path.cubicTo(mid, y(prev), mid, y(sample), x(sample), y(sample))
+                                                        }
+                                                    }
+                                                    if (segment.size == 1) {
+                                                        drawCircle(tint, radius = 2.dp.toPx(), center = Offset(x(segment.first()), y(segment.first())))
+                                                    } else {
+                                                        val area = Path().apply {
+                                                            addPath(path)
+                                                            lineTo(x(segment.last()), size.height)
+                                                            lineTo(x(segment.first()), size.height)
+                                                            close()
+                                                        }
+                                                        drawPath(area, brush = androidx.compose.ui.graphics.Brush.verticalGradient(listOf(tint.copy(alpha = .32f), tint.copy(alpha = .03f))))
+                                                        drawPath(path, tint, style = Stroke(width = 2.dp.toPx()))
                                                     }
                                                 }
-                                                if (samples.size > 1) {
-                                                    val area = Path().apply {
-                                                        addPath(path)
-                                                        lineTo(size.width, size.height)
-                                                        lineTo(size.width * (60 - samples.size) / 59f, size.height)
-                                                        close()
-                                                    }
-                                                    drawPath(area, brush = androidx.compose.ui.graphics.Brush.verticalGradient(listOf(tint.copy(alpha = .32f), tint.copy(alpha = .03f))))
-                                                }
-                                                drawPath(path, tint, style = Stroke(width = 2.dp.toPx()))
                                             }
                                         }
                                         }
