@@ -41,7 +41,6 @@ abstract class GroupUpdater {
     ) {
         val ipv6Mode = DataStore.ipv6Mode
         val lookupPool = newFixedThreadPoolContext(5, "DNS Lookup")
-        val lookupJobs = mutableListOf<Job>()
         val progress = Progress(profiles.size)
         if (groupId != null) {
             GroupUpdater.progress[groupId] = progress
@@ -49,6 +48,8 @@ abstract class GroupUpdater {
         }
         val ipv6First = ipv6Mode >= IPv6Mode.PREFER
 
+        try {
+            coroutineScope {
         for (profile in profiles) {
             when (profile) {
                 // SNI rewrite unsupported
@@ -57,17 +58,17 @@ abstract class GroupUpdater {
 
             if (profile.serverAddress.isIpAddress()) continue
 
-            lookupJobs.add(GlobalScope.launch(lookupPool) {
+            launch(lookupPool) {
                 try {
+                    val underlying = SagerNet.underlyingNetwork
                     val results = if (
-                        SagerNet.underlyingNetwork != null &&
+                        underlying != null &&
                         DataStore.enableFakeDns &&
                         DataStore.serviceState.started &&
                         DataStore.serviceMode == Key.MODE_VPN
                     ) {
                         // FakeDNS
-                        SagerNet.underlyingNetwork!!
-                            .getAllByName(profile.serverAddress)
+                        underlying.getAllByName(profile.serverAddress)
                             .filterNotNull()
                     } else {
                         // System DNS is enough (when VPN connected, it uses v2ray-core)
@@ -75,18 +76,22 @@ abstract class GroupUpdater {
                     }
                     if (results.isEmpty()) error("empty response")
                     rewriteAddress(profile, results, ipv6First)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Logs.d("Lookup ${profile.serverAddress} failed: ${e.readableMessage}", e)
                 }
+                ensureActive()
                 if (groupId != null) {
-                    progress.progress++
+                    synchronized(progress) { progress.progress++ }
                     GroupManager.postReload(groupId)
                 }
-            })
+            }
         }
-
-        lookupJobs.joinAll()
-        lookupPool.close()
+            }
+        } finally {
+            lookupPool.close()
+        }
     }
 
     protected fun rewriteAddress(
@@ -150,6 +155,9 @@ abstract class GroupUpdater {
                 try {
                     RawUpdater.doUpdate(proxyGroup, subscription, userInterface, byUser)
                     true
+                } catch (e: CancellationException) {
+                    withContext(NonCancellable) { finishUpdate(proxyGroup) }
+                    throw e
                 } catch (e: Throwable) {
                     Logs.w(e)
                     userInterface?.onUpdateFailure(proxyGroup, e.readableMessage)

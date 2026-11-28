@@ -45,9 +45,9 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
             }.start()
         }
 
-        @DelicateCoroutinesApi
         suspend fun looper(onRestartCallback: (suspend () -> Unit)?) {
             var running = true
+            var restarted = false
             val cmdName = File(cmd.first()).nameWithoutExtension
             // A waiter must be able to publish the exit even after cancellation.
             val exitChannel = Channel<Int>(capacity = 1)
@@ -59,10 +59,14 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
                     }
                     thread(name = "stdout-$cmdName", isDaemon = true) {
                         streamLogger(child.inputStream) { Libcore.nekoLogPrintln("[$cmdName] $it") }
-                        // Non-blocking publication: the guard may already be cancelled.
+                    }
+                    // Waiting for exit must not depend on stdout reaching EOF:
+                    // descendants may still hold the pipe open.
+                    thread(name = "wait-$cmdName", isDaemon = true) {
                         exitChannel.trySend(child.waitFor())
                     }
                     val startTime = SystemClock.elapsedRealtime()
+                    if (restarted) onRestartCallback?.invoke()
                     val exitCode = exitChannel.receive()
                     running = false
                     when {
@@ -74,13 +78,15 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
                         else -> Logs.w(IOException("$cmdName unexpectedly exits with code $exitCode"))
                     }
                     Logs.i("restart process: $cmdName (last exit code: $exitCode)")
+                    ensureActive()
                     start()
                     running = true
-                    onRestartCallback?.invoke()
+                    restarted = true
                 }
             } catch (e: IOException) {
                 Logs.w("error occurred. stop guard: $cmdName")
-                GlobalScope.launch(Dispatchers.Main) { onFatal(e) }
+                // The notification belongs to this pool, not a replacement session.
+                this@GuardedProcessPool.launch { onFatal(e) }
             } finally {
                 if (running) withContext(NonCancellable) {  // clean-up cannot be cancelled
                     if (Build.VERSION.SDK_INT < 24) {
@@ -104,7 +110,7 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
         }
     }
 
-    override val coroutineContext = Dispatchers.Main.immediate + Job()
+    override val coroutineContext = Dispatchers.Main.immediate + SupervisorJob()
     var processCount = 0
 
     @MainThread
@@ -113,10 +119,12 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
         env: MutableMap<String, String> = mutableMapOf(),
         onRestartCallback: (suspend () -> Unit)? = null
     ) {
+        coroutineContext.ensureActive()
         Logs.i("start process: ${File(cmd.first()).nameWithoutExtension}")
         Guard(cmd, env).apply {
             start() // if start fails, IOException will be thrown directly
-            launch { looper(onRestartCallback) }
+            // Enter the guard before cancellation can strand the newly spawned child.
+            launch(start = CoroutineStart.UNDISPATCHED) { looper(onRestartCallback) }
         }
         processCount += 1
     }

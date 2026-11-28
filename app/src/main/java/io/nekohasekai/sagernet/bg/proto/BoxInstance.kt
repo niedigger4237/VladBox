@@ -149,7 +149,7 @@ abstract class BoxInstance(
         }
 
         try {
-            if (::processes.isInitialized) processes.close(GlobalScope + Dispatchers.IO)
+            if (::processes.isInitialized) processes.close(processCoroutineScope + Dispatchers.IO)
             if (::box.isInitialized) box.close()
         } finally {
             cacheFiles.forEach { file ->
