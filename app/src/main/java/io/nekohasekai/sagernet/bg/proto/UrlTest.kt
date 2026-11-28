@@ -12,7 +12,7 @@ class UrlTest {
         if (DataStore.serviceState.connected && profile.id == DataStore.currentProfile && !profile.isRawCoreConfig()) {
             return activeProfileDelay(profile.id, link)
         }
-        return TestInstance(profile, link, timeout).doTest()
+        return LatencyPolicy.requirePositive(TestInstance(profile, link, timeout).doTest())
     }
 
 }

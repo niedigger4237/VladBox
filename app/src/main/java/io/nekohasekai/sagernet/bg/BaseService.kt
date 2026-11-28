@@ -245,7 +245,9 @@ class BaseService {
             val root = current as? io.nekohasekai.sagernet.bg.proto.RootProxyInstance
             if (root != null) {
                 try {
-                    return root.urlTest(DataStore.connectionTestURL, 8000)
+                    return io.nekohasekai.sagernet.bg.proto.LatencyPolicy.requirePositive(
+                        root.urlTest(DataStore.connectionTestURL, io.nekohasekai.sagernet.bg.proto.LATENCY_TEST_TIMEOUT_MS)
+                    )
                 } catch (e: Exception) {
                     error(Protocols.genFriendlyMsg(e.readableMessage))
                 }
@@ -254,7 +256,9 @@ class BaseService {
                 error("core not started")
             }
             try {
-                return data!!.proxy!!.box.urlTest(DataStore.connectionTestURL, 8000)
+                return io.nekohasekai.sagernet.bg.proto.LatencyPolicy.requirePositive(
+                    data!!.proxy!!.box.urlTest(DataStore.connectionTestURL, io.nekohasekai.sagernet.bg.proto.LATENCY_TEST_TIMEOUT_MS)
+                )
             } catch (e: Exception) {
                 error(Protocols.genFriendlyMsg(e.readableMessage))
             }

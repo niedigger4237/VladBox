@@ -20,10 +20,14 @@ import java.util.concurrent.FutureTask
 import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 
-internal const val LATENCY_TEST_TIMEOUT_MS = 5000
-internal const val LATENCY_REQUEST_TIMEOUT_MS = 20000L
-internal const val GROUP_LATENCY_TEST_TIMEOUT_MS = 10000
-private const val GROUP_LATENCY_REQUEST_TIMEOUT_MS = 32000L
+internal const val LATENCY_TEST_TIMEOUT_MS = LatencyPolicy.PROBE_TIMEOUT_MS
+internal const val LATENCY_REQUEST_TIMEOUT_MS = LatencyPolicy.API_REQUEST_TIMEOUT_MS
+// A group has one shared deadline for all its members, not a per-node deadline.
+internal const val GROUP_LATENCY_TEST_TIMEOUT_MS = LatencyPolicy.GROUP_TIMEOUT_MS
+private const val GROUP_LATENCY_REQUEST_TIMEOUT_MS = LatencyPolicy.GROUP_REQUEST_TIMEOUT_MS
+
+internal class LatencyControlException(message: String, cause: Throwable? = null) :
+    IllegalStateException(message, cause)
 
 internal class ClashHttpException(val status: Int, message: String) : IllegalStateException(message)
 
@@ -32,12 +36,24 @@ internal fun io.nekohasekai.sagernet.database.ProxyEntity.isRawCoreConfig(): Boo
 
 internal suspend fun clashDelay(tag: String = TAG_PROXY, url: String = DataStore.connectionTestURL): Int {
     require(url.startsWith("https://", true) || url.startsWith("http://", true)) { "Invalid connection test URL" }
-    val result = kotlinx.coroutines.withTimeoutOrNull(LATENCY_REQUEST_TIMEOUT_MS) {
-        clashRequest("proxies/" + Uri.encode(tag) + "/delay?timeout=" + LATENCY_TEST_TIMEOUT_MS + "&url=" + Uri.encode(url))
-    } ?: throw java.net.SocketTimeoutException("Clash API latency request timed out")
-    val delay = result.optInt("delay", -1)
-    check(delay > 0) { result.optString("message").ifBlank { "No valid latency returned" } }
-    return delay
+    val result = try {
+        kotlinx.coroutines.withTimeoutOrNull(LATENCY_REQUEST_TIMEOUT_MS) {
+            clashRequest("proxies/" + Uri.encode(tag) + "/delay?timeout=" + LATENCY_TEST_TIMEOUT_MS + "&url=" + Uri.encode(url))
+        } ?: throw LatencyControlException("Clash API latency request timed out")
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: ClashHttpException) {
+        when (LatencyPolicy.httpFailure(e.status)) {
+            LatencyPolicy.HttpFailure.TIMEOUT -> throw java.net.SocketTimeoutException("Latency probe timed out")
+            LatencyPolicy.HttpFailure.PROBE -> throw e
+            LatencyPolicy.HttpFailure.CONTROL -> throw LatencyControlException("Local latency API HTTP ${e.status}", e)
+        }
+    } catch (e: LatencyControlException) {
+        throw e
+    } catch (e: Exception) {
+        throw LatencyControlException("Local latency API unavailable", e)
+    }
+    return LatencyPolicy.requirePositive(result.optInt("delay", -1))
 }
 
 /** Native group API returns a map of successful outbound tags to milliseconds.
@@ -51,10 +67,21 @@ internal suspend fun clashGroupDelay(group: String, tags: List<String>, url: Str
         val result = kotlinx.coroutines.withTimeoutOrNull(GROUP_LATENCY_REQUEST_TIMEOUT_MS) {
             clashRequest("group/" + Uri.encode(group) + "/delay?timeout=" + GROUP_LATENCY_TEST_TIMEOUT_MS + "&url=" + Uri.encode(url),
                 readTimeoutMs = GROUP_LATENCY_TEST_TIMEOUT_MS + 3000)
-        } ?: throw java.net.SocketTimeoutException("Clash group latency request timed out")
+        } ?: throw LatencyControlException("Clash group latency request timed out")
         return distinct.mapNotNull { tag -> result.optInt(tag, -1).takeIf { it > 0 }?.let { tag to it } }.toMap()
     } catch (e: ClashHttpException) {
-        if (e.status !in listOf(404, 405, 501)) throw e
+        if (e.status == 504 || e.status == 408)
+            throw java.net.SocketTimeoutException("Group latency probe timed out")
+        if (e.status !in listOf(404, 405, 501))
+            throw LatencyControlException("Local group latency API HTTP ${e.status}", e)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: LatencyControlException) {
+        throw e
+    } catch (e: java.net.SocketTimeoutException) {
+        throw LatencyControlException("Local group latency API unavailable", e)
+    } catch (e: Exception) {
+        throw LatencyControlException("Local group latency API unavailable", e)
     }
     // Some cores expose a synthetic GLOBAL in /proxies but no matching real group.
     // Limit concurrency and preserve cancellation; never retry real group timeouts.
@@ -65,6 +92,7 @@ internal suspend fun clashGroupDelay(group: String, tags: List<String>, url: Str
                 async {
                     try { tag to clashDelay(tag, url) }
                     catch (e: CancellationException) { throw e }
+                    catch (e: LatencyControlException) { throw e }
                     catch (_: Exception) { null }
                 }
             }.awaitAll()

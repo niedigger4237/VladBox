@@ -937,14 +937,20 @@ class ConfigurationFragment @JvmOverloads constructor(
                                             null
                                         } catch (e: PluginManager.PluginNotFoundException) {
                                             Triple(2, 0, e.readableMessage)
-                                        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                                            Triple(2, 0, app.getString(R.string.connection_test_timeout))
                                         } catch (e: kotlinx.coroutines.CancellationException) {
                                             throw e
-                                        } catch (e: java.net.SocketTimeoutException) {
-                                            Triple(2, 0, app.getString(R.string.connection_test_timeout))
+                                        } catch (e: io.nekohasekai.sagernet.bg.proto.LatencyControlException) {
+                                            // A broken local controller says nothing about the server.
+                                            Logs.w(e)
+                                            null
                                         } catch (e: Exception) {
-                                            Triple(3, 0, e.readableMessage)
+                                            when (io.nekohasekai.sagernet.bg.proto.LatencyPolicy.failure(e)) {
+                                                io.nekohasekai.sagernet.bg.proto.LatencyPolicy.Failure.TIMEOUT ->
+                                                    Triple(2, 0, app.getString(R.string.connection_test_timeout))
+                                                io.nekohasekai.sagernet.bg.proto.LatencyPolicy.Failure.REFUSED ->
+                                                    Triple(2, 0, app.getString(R.string.connection_test_refused))
+                                                else -> Triple(3, 0, e.readableMessage)
+                                            }
                                         }
                                     }
                                     ensureActive()
