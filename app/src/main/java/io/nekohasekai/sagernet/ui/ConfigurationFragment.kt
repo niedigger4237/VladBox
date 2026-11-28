@@ -921,10 +921,16 @@ class ConfigurationFragment @JvmOverloads constructor(
                 }
                 urlTestPending.value = profiles.map { it.id }.toSet()
                 val queue = ConcurrentLinkedQueue(profiles)
+                // Freeze URL and concurrency for this batch instead of reading
+                // changing preferences independently in every worker.
+                val tester = UrlTest()
+                val workerCount = io.nekohasekai.sagernet.bg.proto.TestConcurrencyPolicy.workerCount(
+                    DataStore.connectionTestConcurrent, profiles.size,
+                    io.nekohasekai.sagernet.bg.proto.TestCoreAdmission.lowRamDevice
+                )
                 coroutineScope {
-                    repeat(DataStore.connectionTestConcurrent.coerceAtLeast(1).coerceAtMost(profiles.size)) {
+                    repeat(workerCount) {
                         launch {
-                            val tester = UrlTest()
                             while (isActive) {
                                 val profile = queue.poll() ?: break
                                 try {

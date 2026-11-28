@@ -1,5 +1,6 @@
 package io.nekohasekai.sagernet.bg.proto
 
+import com.google.gson.JsonParser
 import io.nekohasekai.sagernet.bg.GuardedProcessPool
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.fmt.buildConfig
@@ -13,40 +14,68 @@ import moe.matsuri.nb4a.net.LocalResolverImpl
 class TestInstance(profile: ProxyEntity, val link: String, private val timeout: Int) :
     BoxInstance(profile) {
 
+    private var prepared = false
+
     suspend fun doTest(): Int = withContext(Dispatchers.IO) {
-        // The test job owns the temporary core until all native calls return.
-        // Never close a Go instance concurrently with its blocking urlTest.
-        use {
-            coroutineScope {
-                val fatal = CompletableDeferred<java.io.IOException>()
-                processes = GuardedProcessPool {
-                    Logs.w(it)
-                    fatal.complete(it)
-                }
-                val worker = async {
-                    init()
-                    ensureActive()
-                    launch()
-                    if (processes.processCount > 0) delay(500)
-                    ensureActive()
-                    box.urlTest(link, timeout).also { ensureActive() }
-                }
-                try {
-                    select<Int> {
-                        worker.onAwait { it }
-                        fatal.onAwait { throw it }
+        // Build once, before admission, so nested chains and JSON overrides
+        // are classified from the actual outbound configuration.
+        buildConfig()
+        val json = JsonParser.parseString(config.config).asJsonObject
+        val types = listOf("outbounds", "endpoints").flatMap { key ->
+            json.getAsJsonArray(key)?.mapNotNull { item ->
+                if (item.isJsonObject) item.asJsonObject.get("type")?.asString else null
+            }.orEmpty()
+        }
+        val heavy = TestConcurrencyPolicy.isHeavy(
+            types, config.externalIndex.any { it.chain.isNotEmpty() }, profile.isRawCoreConfig()
+        )
+        TestCoreAdmission.withSlot(heavy) {
+            ensureActive()
+            // Keep both admission permits until the native call and external
+            // plugin guards are finished. Cancellation may not free them early.
+            val fatal = CompletableDeferred<java.io.IOException>()
+            val pool = GuardedProcessPool {
+                Logs.w(it)
+                fatal.complete(it)
+            }
+            processes = pool
+            try {
+                use {
+                    coroutineScope {
+                        val worker = async {
+                            init()
+                            ensureActive()
+                            launch()
+                            if (processes.processCount > 0) delay(500)
+                            ensureActive()
+                            box.urlTest(link, timeout).also { ensureActive() }
+                        }
+                        try {
+                            select<Int> {
+                                worker.onAwait { it }
+                                fatal.onAwait { throw it }
+                            }
+                        } finally {
+                            worker.cancel()
+                            fatal.cancel()
+                        }
                     }
-                } finally {
-                    worker.cancel()
-                    fatal.cancel()
-                    // coroutineScope joins worker before use closes the core.
+                }
+            } finally {
+                withContext(NonCancellable) {
+                    // close() cancels the guards asynchronously; wait for their
+                    // cleanup before letting the next temporary core start.
+                    pool.coroutineContext[Job]?.join()
                 }
             }
         }
     }
 
     override fun buildConfig() {
-        config = buildConfig(profile, true)
+        if (!prepared) {
+            config = buildConfig(profile, true)
+            prepared = true
+        }
     }
 
     override suspend fun loadConfig() {
