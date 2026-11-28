@@ -278,6 +278,9 @@ data class ProxyEntity(
     }
 
     fun toStdLink(compact: Boolean = false): String = with(requireBean()) {
+        // Group exports have no per-profile share-format picker. Preserve
+        // advanced options that the standard URL cannot represent.
+        if (compact && haveLink() && !haveStandardLink()) return toUniversalLink()
         when (this) {
             is SOCKSBean -> toUri()
             is HttpBean -> toUri()

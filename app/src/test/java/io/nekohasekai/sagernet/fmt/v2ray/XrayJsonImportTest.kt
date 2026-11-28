@@ -84,4 +84,8 @@ class XrayJsonImportTest {
     @Test fun nativeSingBoxNotMisidentified() {
         assertFalse(XrayJsonImport.recognizes(JSONObject("""{"outbounds":[{"type":"vless","server":"example.org","server_port":443}]}""")))
     }
+    @Test fun legacyNativeJsonIsNotXray() {
+        assertFalse(XrayJsonImport.recognizes(JSONObject("""{"server":"example.org:443","protocol":"faketcp","up_mbps":20}""")))
+        assertFalse(XrayJsonImport.recognizes(JSONObject("""{"remote_addr":"example.org","protocol":"trojan"}""")))
+    }
 }

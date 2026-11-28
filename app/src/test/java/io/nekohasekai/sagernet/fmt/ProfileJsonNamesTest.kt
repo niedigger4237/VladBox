@@ -30,6 +30,14 @@ class ProfileJsonNamesTest {
         assertEquals(1, ProfileJsonNames.proxies(JSONObject().put("endpoints", org.json.JSONArray().put(node))).size)
     }
 
+    @Test fun legacyGenericTagUsesFileOrAddress() {
+        val node = JSONObject("""{"type":"vless","tag":"proxy","server":"2001:db8::1","server_port":443}""")
+        assertEquals("My profile", ProfileJsonNames.importedName(node, file = "My profile.json"))
+        assertEquals("[2001:db8::1]:443", ProfileJsonNames.importedName(node))
+        node.put("tag", "🇨🇭 Zurich")
+        assertEquals("🇨🇭 Zurich", ProfileJsonNames.importedName(node))
+    }
+
     @Test fun duplicateNamesDoNotReplaceExistingTags() {
         val json = """{"outbounds":[{"type":"vless","tag":"proxy"},{"type":"socks","tag":"existing"},{"type":"direct","tag":"direct"}]}"""
         val result = JSONObject(ProfileJsonNames.export(json, mapOf("proxy" to "existing")))

@@ -702,7 +702,7 @@ object RawUpdater : GroupUpdater() {
             } catch (e: YAMLException) {
                 Logs.w(e)
             }
-        } else if (text.contains("[Interface]")) {
+        } else if (text.contains("[Interface]", ignoreCase = true)) {
             // wireguard
             try {
                 proxies.addAll(parseWireGuard(text).map {

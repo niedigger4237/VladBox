@@ -25,7 +25,9 @@ class WireGuardCompatibilityTest {
         assertEquals("0.0.0.0/0", bean.wgAllowedIps)
         assertEquals(51821, bean.wgListenPort.toInt())
         assertEquals(0, bean.persistentKeepalive.toInt())
+        bean.name = "🇨🇭 Test #1"
         val restored = WireGuardConf.parse(WireGuardConf.export(bean))
+        assertEquals(bean.name, restored.name)
         assertEquals(bean.wgAllowedIps, restored.wgAllowedIps)
         assertEquals(bean.wgListenPort, restored.wgListenPort)
         assertEquals(bean.persistentKeepalive, restored.persistentKeepalive)

@@ -28,7 +28,7 @@ object WireGuardConf {
     fun parseWithWarnings(text: String): ImportResult {
         val warnings = mutableListOf<String>()
         // A comment is valid in wg-quick/awg-quick and carries display metadata.
-        val name = text.lineSequence().firstNotNullOfOrNull { raw ->
+        val profileName = text.lineSequence().firstNotNullOfOrNull { raw ->
             val line = raw.trim().removePrefix("\uFEFF")
             if (!line.startsWith("# Name:")) null else {
                 val value = line.substringAfter("# Name:").trim()
@@ -75,7 +75,7 @@ object WireGuardConf {
         val first = peer(peers.first())
         val bean = WireGuardBean().apply {
             initializeDefaultValues()
-            this.name = name
+            name = profileName
             privateKey = required(iface,"privatekey")
             localAddress = required(iface,"address")
             mtu = number(iface,"mtu",1280,1..65535)

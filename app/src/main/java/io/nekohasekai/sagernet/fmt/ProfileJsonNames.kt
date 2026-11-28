@@ -17,11 +17,11 @@ internal object ProfileJsonNames {
     fun isEndpoint(json: String): Boolean = runCatching { isEndpoint(JSONObject(json)) }.getOrDefault(false)
     private fun objects(array: JSONArray?): List<JSONObject> =
         if (array == null) emptyList() else (0 until array.length()).mapNotNull { array.optJSONObject(it) }
-    fun nodes(config: JSONObject): List<JSONObject> = objects(config.optJSONArray("outbounds")) +
-        objects(config.optJSONArray("endpoints")).filter(::isEndpoint)
-    fun proxies(config: JSONObject) = nodes(config).filter {
+    private fun nodes(config: JSONObject): List<JSONObject> = objects(config.optJSONArray("outbounds")) +
+        objects(config.optJSONArray("endpoints"))
+    fun proxies(config: JSONObject) = objects(config.optJSONArray("outbounds")).filter {
         it.optString("type").isNotBlank() && it.optString("type") !in helpers
-    }
+    } + objects(config.optJSONArray("endpoints")).filter(::isEndpoint)
     fun importedName(node: JSONObject, config: JSONObject? = null, file: String = "", single: Boolean = true): String {
         val tag = text(node, "tag")
         val primary = single || tag == "proxy" ||
@@ -30,7 +30,10 @@ internal object ProfileJsonNames {
             ?: (if (primary) config?.let { metadata(it) } else null)
             ?: tag?.takeUnless { generic.matches(it) }
             ?: (if (primary) fileName(file) else null)
-            ?: text(node, "server")?.let { host -> text(node, "server_port")?.let { "$host:$it" } ?: host }
+            ?: text(node, "server")?.let { host ->
+                val port = node.optInt("server_port")
+                if (port in 1..65535) "${if (':' in host && !host.startsWith("[")) "[$host]" else host}:$port" else host
+            }
             ?: tag.orEmpty()
     }
 
@@ -49,6 +52,7 @@ internal object ProfileJsonNames {
         val counts = nodes.mapNotNull { text(it, "tag") }.groupingBy { it }.eachCount()
         val reserved = counts.keys.toMutableSet()
         reserved += helpers
+        reserved += "any" // legacy DNS outbound matcher
         val mapping = linkedMapOf<String, String>()
         for ((old, label) in names) {
             if (counts[old] != 1 || label.isBlank() || label == old) continue
@@ -101,7 +105,7 @@ internal object ProfileJsonNames {
 
     // Raw full configurations remain user-owned; only rename an unambiguous proxy.
     fun exportRaw(config: String, label: String): String {
-        val json = JSONObject(config)
+        val json = runCatching { JSONObject(config) }.getOrElse { return config }
         val proxies = proxies(json)
         val final = json.optJSONObject("route")?.optString("final")
         val primary = proxies.firstOrNull { final != null && text(it, "tag") == final }

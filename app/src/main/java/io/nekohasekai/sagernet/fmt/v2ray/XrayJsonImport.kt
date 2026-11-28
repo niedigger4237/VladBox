@@ -16,7 +16,8 @@ object XrayJsonImport {
     
 
     fun recognizes(value: Any?): Boolean = when (value) {
-        is JSONObject -> (value.optString("protocol").isNotBlank() && !value.has("type")) ||
+        is JSONObject -> (value.optString("protocol").isNotBlank() && !value.has("type") &&
+            !value.has("server") && !value.has("remote_addr")) ||
             (value.optJSONArray("outbounds")?.let { a -> (0 until a.length()).any { recognizes(a.opt(it)) } } == true)
         is JSONArray -> (0 until value.length()).any { recognizes(value.opt(it)) }
         else -> false
