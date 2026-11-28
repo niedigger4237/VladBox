@@ -83,7 +83,7 @@ class SSHSettingsActivity : ProfileSettingsActivity<SSHBean>() {
             io.nekohasekai.sagernet.ui.compose.HubTheme {
                 io.nekohasekai.sagernet.ui.compose.SshProfileScreen(
                     onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
-                    onClose = { this@SSHSettingsActivity.onBackPressed() },
+                    onClose = { this@SSHSettingsActivity.onBackPressedDispatcher.onBackPressed() },
                     menuItems = actions
                 )
             }

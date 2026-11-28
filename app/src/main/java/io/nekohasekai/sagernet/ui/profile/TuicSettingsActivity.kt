@@ -92,7 +92,7 @@ class TuicSettingsActivity : ProfileSettingsActivity<TuicBean>() {
                 io.nekohasekai.sagernet.ui.compose.QuicProfileScreen(
                     tuic = true,
                     onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
-                    onClose = { this@TuicSettingsActivity.onBackPressed() },
+                    onClose = { this@TuicSettingsActivity.onBackPressedDispatcher.onBackPressed() },
                     menuItems = actions
                 )
             }

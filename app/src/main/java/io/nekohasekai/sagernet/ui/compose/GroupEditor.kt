@@ -39,7 +39,7 @@ fun installGroupEditor(activity: GroupSettingsActivity, host: ComposeView) {
             Surface(Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
                     Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { activity.onBackPressed() }) {
+                        IconButton(onClick = { activity.onBackPressedDispatcher.onBackPressed() }) {
                             Icon(painterResource(R.drawable.ic_navigation_close), stringResource(android.R.string.cancel))
                         }
                         Text(stringResource(R.string.group_settings), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)

@@ -83,7 +83,7 @@ class ShadowsocksSettingsActivity : ProfileSettingsActivity<ShadowsocksBean>() {
                 io.nekohasekai.sagernet.ui.compose.SimpleProxyScreen(
                     shadowsocks = true,
                     onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
-                    onClose = { this@ShadowsocksSettingsActivity.onBackPressed() },
+                    onClose = { this@ShadowsocksSettingsActivity.onBackPressedDispatcher.onBackPressed() },
                     menuItems = actions
                 )
             }

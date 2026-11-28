@@ -106,7 +106,7 @@ class HysteriaSettingsActivity : ProfileSettingsActivity<HysteriaBean>() {
                 io.nekohasekai.sagernet.ui.compose.QuicProfileScreen(
                     tuic = false,
                     onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
-                    onClose = { this@HysteriaSettingsActivity.onBackPressed() },
+                    onClose = { this@HysteriaSettingsActivity.onBackPressedDispatcher.onBackPressed() },
                     menuItems = actions
                 )
             }

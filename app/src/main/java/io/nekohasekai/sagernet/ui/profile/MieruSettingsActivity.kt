@@ -77,7 +77,7 @@ class MieruSettingsActivity : ProfileSettingsActivity<MieruBean>() {
             io.nekohasekai.sagernet.ui.compose.HubTheme {
                 io.nekohasekai.sagernet.ui.compose.MieruProfileScreen(
                     onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
-                    onClose = { this@MieruSettingsActivity.onBackPressed() },
+                    onClose = { this@MieruSettingsActivity.onBackPressedDispatcher.onBackPressed() },
                     menuItems = actions
                 )
             }

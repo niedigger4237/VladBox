@@ -65,7 +65,7 @@ class ConfigSettingActivity :
             io.nekohasekai.sagernet.ui.compose.HubTheme {
                 io.nekohasekai.sagernet.ui.compose.CustomConfigProfileScreen(
                     onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
-                    onClose = { this@ConfigSettingActivity.onBackPressed() },
+                    onClose = { this@ConfigSettingActivity.onBackPressedDispatcher.onBackPressed() },
                     menuItems = actions
                 )
             }

@@ -71,7 +71,7 @@ class AnyTLSSettingsActivity : ProfileSettingsActivity<AnyTLSBean>() {
                 io.nekohasekai.sagernet.ui.compose.TlsProxyScreen(
                     shadow = false,
                     onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
-                    onClose = { this@AnyTLSSettingsActivity.onBackPressed() },
+                    onClose = { this@AnyTLSSettingsActivity.onBackPressedDispatcher.onBackPressed() },
                     menuItems = actions
                 )
             }

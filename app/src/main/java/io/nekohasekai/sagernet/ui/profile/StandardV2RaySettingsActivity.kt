@@ -270,7 +270,7 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
             io.nekohasekai.sagernet.ui.compose.HubTheme {
                 io.nekohasekai.sagernet.ui.compose.VlessProfileScreen(
                     onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
-                    onClose = { this@StandardV2RaySettingsActivity.onBackPressed() },
+                    onClose = { this@StandardV2RaySettingsActivity.onBackPressedDispatcher.onBackPressed() },
                     menuItems = actions,
                     protocol = if (this@StandardV2RaySettingsActivity is HttpSettingsActivity) "HTTP" else if (editingVless()) "VLESS" else if (this@StandardV2RaySettingsActivity is TrojanSettingsActivity) "Trojan" else "VMess"
                 )

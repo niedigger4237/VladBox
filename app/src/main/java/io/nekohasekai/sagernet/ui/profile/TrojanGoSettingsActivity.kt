@@ -76,7 +76,7 @@ class TrojanGoSettingsActivity : ProfileSettingsActivity<TrojanGoBean>() {
             io.nekohasekai.sagernet.ui.compose.HubTheme {
                 io.nekohasekai.sagernet.ui.compose.TrojanGoProfileScreen(
                     onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
-                    onClose = { this@TrojanGoSettingsActivity.onBackPressed() },
+                    onClose = { this@TrojanGoSettingsActivity.onBackPressedDispatcher.onBackPressed() },
                     menuItems = actions
                 )
             }

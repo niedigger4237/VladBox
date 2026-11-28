@@ -67,7 +67,7 @@ class NaiveSettingsActivity : ProfileSettingsActivity<NaiveBean>() {
             io.nekohasekai.sagernet.ui.compose.HubTheme {
                 io.nekohasekai.sagernet.ui.compose.NaiveProfileScreen(
                     onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
-                    onClose = { this@NaiveSettingsActivity.onBackPressed() },
+                    onClose = { this@NaiveSettingsActivity.onBackPressedDispatcher.onBackPressed() },
                     menuItems = actions
                 )
             }

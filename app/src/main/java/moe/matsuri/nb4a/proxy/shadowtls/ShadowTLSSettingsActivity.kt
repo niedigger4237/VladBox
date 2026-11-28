@@ -82,7 +82,7 @@ class ShadowTLSSettingsActivity : ProfileSettingsActivity<ShadowTLSBean>() {
                 io.nekohasekai.sagernet.ui.compose.TlsProxyScreen(
                     shadow = true,
                     onSave = { io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() } },
-                    onClose = { this@ShadowTLSSettingsActivity.onBackPressed() },
+                    onClose = { this@ShadowTLSSettingsActivity.onBackPressedDispatcher.onBackPressed() },
                     menuItems = actions
                 )
             }

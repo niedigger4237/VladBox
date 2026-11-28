@@ -85,7 +85,7 @@ class ChainSettingsActivity : ProfileSettingsActivity<ChainBean>() {
         parent.addView(host,index,params)
         host.setContent {
             HubTheme {
-                ChainProfileScreen(profiles,loaded,missingIds,actions,onDiscardMissing = { missingIds = emptyList(); DataStore.dirty = true },onRestore = { i, profile -> profiles.add(i.coerceIn(0,profiles.size),profile); DataStore.dirty = true },onSave = { runOnDefaultDispatcher { saveAndExit() } },onClose = { this@ChainSettingsActivity.onBackPressed() },onPick = { i ->
+                ChainProfileScreen(profiles,loaded,missingIds,actions,onDiscardMissing = { missingIds = emptyList(); DataStore.dirty = true },onRestore = { i, profile -> profiles.add(i.coerceIn(0,profiles.size),profile); DataStore.dirty = true },onSave = { runOnDefaultDispatcher { saveAndExit() } },onClose = { this@ChainSettingsActivity.onBackPressedDispatcher.onBackPressed() },onPick = { i ->
                     replacing = i
                     picker.launch(Intent(this@ChainSettingsActivity,ProfileSelectActivity::class.java).apply { if (i in profiles.indices) putExtra(ProfileSelectActivity.EXTRA_SELECTED,profiles[i].profile) })
                 },onMove = { from,to ->

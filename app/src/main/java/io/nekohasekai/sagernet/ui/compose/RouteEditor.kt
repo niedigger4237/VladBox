@@ -25,7 +25,7 @@ fun installRouteEditor(activity: RouteSettingsActivity, host: ComposeView) {
             Surface(Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
                     Row(Modifier.height(56.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { activity.onBackPressed() }) { Icon(painterResource(R.drawable.ic_navigation_close), stringResource(android.R.string.cancel)) }
+                        IconButton(onClick = { activity.onBackPressedDispatcher.onBackPressed() }) { Icon(painterResource(R.drawable.ic_navigation_close), stringResource(android.R.string.cancel)) }
                         Text(stringResource(R.string.cag_route), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                         if (DataStore.editingId != 0L) TextButton(onClick = { activity.editorDelete() }) { Text("Delete") }
                         IconButton(onClick = { activity.editorSave() }) { Text("✓", style = MaterialTheme.typography.headlineSmall) }

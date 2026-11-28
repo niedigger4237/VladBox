@@ -48,7 +48,7 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
                             .setPositiveButton("Export") { _, _ -> exportConf.launch(if (DataStore.profileCacheStore.getBoolean("awgEnabled",false)) "amneziawg.conf" else "wireguard.conf") }
                             .setNegativeButton(android.R.string.cancel, null).show()
                     },
-                    onClose = { this@WireGuardSettingsActivity.onBackPressed() },
+                    onClose = { this@WireGuardSettingsActivity.onBackPressedDispatcher.onBackPressed() },
                     menuItems = actions,
                     onSave = {
                         io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher { saveAndExit() }
