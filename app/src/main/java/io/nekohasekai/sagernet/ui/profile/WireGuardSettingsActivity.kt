@@ -65,7 +65,7 @@ class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
                 val result = io.nekohasekai.sagernet.fmt.wireguard.WireGuardConf.parseWithWarnings(text)
                 val bean = result.bean
                 val current = createEntity().apply { initializeDefaultValues(); pbm.fromCacheAll(this) }
-                bean.name = current.name
+                if (bean.name.isBlank()) bean.name = current.name
                 val protocol = if (bean.isAmnezia) "AmneziaWG" else "WireGuard"
                 com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                     .setTitle("Detected protocol: " + protocol)

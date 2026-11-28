@@ -84,7 +84,7 @@ fun buildConfig(
         val bean = proxy.requireBean() as ConfigBean
         if (bean.type == 0) {
             return ConfigBuildResult(
-                bean.config,
+                if (forExport) ProfileJsonNames.exportRaw(bean.config, proxy.displayName()) else bean.config,
                 listOf(),
                 proxy.id, //
                 mapOf(TAG_PROXY to listOf(proxy)), //
@@ -99,6 +99,7 @@ fun buildConfig(
     val selectorProfileTags = LinkedHashMap<Long, String>()
     val globalOutbounds = HashMap<Long, String>()
     val selectorNames = ArrayList<String>()
+    val exportNames = linkedMapOf<String, String>()
     val group = SagerDatabase.groupDao.getById(proxy.groupId)
 
     val dependencyIds = linkedSetOf<Long>()
@@ -422,6 +423,10 @@ fun buildConfig(
                     chainTagOut = tagOut
                 }
 
+                if (forExport) {
+                    exportNames.putIfAbsent(tagOut, if (index == 0) entity.displayName() else proxyEntity.displayName())
+                }
+
                 // now tagOut is determined
                 if (needGlobal) {
                     if (reusedTag != null) return@forEachIndexed
@@ -575,7 +580,8 @@ fun buildConfig(
                     }
                 }
 
-                if (bean is WireGuardBean && !proxyEntity.needExternal()) {
+                if ((bean is WireGuardBean && !proxyEntity.needExternal()) ||
+                    (bean is ConfigBean && ProfileJsonNames.isEndpoint(bean.config))) {
                     endpoints.add(currentOutbound)
                 } else {
                     outbounds.add(currentOutbound)
@@ -972,7 +978,7 @@ fun buildConfig(
             }
         }
         ConfigBuildResult(
-            json,
+            if (forExport) ProfileJsonNames.export(json, exportNames) else json,
             externalIndexMap,
             proxy.id,
             trafficMap,

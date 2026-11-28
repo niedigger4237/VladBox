@@ -5,6 +5,7 @@ import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.database.*
 import io.nekohasekai.sagernet.fmt.AbstractBean
+import io.nekohasekai.sagernet.fmt.ProfileJsonNames
 import io.nekohasekai.sagernet.fmt.naive.NaiveBean
 import io.nekohasekai.sagernet.fmt.http.HttpBean
 import io.nekohasekai.sagernet.fmt.hysteria.HysteriaBean
@@ -27,14 +28,12 @@ import moe.matsuri.nb4a.Protocols
 import moe.matsuri.nb4a.proxy.anytls.AnyTLSBean
 import moe.matsuri.nb4a.proxy.config.ConfigBean
 import moe.matsuri.nb4a.utils.Util
-import org.ini4j.Ini
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import org.yaml.snakeyaml.TypeDescription
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.error.YAMLException
-import java.io.StringReader
 import androidx.core.net.toUri
 
 @Suppress("EXPERIMENTAL_API_USAGE")
@@ -707,7 +706,7 @@ object RawUpdater : GroupUpdater() {
             // wireguard
             try {
                 proxies.addAll(parseWireGuard(text).map {
-                    if (fileName.isNotBlank()) it.name = fileName.removeSuffix(".conf")
+                    if (it.name.isNullOrBlank()) it.name = ProfileJsonNames.fileName(fileName).orEmpty()
                     it
                 })
                 return proxies
@@ -717,8 +716,8 @@ object RawUpdater : GroupUpdater() {
         }
 
         try {
-            val json = JSONTokener(text).nextValue()
-            return parseJSON(json)
+            val json = jsonCandidate ?: JSONTokener(text).nextValue()
+            return parseJSON(json, fileName)
         } catch (ignored: Exception) {
         }
 
@@ -747,120 +746,51 @@ object RawUpdater : GroupUpdater() {
     }
 
     fun parseWireGuard(conf: String): List<WireGuardBean> {
-        val ini = Ini(StringReader(conf))
-        val iface = ini["Interface"] ?: error("Missing 'Interface' selection")
-        val bean = WireGuardBean().applyDefaultValues()
-        val localAddresses = iface.getAll("Address")
-        if (localAddresses.isNullOrEmpty()) error("Empty address in 'Interface' selection")
-        bean.localAddress = localAddresses.flatMap { it.split(",") }.joinToString("\n")
-        bean.privateKey = iface["PrivateKey"]
-        bean.mtu = iface["MTU"]?.toIntOrNull() ?: 1280 // as in Throne: Android clients use 1280 when .conf has no MTU
-        // AmneziaWG obfuscation parameters (awg-quick .conf, [Interface] section)
-        fun awgInt(key: String) = iface[key]?.trim()?.toIntOrNull() ?: 0
-        fun awgStr(key: String) = iface[key]?.trim() ?: ""
-        bean.awgJc = awgInt("Jc")
-        bean.awgJmin = awgInt("Jmin")
-        bean.awgJmax = awgInt("Jmax")
-        bean.awgS1 = awgInt("S1")
-        bean.awgS2 = awgInt("S2")
-        bean.awgS3 = awgInt("S3")
-        bean.awgS4 = awgInt("S4")
-        bean.awgH1 = awgStr("H1")
-        bean.awgH2 = awgStr("H2")
-        bean.awgH3 = awgStr("H3")
-        bean.awgH4 = awgStr("H4")
-        bean.awgI1 = awgStr("I1")
-        bean.awgI2 = awgStr("I2")
-        bean.awgI3 = awgStr("I3")
-        bean.awgI4 = awgStr("I4")
-        bean.awgI5 = awgStr("I5")
-        bean.awgHpk = awgStr("HeaderProtectionKey").ifEmpty { awgStr("header_protection_key") }
-        bean.awgCpa = awgStr("ContentPaddingAddition").ifEmpty { awgStr("content_padding_addition") }
-        bean.awgRekeyAfter = awgStr("RekeyAfterTime").ifEmpty { awgStr("rekey_after_time") }
-        bean.awgRekeyTimeout = awgStr("RekeyTimeout").ifEmpty { awgStr("rekey_timeout") }
-        bean.awgRejectAfter = awgStr("RejectAfterTime").ifEmpty { awgStr("reject_after_time") }
-        bean.awgKeepaliveTimeout = awgStr("KeepaliveTimeout").ifEmpty { awgStr("keepalive_timeout") }
-        bean.awgMaxHandshake = awgStr("MaxHandshakeAttempts").ifEmpty { awgStr("max_handshake_attempts") }
-        bean.awgRandomTrailers = awgStr("RandomTrailers").ifEmpty { awgStr("random_trailers") }.equals("true", true)
-        bean.awgDisableCookies = awgStr("DisableCookies").ifEmpty { awgStr("disable_cookies") }.equals("true", true)
-        val peers = ini.getAll("Peer")
-        if (peers.isNullOrEmpty()) error("Missing 'Peer' selections")
-        val beans = mutableListOf<WireGuardBean>()
-        for (peer in peers) {
-            val endpoint = peer["Endpoint"]
-            if (endpoint.isNullOrBlank() || !endpoint.contains(":")) {
-                continue
-            }
-
-            val peerBean = bean.clone()
-            peerBean.serverAddress = endpoint.substringBeforeLast(":")
-            peerBean.serverPort = endpoint.substringAfterLast(":").toIntOrNull() ?: continue
-            peerBean.peerPublicKey = peer["PublicKey"] ?: continue
-            peerBean.peerPreSharedKey = peer["PresharedKey"]
-            beans.add(peerBean.applyDefaultValues())
-        }
-        if (beans.isEmpty()) error("Empty available peer list")
-        return beans
+        val result = io.nekohasekai.sagernet.fmt.wireguard.WireGuardConf.parseWithWarnings(conf)
+        result.warnings.forEach { Logs.w(it) }
+        return listOf(result.bean)
     }
 
-    fun parseJSON(json: Any): List<AbstractBean> {
-        if (XrayJsonImport.recognizes(json)) return XrayJsonImport.parse(json)
-        val proxies = ArrayList<AbstractBean>()
-
+    fun parseJSON(json: Any, fileName: String = ""): List<AbstractBean> {
+        if (XrayJsonImport.recognizes(json)) return XrayJsonImport.parse(json, fileName)
+        fun named(bean: AbstractBean, source: JSONObject): AbstractBean {
+            bean.initializeDefaultValues()
+            bean.name = ProfileJsonNames.metadata(source)
+                ?: bean.name.takeIf { it.isNotBlank() }
+                ?: ProfileJsonNames.fileName(fileName).orEmpty()
+            return bean
+        }
+        fun outbound(node: JSONObject, container: JSONObject? = null, single: Boolean = true): ConfigBean =
+            ConfigBean().applyDefaultValues().apply {
+                type = 1
+                config = ProfileJsonNames.cleanOutbound(node).toStringPretty()
+                name = ProfileJsonNames.importedName(node, container, fileName, single)
+            }
         if (json is JSONObject) {
-            when {
-                json.has("server") && !json.has("type") && !json.has("server_port") && (json.has("up") || json.has("up_mbps")) -> {
-                    return listOf(json.parseHysteria1Json())
+            return when {
+                json.has("outbounds") || json.has("endpoints") -> {
+                    val nodes = ProfileJsonNames.proxies(json)
+                    nodes.map { outbound(it, json, nodes.size == 1) }
                 }
-
-                json.has("method") -> {
-                    return listOf(json.parseShadowsocks())
-                }
-
-                json.has("remote_addr") -> {
-                    return listOf(json.parseTrojanGo())
-                }
-
-                json.has("outbounds") -> {
-                    return json.getJSONArray("outbounds")
-                        .filterIsInstance<JSONObject>()
-                        .mapNotNull {
-                            val ty = it.getStr("type")
-                            if (ty == null || ty == "" ||
-                                ty == "dns" || ty == "block" || ty == "direct" || ty == "selector" || ty == "urltest"
-                            ) {
-                                null
-                            } else {
-                                it
-                            }
-                        }.map {
-                            ConfigBean().apply {
-                                applyDefaultValues()
-                                type = 1
-                                config = it.toStringPretty()
-                                name = it.getStr("tag")
-                            }
-                        }
-                }
-
-                json.has("server") && json.has("server_port") -> {
-                    return listOf(ConfigBean().applyDefaultValues().apply {
-                        type = 1
-                        config = json.toStringPretty()
-                    })
-                }
+                ProfileJsonNames.isEndpoint(json) ||
+                    (json.has("type") && json.has("server") && json.has("server_port")) ->
+                    listOf(outbound(json))
+                json.has("server") && !json.has("type") && !json.has("server_port") && (json.has("up") || json.has("up_mbps")) ->
+                    listOf(named(json.parseHysteria1Json(), json))
+                json.has("method") -> listOf(named(json.parseShadowsocks(), json))
+                json.has("remote_addr") -> listOf(named(json.parseTrojanGo(), json))
+                json.has("server") && json.has("server_port") -> listOf(outbound(json))
+                else -> emptyList()
             }
-        } else {
-            json as JSONArray
-            json.forEach { _, it ->
-                if (isJsonObjectValid(it)) {
-                    proxies.addAll(parseJSON(it))
+        }
+        if (json is JSONArray) {
+            return (0 until json.length()).flatMap { i ->
+                when (val item = json.opt(i)) {
+                    is JSONObject, is JSONArray -> parseJSON(item, if (json.length() == 1) fileName else "")
+                    else -> emptyList()
                 }
             }
         }
-
-        proxies.forEach { it.initializeDefaultValues() }
-        return proxies
+        return emptyList()
     }
-
 }

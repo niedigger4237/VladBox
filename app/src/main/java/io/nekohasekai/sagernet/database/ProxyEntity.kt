@@ -304,7 +304,7 @@ data class ProxyEntity(
                 append(config.config)
 
                 if (!config.externalIndex.all { it.chain.isEmpty() }) {
-                    name = "profiles.txt"
+                    name = "${requireBean().displayName()}.txt"
                 }
 
                 for ((chain) in config.externalIndex) {

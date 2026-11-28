@@ -27,6 +27,15 @@ object WireGuardConf {
     fun parse(text: String): WireGuardBean = parseWithWarnings(text).bean
     fun parseWithWarnings(text: String): ImportResult {
         val warnings = mutableListOf<String>()
+        // A comment is valid in wg-quick/awg-quick and carries display metadata.
+        val name = text.lineSequence().firstNotNullOfOrNull { raw ->
+            val line = raw.trim().removePrefix("\uFEFF")
+            if (!line.startsWith("# Name:")) null else {
+                val value = line.substringAfter("# Name:").trim()
+                (runCatching { org.json.JSONTokener(value).nextValue() }.getOrNull() as? String)
+                    ?: value.takeIf { it.isNotBlank() }
+            }
+        }.orEmpty()
         val iface = linkedMapOf<String, String>()
         val peers = mutableListOf<MutableMap<String, String>>()
         var section: MutableMap<String, String>? = null
@@ -66,6 +75,7 @@ object WireGuardConf {
         val first = peer(peers.first())
         val bean = WireGuardBean().apply {
             initializeDefaultValues()
+            this.name = name
             privateKey = required(iface,"privatekey")
             localAddress = required(iface,"address")
             mtu = number(iface,"mtu",1280,1..65535)
@@ -100,6 +110,7 @@ object WireGuardConf {
         fun clean(value: String): String = value.trim().also { require('\n' !in it && '\r' !in it) }
         fun list(value: String) = value.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.joinToString(", ")
         return buildString {
+            if (bean.name.isNotBlank()) appendLine("# Name: " + JSONObject.quote(bean.name))
             appendLine("[Interface]")
             appendLine("PrivateKey = ${clean(bean.privateKey)}")
             appendLine("Address = ${list(bean.localAddress)}")
