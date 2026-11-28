@@ -23,7 +23,7 @@ jobs:
     env:
       NATIVE_NAIVE: ${{ inputs.native_naive && '1' || '0' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}
       - name: Fix permissions
@@ -62,7 +62,7 @@ jobs:
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
       - name: Go core cache
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             app/libs/libcore.aar
@@ -70,13 +70,13 @@ jobs:
           key: go-core-v4-go${{ env.GO_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.ndk }}-${{ steps.gomobile.outputs.revision }}-${{ hashFiles('libcore/**', 'buildScript/init/**', 'buildScript/lib/core.sh', 'buildScript/lib/core/init.sh', 'buildScript/lib/core/build.sh', 'buildScript/lib/core/build_root_core.sh', 'buildScript/lib/core/get_source*.sh', 'buildScript/lib/core/patches/**', 'run') }}-${{ inputs.fast }}-${{ inputs.native_naive }}
       - name: Install Golang
         if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
       - name: Go compiler cache
         if: steps.cache.outputs.cache-hit != 'true' || inputs.force_core_rebuild
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/go/pkg/mod
@@ -105,7 +105,7 @@ jobs:
             test -s "app/src/main/jniLibs/$abi/libsingbox.so"
             unzip -Z1 app/libs/libcore.aar | grep -F "jni/$abi/" >/dev/null
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: go-core
           path: |
@@ -116,7 +116,7 @@ jobs:
     name: Native Compile Check (ROOT helpers)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}
       - name: Fix permissions
@@ -131,7 +131,7 @@ jobs:
           echo "ndk=$fingerprint" >> "$GITHUB_OUTPUT"
       - name: Native helpers cache
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             app/src/main/jniLibs/*/libasteriskd.so
@@ -157,7 +157,7 @@ jobs:
               test -s "app/src/main/jniLibs/$abi/$lib"
             done
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: native-helpers
           path: app/src/main/jniLibs/

@@ -25,7 +25,7 @@ jobs:
       TAG: ${{ inputs.tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Create or move tag
         run: |
           [[ "$TAG" =~ ^[0-9A-Za-z._-]+$ ]] || { echo "Bad tag: $TAG"; exit 1; }
@@ -53,37 +53,37 @@ jobs:
       - native-build
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ inputs.tag }}
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
       - name: Download Go libraries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: go-core
           path: app
       - name: Download ROOT helpers
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: native-helpers
           path: app/src/main/jniLibs
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
         with:
           cache-read-only: false
       - name: Install Go for SRS compiler
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
       - name: Cache SRS compiler
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/go/pkg/mod
@@ -118,7 +118,7 @@ jobs:
           test -d "$APK_DIR"
           test "$(find "$APK_DIR" -type f -name '*.apk' | wc -l)" -gt 0
           echo "APK=$APK_DIR" >> "$GITHUB_ENV"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: APKs
           path: ${{ env.APK }}
@@ -131,11 +131,11 @@ jobs:
       TAG: ${{ inputs.tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
       - name: Download APK artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: APKs
           path: artifacts
@@ -161,37 +161,37 @@ jobs:
       - native-build
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ inputs.tag }}
       - name: Fix permissions
         run: find . -type f \( -name '*.sh' -o -name run -o -name gradlew \) -not -path './.git/*' -exec chmod +x {} +
       - name: Download Go libraries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: go-core
           path: app
       - name: Download ROOT helpers
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: native-helpers
           path: app/src/main/jniLibs
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
         with:
           cache-read-only: false
       - name: Install Go for SRS compiler
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
       - name: Cache SRS compiler
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/go/pkg/mod
@@ -216,7 +216,7 @@ jobs:
           ./gradlew --build-cache -PnativeNaive=true -PnativeBundle=true app:bundlePlayRelease \
             -PappVersionName="${TAG#v}" \
             -PappVersionCode="$((1000 + ${{ github.run_number }}))"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: AAB
           path: app/build/outputs/bundle/playRelease/app-play-release.aab
