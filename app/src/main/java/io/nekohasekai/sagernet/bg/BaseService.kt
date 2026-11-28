@@ -358,6 +358,10 @@ class BaseService {
             val running = owner.config.trafficMap[tag]?.firstOrNull { it.id == ent.id } ?: return false
             if (running.requireBean() != ent.requireBean() ||
                 running.displayName() != ent.displayName()) return false
+            // Full-config overrides are merged from the startup profile, not
+            // from the selected member. A change requires a fresh config.
+            if (!io.nekohasekai.sagernet.fmt.SelectorRoutingPolicy.sameConfigOverride(
+                    owner.profile.requireBean().customConfigJson, ent.requireBean().customConfigJson)) return false
             // Explicit rules referencing the original or requested profile may depend
             // on the generated main-profile mapping. Preserve their restart semantics.
             if (SagerDatabase.rulesDao.enabledRules().any {

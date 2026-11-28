@@ -383,7 +383,9 @@ fun buildConfig(
 
                 // first profile set as global
                 if (index == profileList.lastIndex) {
-                    needGlobal = true
+                    // Each selector member needs its own logical entry/counter,
+                    // even if it resolves to the same single physical hop.
+                    needGlobal = SelectorRoutingPolicy.shareIngress(buildSelector, index, profileList.lastIndex)
                     tagOut = "g-" + proxyEntity.id
                     bypassDNSBeans += proxyEntity.requireBean()
                 }
@@ -600,6 +602,9 @@ fun buildConfig(
                 }
             }
             selectorProfileTags.putAll(tagMap)
+            require(selectorProfileTags.values.toSet().size == selectorProfileTags.size) {
+                "Selector members must have unique outbound tags"
+            }
             val selectedTag = requireNotNull(selectorProfileTags[proxy.id]) {
                 "Selected profile is missing from its selector group"
             }
@@ -725,7 +730,7 @@ fun buildConfig(
                     0L -> TAG_PROXY
                     -1L -> TAG_BYPASS
                     -2L -> TAG_BLOCK
-                    else -> if (outId == proxy.id) TAG_PROXY else tagMap[outId] ?: ""
+                    else -> SelectorRoutingPolicy.explicitRouteTag(buildSelector, proxy.id, outId, tagMap)
                 }
 
                 _hack_custom_config = rule.config
