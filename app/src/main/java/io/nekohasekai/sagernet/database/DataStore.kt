@@ -144,7 +144,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     /** outbound for traffic no rule matches: "proxy" or "direct" */
     var routeFinal by configurationStore.string(Key.ROUTE_FINAL) { "proxy" }
     var dnsMain by configurationStore.string(Key.DNS_MAIN) { "direct" }
-    var dnsEngineMode by configurationStore.string(Key.DNS_ENGINE_MODE) { "legacy" }
+    var dnsEngineMode by configurationStore.string(Key.DNS_ENGINE_MODE) { "modern" }
     var dnsGlobalStrategy by configurationStore.string(Key.DNS_GLOBAL_STRATEGY) { "auto" }
     var dnsOptimisticWindow by configurationStore.string(Key.DNS_OPTIMISTIC_WINDOW) { "off" }
     var dnsQueryTimeout by configurationStore.string(Key.DNS_QUERY_TIMEOUT) { "default" }
