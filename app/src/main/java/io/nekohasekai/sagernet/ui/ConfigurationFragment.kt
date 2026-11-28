@@ -923,7 +923,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                 val queue = ConcurrentLinkedQueue(profiles)
                 // Freeze URL and concurrency for this batch instead of reading
                 // changing preferences independently in every worker.
-                val tester = UrlTest()
+                val tester = UrlTest((activity as? MainActivity)?.connection?.service)
                 val workerCount = io.nekohasekai.sagernet.bg.proto.TestConcurrencyPolicy.workerCount(
                     DataStore.connectionTestConcurrent, profiles.size,
                     io.nekohasekai.sagernet.bg.proto.TestCoreAdmission.lowRamDevice

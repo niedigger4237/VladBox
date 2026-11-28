@@ -140,6 +140,36 @@ class BaseService {
             } else service.stopRunner(true)
         }
 
+        fun getSelectorProbeTag(sessionId: Long, profileId: Long): String {
+            if (state != State.Connected || destroyed || sessionId == 0L ||
+                selectorSessionId != sessionId) return ""
+            val owner = proxy ?: return ""
+            if (!owner.isInitialized()) return ""
+            val config = owner.config
+            val groupId = config.selectorGroupId
+            if (groupId < 0) return ""
+            val tag = config.selectorProfileTags[profileId] ?: return ""
+            val profile = SagerDatabase.proxyDao.getById(profileId) ?: return ""
+            val group = SagerDatabase.groupDao.getById(groupId) ?: return ""
+            val running = config.trafficMap[tag].orEmpty()
+            val saved = running.singleOrNull { it.id == profileId }
+            val bean = profile.requireBean()
+            if (!io.nekohasekai.sagernet.bg.proto.SelectorProbePolicy.eligible(
+                    group.isSelector && profile.groupId == groupId,
+                    group.frontProxy > 0 || group.landingProxy > 0,
+                    running.map { it.id }.toSet() == setOf(profileId),
+                    profile.type == ProxyEntity.TYPE_CHAIN || profile.type == ProxyEntity.TYPE_CONFIG ||
+                        profile.needExternal(),
+                    !bean.customConfigJson.isNullOrBlank() || !bean.customOutboundJson.isNullOrBlank() ||
+                        !owner.profile.requireBean().customConfigJson.isNullOrBlank() ||
+                        DataStore.globalCustomConfig.isNotBlank(),
+                    saved != null && saved.type == profile.type && saved.requireBean() == bean &&
+                        saved.displayName() == profile.displayName(),
+                    config.selectorProfileTags.values.count { it == tag } == 1
+                )) return ""
+            return tag
+        }
+
         fun selectManagedOutbound(sessionId: Long, group: String, tag: String): Int {
             if (state != State.Connected || destroyed || sessionId == 0L ||
                 sessionId != selectorSessionId) return -1
@@ -224,6 +254,11 @@ class BaseService {
         override fun getSelectorSessionId(): Long =
             runBlocking(Dispatchers.Main.immediate) {
                 data?.takeIf { it.state == State.Connected && !it.destroyed }?.selectorSessionId ?: 0L
+            }
+
+        override fun getSelectorProbeTag(sessionId: Long, profileId: Long): String =
+            runBlocking(Dispatchers.Main.immediate) {
+                data?.getSelectorProbeTag(sessionId, profileId).orEmpty()
             }
 
         override fun selectManagedOutbound(sessionId: Long, group: String, tag: String): Int =
