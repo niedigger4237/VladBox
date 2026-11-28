@@ -403,7 +403,7 @@ class MainActivity : ThemedActivity(),
             BaseService.State.Idle
         }
         changeState(state)
-        if (state.connected) refreshSelectorSelection(DataStore.currentProfile)
+        refreshSelectorSelection(DataStore.selectedProxy)
     }
 
     override fun onServiceDisconnected() = changeState(BaseService.State.Idle)
@@ -431,19 +431,20 @@ class MainActivity : ThemedActivity(),
     private var lastDisplayedProfileId = DataStore.selectedProxy
 
     private fun refreshSelectorSelection(id: Long) {
-        if (id <= 0) return
         val old = lastDisplayedProfileId
         lastDisplayedProfileId = id
         binding.stats.post { binding.stats.refreshConnectionCountry() }
         // The service owns persisted selection. Never write a delayed callback back to it.
         runOnDefaultDispatcher {
             if (old != id && old > 0) ProfileManager.postUpdate(old, true)
-            ProfileManager.postUpdate(id, true)
+            if (id > 0) ProfileManager.postUpdate(id, true)
         }
     }
 
     override fun cbSelectorUpdate(id: Long) {
-        refreshSelectorSelection(id)
+        // A delayed callback must not replace a more recent selection on resume.
+        if (DataStore.currentProfile == id && DataStore.serviceState.started)
+            refreshSelectorSelection(DataStore.selectedProxy)
     }
 
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
@@ -462,6 +463,9 @@ class MainActivity : ThemedActivity(),
     override fun onStart() {
         connection.updateConnectionId(SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND)
         super.onStart()
+        // The Room-backed preference may have changed in the service process
+        // while this activity was stopped; a local preference listener is insufficient.
+        refreshSelectorSelection(DataStore.selectedProxy)
     }
 
     override fun onStop() {

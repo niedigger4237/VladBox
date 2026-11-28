@@ -238,13 +238,17 @@ class BaseService {
             if (intent.action == Action.SERVICE) data.binder else null
 
         fun reload() {
-            if (DataStore.selectedProxy == 0L) {
+            // Validate and apply the same requested profile, even if the UI changes
+            // its persisted selection while this reload is being processed.
+            val requestedId = DataStore.selectedProxy
+            if (requestedId == 0L) {
                 stopRunner(false, (this as Context).getString(R.string.profile_empty))
                 return
             }
-            if (canReloadSelector()) {
+            val requested = SagerDatabase.proxyDao.getById(requestedId)
+            if (canReloadSelector(requested)) {
                 val owner = data.proxy
-                val ent = SagerDatabase.proxyDao.getById(DataStore.selectedProxy)
+                val ent = requested
                 val tag = owner?.config?.selectorProfileTags?.get(ent?.id)
                 if (owner != null && ent != null && !tag.isNullOrBlank()) {
                     val accepted = runCatching { owner.box.selectOutbound(tag) }.getOrDefault(false)
@@ -281,7 +285,7 @@ class BaseService {
 
         fun newProxyInstance(profile: ProxyEntity): ProxyInstance = ProxyInstance(profile, this)
 
-        fun canReloadSelector(): Boolean {
+        fun canReloadSelector(ent: ProxyEntity? = SagerDatabase.proxyDao.getById(DataStore.selectedProxy)): Boolean {
             // ROOT runs an external core; the in-process selector API cannot switch its outbound.
             // Use the normal service restart instead of silently treating the selection as applied.
             val owner = data.proxy ?: return false
@@ -289,7 +293,7 @@ class BaseService {
                 data.state != State.Connected || !owner.isInitialized()) return false
             val groupId = owner.config.selectorGroupId
             if (groupId < 0) return false
-            val ent = SagerDatabase.proxyDao.getById(DataStore.selectedProxy) ?: return false
+            if (ent == null) return false
             if (ent.id == DataStore.currentProfile || ent.groupId != groupId ||
                 SagerDatabase.groupDao.getById(groupId)?.isSelector != true) return false
             val tag = owner.config.selectorProfileTags[ent.id] ?: return false
@@ -631,7 +635,6 @@ class BaseService {
                     markRootStartup("preInit")
                     proxy.init()
                     markRootStartup("build profile config")
-                    DataStore.currentProfile = profile.id
 
                     proxy.processes = GuardedProcessPool {
                         // A delayed plugin failure must not stop a replacement session.
@@ -643,6 +646,11 @@ class BaseService {
 
                     startProcesses()
                     markRootStartup("start processes")
+                    // Only a successfully started core (or ready Service Control
+                    // supervisor) may replace the last confirmed profile.
+                    if (data.proxy !== proxy || data.state != State.Connecting || data.destroyed)
+                        return@launch
+                    DataStore.currentProfile = profile.id
                     val waiting = (proxy as? io.nekohasekai.sagernet.bg.proto.RootProxyInstance)?.waitingAtStart == true
                     data.changeState(if (waiting) State.Waiting else State.Connected)
                     if (proxy.config.selectorGroupId >= 0) data.binder.selectorUpdated(profile.id)

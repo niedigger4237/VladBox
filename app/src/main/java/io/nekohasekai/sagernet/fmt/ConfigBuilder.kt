@@ -592,10 +592,13 @@ fun buildConfig(
                 }
             }
             selectorProfileTags.putAll(tagMap)
+            val selectedTag = requireNotNull(selectorProfileTags[proxy.id]) {
+                "Selected profile is missing from its selector group"
+            }
             outbounds.add(0, Outbound_SelectorOptions().apply {
                 type = "selector"
                 tag = TAG_PROXY
-                default_ = tagMap[proxy.id]
+                default_ = selectedTag
                 outbounds = selectorProfileTags.values.distinct()
             })
         } else {
