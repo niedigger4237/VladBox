@@ -59,8 +59,12 @@ class Subnet(val address: InetAddress, val prefixSize: Int) : Comparable<Subnet>
         while (i < it.size) it[i++] = 0
     }, prefixSize)
 
-    override fun toString(): String =
-        if (prefixSize == addressLength) address.hostAddress else address.hostAddress + '/' + prefixSize
+    override fun toString(): String {
+        // Concrete Inet4Address/Inet6Address instances always expose a numeric
+        // host address. Never silently emit a malformed "null" CIDR.
+        val host = requireNotNull(address.hostAddress) { "Missing numeric host address" }
+        return if (prefixSize == addressLength) host else "$host/$prefixSize"
+    }
 
     private fun Byte.unsigned() = toInt() and 0xFF
     override fun compareTo(other: Subnet): Int {

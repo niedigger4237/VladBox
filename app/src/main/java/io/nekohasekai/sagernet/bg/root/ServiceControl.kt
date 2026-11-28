@@ -62,8 +62,8 @@ object ServiceControl {
                 val on = requested && start is ServiceCronParseResult.Valid && stop is ServiceCronParseResult.Valid
                 if (requested && !on) warn("Service Control: disabled invalid cron schedule")
                 addProperty("enabled", on)
-                addProperty("startCron", if (on && start is ServiceCronParseResult.Valid) start.expression else "")
-                addProperty("stopCron", if (on && stop is ServiceCronParseResult.Valid) stop.expression else "")
+                addProperty("startCron", if (on) start.expression else "")
+                addProperty("stopCron", if (on) stop.expression else "")
             })
             add("wifi", JsonObject().apply {
                 WIFI_RULES.forEach { add(it, rule(it)) }

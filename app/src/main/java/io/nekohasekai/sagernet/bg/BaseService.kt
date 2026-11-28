@@ -395,8 +395,8 @@ class BaseService {
             if (canReloadSelector(requested)) {
                 val owner = data.proxy
                 val ent = requested
-                val tag = owner?.config?.selectorProfileTags?.get(ent?.id)
-                if (owner != null && ent != null && !tag.isNullOrBlank()) {
+                val tag = owner?.config?.selectorProfileTags?.get(ent.id)
+                if (owner != null && !tag.isNullOrBlank()) {
                     val accepted = runCatching { owner.box.selectOutbound(tag) }.getOrDefault(false)
                     if (accepted) {
                         val title = ServiceNotification.genTitle(ent)
@@ -665,8 +665,7 @@ class BaseService {
                                 owner.box as? io.nekohasekai.sagernet.bg.core.LibcoreBox else null
                             val refreshInPlace = DataStore.vpnInPlaceNetworkRefresh &&
                                 !owner.profile.isRawCoreConfig() &&
-                                owner.config.externalIndex.all { it.chain.isEmpty() } &&
-                                embedded != null
+                                owner.config.externalIndex.all { it.chain.isEmpty() }
                             if (refreshInPlace && embedded != null) {
                                 try {
                                     withContext(Dispatchers.IO) { embedded.refreshNetwork() }

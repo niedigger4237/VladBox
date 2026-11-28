@@ -120,22 +120,22 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
             val process = ProcessBuilder().command("/system/bin/getprop")
                 .redirectErrorStream(true)
                 .start()
-            val inputStream = process.inputStream
-            val bufferedReader = BufferedReader(InputStreamReader(inputStream))
-            var line: String?
-            var key: String
-            var value: String
-            while (bufferedReader.readLine().also { line = it } != null) {
-                val matcher = propertiesPattern.matcher(line)
-                if (matcher.matches()) {
-                    key = matcher.group(1)
-                    value = matcher.group(2)
-                    if (key != null && value != null && !key.isEmpty() && !value.isEmpty()) systemProperties[key] =
-                        value
+            try {
+                BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        val matcher = propertiesPattern.matcher(line)
+                        if (!matcher.matches()) continue
+                        val key = matcher.group(1) ?: continue
+                        val value = matcher.group(2) ?: continue
+                        if (key.isNotEmpty() && value.isNotEmpty()) {
+                            systemProperties[key] = value
+                        }
+                    }
                 }
+            } finally {
+                process.destroy()
             }
-            bufferedReader.close()
-            process.destroy()
         } catch (e: IOException) {
             Logs.e(
                 "Failed to get run \"/system/bin/getprop\" to get system properties.", e
