@@ -15,4 +15,6 @@ interface ISagerNetService {
   long getSelectorSessionId();
   // Empty when the running member cannot be verified for a read-only probe.
   String getSelectorProbeTag(long sessionId, long profileId);
+  // Presentation metadata only; never serialize full beans or credentials.
+  String getDashboardProfiles(long sessionId);
 }

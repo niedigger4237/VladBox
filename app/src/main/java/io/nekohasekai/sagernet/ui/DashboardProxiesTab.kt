@@ -14,8 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-internal data class DashboardProxyNode(val name: String, val delay: Int? = null, val countryCode: String? = null, val displayName: String = name, val protocol: String? = null)
-internal data class DashboardProxyGroup(val name: String, val type: String, val selected: String, val nodes: List<DashboardProxyNode>)
+internal data class DashboardProxyNode(val name: String, val delay: Int? = null, val countryCode: String? = null, val displayName: String = name, val protocol: String? = null, val historyKey: String = "", val failed: Boolean = false)
+internal data class DashboardProxyGroup(val name: String, val type: String, val selected: String, val nodes: List<DashboardProxyNode>, val synthetic: Boolean = false) {
+    val label: String get() = if (synthetic) "All outbounds" else name
+}
 
 @Composable
 internal fun DashboardProxiesTab(
@@ -37,30 +39,31 @@ internal fun DashboardProxiesTab(
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_public), contentDescription = null, modifier = Modifier.size(20.dp), tint = colors.primary)
-                            Text(group?.name ?: "No proxy groups", style = MaterialTheme.typography.titleSmall)
+                            Text(group?.label ?: "No proxy groups", style = MaterialTheme.typography.titleSmall)
                         }
-                        Text(group?.let { when { it.type.equals("URLTest", true) -> "Automatic server selection"; it.type.equals("Fallback", true) -> "Automatic failover"; else -> "Proxy group" } }
+                        Text(group?.let { when { it.synthetic -> "Read-only outbound overview"; it.type.equals("URLTest", true) -> "Automatic server selection"; it.type.equals("Fallback", true) -> "Automatic failover"; else -> "Proxy group" } }
                             ?: if (connected) "Proxy data unavailable" else "Service is not running",
                             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                     }
                     if (group != null) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box {
-                            TextButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text((if (group.type.equals("URLTest", true) || group.type.equals("Fallback", true)) "Auto" else group.type) + " ▾") }
+                            TextButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text((if (group.synthetic) "All" else if (group.type.equals("URLTest", true) || group.type.equals("Fallback", true)) "Auto" else group.type) + " ▾") }
                             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                                 groups.forEach { item ->
-                                    DropdownMenuItem(text = { Text(item.name) }, onClick = { selectedGroup = item.name; expanded = false })
+                                    DropdownMenuItem(text = { Text(item.label) }, onClick = { selectedGroup = item.name; expanded = false })
                                 }
                             }
                         }
-                        ProxyDelay(group.nodes.firstOrNull { it.name == group.selected }?.delay, showLightning = true)
+                        ProxyDelay(group.nodes.firstOrNull { it.name == group.selected }?.delay, showLightning = true,
+                            failed = group.nodes.firstOrNull { it.name == group.selected }?.failed == true)
                         }
                     }
                 }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(group?.let { "Servers (" + it.name + ")" } ?: "Servers", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                IconButton(onClick = { group?.let { onTest?.invoke(it.name) } }, enabled = connected && group != null && onTest != null) {
+                Text(group?.let { "Servers (" + it.label + ")" } ?: "Servers", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                IconButton(onClick = { group?.let { onTest?.invoke(it.name) } }, enabled = connected && group != null && !group.synthetic && onTest != null) {
                     Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_refresh), contentDescription = "Test server latency")
                 }
             }
@@ -75,7 +78,7 @@ internal fun DashboardProxiesTab(
                                 shape = RoundedCornerShape(10.dp),
                                 border = if (active) BorderStroke(1.dp, colors.primary.copy(alpha = .5f)) else null) {
                                 Row(Modifier.fillMaxWidth().heightIn(min = 32.dp)
-                                    .selectable(selected = active, enabled = connected && onSelect != null && group.type.equals("Selector", true),
+                                    .selectable(selected = active, enabled = connected && onSelect != null && !group.synthetic && group.type.equals("Selector", true),
                                         role = Role.RadioButton, onClick = { onSelect?.invoke(group.name, node.name) })
                                     .padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -89,7 +92,7 @@ internal fun DashboardProxiesTab(
                                         Text(node.displayName, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         node.protocol?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant) }
                                     }
-                                    ProxyDelay(node.delay)
+                                    ProxyDelay(node.delay, failed = node.failed)
                                 }
                             }
                             if (index < group.nodes.lastIndex) Divider(color = colors.outlineVariant.copy(alpha = .5f))
@@ -102,8 +105,9 @@ internal fun DashboardProxiesTab(
 }
 
 @Composable
-private fun ProxyDelay(delay: Int?, showLightning: Boolean = false) {
+private fun ProxyDelay(delay: Int?, showLightning: Boolean = false, failed: Boolean = false) {
     val tint = when {
+        failed -> MaterialTheme.colorScheme.error
         delay == null || delay <= 0 -> MaterialTheme.colorScheme.onSurfaceVariant
         delay < 100 -> Color(0xFF81D99A)
         delay < 200 -> Color(0xFFE5B85C)
@@ -112,7 +116,7 @@ private fun ProxyDelay(delay: Int?, showLightning: Boolean = false) {
     Surface(color = tint.copy(alpha = .18f), shape = RoundedCornerShape(20.dp)) {
         Row(Modifier.defaultMinSize(minWidth = if (showLightning) 64.dp else 52.dp, minHeight = 24.dp).padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally)) {
             if (showLightning && delay != null && delay > 0) Icon(androidx.compose.ui.res.painterResource(io.nekohasekai.sagernet.R.drawable.ic_dash_symbol_bolt), contentDescription = null, modifier = Modifier.size(14.dp), tint = tint)
-            Text(if (delay != null && delay > 0) "$delay ms" else "—", color = tint, style = MaterialTheme.typography.labelMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 1, softWrap = false)
+            Text(if (failed) "Failed" else if (delay != null && delay > 0) "$delay ms" else "—", color = tint, style = MaterialTheme.typography.labelMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 1, softWrap = false)
         }
     }
 }
@@ -132,42 +136,56 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
     val scope = rememberCoroutineScope()
     val refreshLock = remember { kotlinx.coroutines.sync.Mutex() }
     var displayedSessionId by remember(connected) { mutableStateOf(0L) }
-    var cachedProfileId by remember(connected) { mutableStateOf(Long.MIN_VALUE) }
-    var cachedProfile by remember(connected) { mutableStateOf<io.nekohasekai.sagernet.database.ProxyEntity?>(null) }
+    var metadataSession by remember(connected) { mutableStateOf(0L) }
+    var metadata by remember(connected) { mutableStateOf(org.json.JSONObject()) }
+    var outcomes by remember(connected) { mutableStateOf(emptyMap<String, DashboardProxyPolicy.Outcome>()) }
     suspend fun refresh() {
         refreshLock.lock()
         try {
         val binder = service() ?: error("Service unavailable")
         val sessionId = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { binder.selectorSessionId }
         check(sessionId != 0L) { "Service not connected" }
-        val id = io.nekohasekai.sagernet.database.DataStore.currentProfile
-        if (cachedProfileId != id) {
-            cachedProfile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                if (id > 0) io.nekohasekai.sagernet.database.SagerDatabase.proxyDao.getById(id) else null
+        if (metadataSession != sessionId) {
+            val snapshot = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                binder.getDashboardProfiles(sessionId)
             }
-            cachedProfileId = id
+            check(snapshot.isNotBlank()) { "Service session changed" }
+            metadata = org.json.JSONObject(snapshot)
+            metadataSession = sessionId
+            outcomes = emptyMap()
         }
-        val profile = cachedProfile
+        val profiles = metadata.optJSONObject("profiles")
+        val managedSelector = metadata.optBoolean("managedSelector")
         val proxies = dashboardGet("proxies").getJSONObject("proxies")
         val refreshedGroups = proxies.keys().asSequence().mapNotNull { name ->
             val item = proxies.optJSONObject(name) ?: return@mapNotNull null
             val all = item.optJSONArray("all") ?: return@mapNotNull null
             val nodes = (0 until all.length()).map { index ->
                 val tag = all.getString(index)
-                val history = proxies.optJSONObject(tag)?.optJSONArray("history")
-                val delay = history?.optJSONObject(history.length() - 1)?.optInt("delay")?.takeIf { it > 0 }
-                val isMain = tag == io.nekohasekai.sagernet.fmt.TAG_PROXY
-                val label = if (isMain) profile?.displayName()?.takeIf { it.isNotBlank() } else null
-                val protocol = if (isMain) profile?.displayType() else proxies.optJSONObject(tag)?.optString("type")?.takeIf { it.isNotBlank() }
                 val nodeData = proxies.optJSONObject(tag)
+                val history = nodeData?.optJSONArray("history")
+                val last = history?.optJSONObject(history.length() - 1)
+                val delay = last?.optInt("delay")?.takeIf { it > 0 }
+                val key = last?.toString().orEmpty()
+                val profile = profiles?.optJSONObject(tag)
+                val label = profile?.optString("name")?.takeIf { it.isNotBlank() }
+                val protocol = profile?.optString("protocol")?.takeIf { it.isNotBlank() }
+                    ?: nodeData?.optString("type")?.takeIf { it.isNotBlank() }
                 val country = sequenceOf(nodeData?.optString("countryCode"), nodeData?.optString("country"))
                     .filterNotNull().map { it.uppercase(java.util.Locale.ROOT) }.firstOrNull { it in java.util.Locale.getISOCountries() }
-                DashboardProxyNode(tag, delay, countryCode = country, displayName = label ?: tag, protocol = protocol)
+                val outcome = outcomes[tag]?.takeIf { it.historyKey == key }
+                DashboardProxyNode(tag, if (outcome != null) outcome.delay else delay, countryCode = country,
+                    displayName = label ?: tag, protocol = protocol, historyKey = key,
+                    failed = outcome != null && outcome.delay == null)
             }
-            DashboardProxyGroup(name, item.optString("type"), item.optString("now"), nodes)
-        }.toList()
+            DashboardProxyGroup(name, item.optString("type"), item.optString("now"), nodes,
+                synthetic = name == "GLOBAL" && item.optString("type").equals("Fallback", true))
+        }.sortedBy { DashboardProxyPolicy.priority(it.name, it.synthetic, managedSelector) }.toList()
         val confirmedSession = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { binder.selectorSessionId }
-        check(confirmedSession == sessionId) { "Service session changed" }
+        check(service() === binder && confirmedSession == sessionId) { "Service session changed" }
+        outcomes = outcomes.filter { (tag, outcome) ->
+            refreshedGroups.any { group -> group.nodes.any { it.name == tag && it.historyKey == outcome.historyKey } }
+        }
         displayedSessionId = sessionId
         groups = refreshedGroups
         } finally { refreshLock.unlock() }
@@ -182,6 +200,8 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) {
                 displayedSessionId = 0L
+                metadataSession = 0L
+                outcomes = emptyMap()
                 groups = emptyList()
                 error = "Local API unavailable; refresh failed"
                 retryMs = (retryMs * 2).coerceAtMost(30000L)
@@ -217,7 +237,11 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
                         refresh()
                     }
                     1 -> refresh()
-                    2 -> Unit // Reconnection recreates this tab with the new core state.
+                    2 -> {
+                        displayedSessionId = 0L
+                        groups = emptyList()
+                        outcomes = emptyMap()
+                    } // Wait for the new ROOT/VPN session; never show an optimistic selection.
                     else -> {
                         displayedSessionId = 0L
                         refresh()
@@ -244,8 +268,12 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
                 refresh()
                 verifySession()
                 check(displayedSessionId == sessionId) { "Service session changed" }
+                val byTag = groups.flatMap { it.nodes }.associateBy { it.name }
+                outcomes = outcomes + tags.mapNotNull { tag ->
+                    byTag[tag]?.let { tag to DashboardProxyPolicy.Outcome(results[tag], it.historyKey) }
+                }.toMap()
                 groups = groups.map { g -> g.copy(nodes = g.nodes.map { n ->
-                    if (n.name in tags) n.copy(delay = results[n.name]) else n
+                    if (n.name in tags) n.copy(delay = results[n.name], failed = results[n.name] == null) else n
                 }) }
                 val failed = tags.count { it !in results }
                 if (failed > 0) error("Delay test failed for $failed server(s)")

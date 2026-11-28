@@ -140,6 +140,32 @@ class BaseService {
             } else service.stopRunner(true)
         }
 
+        fun getDashboardProfiles(sessionId: Long): String {
+            if (state != State.Connected || destroyed || sessionId == 0L ||
+                selectorSessionId != sessionId) return ""
+            val owner = proxy ?: return ""
+            val ready = if (owner is io.nekohasekai.sagernet.bg.proto.RootProxyInstance)
+                owner.isStartedForProbe() else owner.isInitialized()
+            if (!ready) return ""
+            val config = owner.config
+            val profiles = org.json.JSONObject()
+            val tags = if (owner.profile.isRawCoreConfig()) emptyMap()
+                else if (config.selectorGroupId >= 0) config.selectorProfileTags
+                else config.profileTagMap + (owner.profile.id to io.nekohasekai.sagernet.fmt.TAG_PROXY)
+            // Cap the response well below the Binder transaction limit.
+            for ((id, tag) in tags.entries.take(1500)) {
+                val member = config.trafficMap[tag]?.firstOrNull { it.id == id }
+                    ?: owner.profile.takeIf { it.id == id } ?: continue
+                profiles.put(tag, org.json.JSONObject()
+                    .put("name", member.displayName().take(200))
+                    .put("protocol", member.displayType().take(100)))
+            }
+            val snapshot = org.json.JSONObject().put("managedSelector", config.selectorGroupId >= 0)
+                .put("profiles", profiles).toString()
+            return snapshot.takeIf { it.toByteArray(Charsets.UTF_8).size <= 160_000 }
+                ?: org.json.JSONObject().put("managedSelector", config.selectorGroupId >= 0).toString()
+        }
+
         fun getSelectorProbeTag(sessionId: Long, profileId: Long): String {
             if (state != State.Connected || destroyed || sessionId == 0L ||
                 selectorSessionId != sessionId) return ""
@@ -262,6 +288,11 @@ class BaseService {
         override fun getSelectorSessionId(): Long =
             runBlocking(Dispatchers.Main.immediate) {
                 data?.takeIf { it.state == State.Connected && !it.destroyed }?.selectorSessionId ?: 0L
+            }
+
+        override fun getDashboardProfiles(sessionId: Long): String =
+            runBlocking(Dispatchers.Main.immediate) {
+                data?.getDashboardProfiles(sessionId).orEmpty()
             }
 
         override fun getSelectorProbeTag(sessionId: Long, profileId: Long): String =
