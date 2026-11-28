@@ -94,6 +94,28 @@ class BaseService {
         @Volatile var restartAfterStop = false
         var nextRootStartWaiting: Boolean? = null
 
+        fun selectManagedOutbound(group: String, tag: String): Int {
+            if (state != State.Connected || destroyed) return -1
+            val owner = proxy ?: return -1
+            val config = owner.config
+            // Only the application-generated top-level selector owns a profile ID.
+            if (config.selectorGroupId < 0 || group != io.nekohasekai.sagernet.fmt.TAG_PROXY) return 0
+            val id = config.selectorProfileTags.entries.singleOrNull { it.value == tag }?.key ?: return -1
+            val profile = SagerDatabase.proxyDao.getById(id) ?: return -1
+            if (profile.groupId != config.selectorGroupId ||
+                SagerDatabase.groupDao.getById(profile.groupId)?.isSelector != true) return -1
+            DataStore.selectedProxy = id
+            if (DataStore.currentProfile == id) {
+                binder.selectorUpdated(id)
+                return 1
+            }
+            // Reuse the service's validation and restart fallback, including external ROOT cores.
+            service.reload()
+            return if (state == State.Connected && DataStore.currentProfile == id) 1
+            else if (state == State.Stopping || state == State.Connecting || restartAfterStop) 2
+            else -1
+        }
+
         fun changeState(s: State, msg: String? = null) {
             if (state == s && msg == null) return
             state = s
@@ -152,6 +174,11 @@ class BaseService {
             callbacks.unregister(cb)
         }
 
+        override fun selectManagedOutbound(group: String, tag: String): Int =
+            runBlocking(Dispatchers.Main.immediate) {
+                data?.selectManagedOutbound(group, tag) ?: -1
+            }
+
         override fun urlTest(): Int {
             val current = data?.proxy ?: error("core not started")
             if (data?.state?.connected != true) error("core not started")
@@ -184,6 +211,10 @@ class BaseService {
         fun stateChanged(s: State, msg: String?) = launch {
             val profileName = profileName
             broadcast { it.stateChanged(s.ordinal, profileName, msg) }
+        }
+
+        fun selectorUpdated(id: Long) = launch {
+            broadcast { it.cbSelectorUpdate(id) }
         }
 
         fun missingPlugin(pluginName: String) = launch {
@@ -222,6 +253,7 @@ class BaseService {
                         DataStore.currentProfile = ent.id
                         owner.displayProfileName = title
                         data.binder.stateChanged(State.Connected, null)
+                        data.binder.selectorUpdated(ent.id)
                         data.binder.launch {
                             if (data.proxy === owner && data.state == State.Connected &&
                                 DataStore.currentProfile == ent.id) {
@@ -613,6 +645,7 @@ class BaseService {
                     markRootStartup("start processes")
                     val waiting = (proxy as? io.nekohasekai.sagernet.bg.proto.RootProxyInstance)?.waitingAtStart == true
                     data.changeState(if (waiting) State.Waiting else State.Connected)
+                    if (proxy.config.selectorGroupId >= 0) data.binder.selectorUpdated(profile.id)
                     if (waiting) data.notification?.postServiceControlWaiting(true)
                     markRootStartup(if (waiting) "waiting for conditions" else "connected")
 

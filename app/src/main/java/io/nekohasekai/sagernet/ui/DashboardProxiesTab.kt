@@ -125,7 +125,7 @@ private fun proxyFlag(countryCode: String?): String {
 
 
 @Composable
-internal fun DashboardLiveProxies(connected: Boolean) {
+internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohasekai.sagernet.aidl.ISagerNetService?) {
     var groups by remember(connected) { mutableStateOf(emptyList<DashboardProxyGroup>()) }
     var error by remember(connected) { mutableStateOf<String?>(null) }
     var busy by remember(connected) { mutableStateOf(false) }
@@ -188,7 +188,22 @@ internal fun DashboardLiveProxies(connected: Boolean) {
     }
     DashboardProxiesTab(connected, groups,
         onSelect = if (busy) null else { group, node ->
-            action { dashboardRequest("proxies/" + android.net.Uri.encode(group), "PUT", org.json.JSONObject().put("name", node)) }
+            action(refreshAfter = false) {
+                val binder = service() ?: error("Service unavailable")
+                val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    binder.selectManagedOutbound(group, node)
+                }
+                when (result) {
+                    0 -> {
+                        // Custom/raw selector groups have no application profile mapping.
+                        dashboardRequest("proxies/" + android.net.Uri.encode(group), "PUT", org.json.JSONObject().put("name", node))
+                        refresh()
+                    }
+                    1 -> refresh()
+                    2 -> Unit // Reconnection recreates this tab with the new core state.
+                    else -> error("Selector rejected")
+                }
+            }
         },
         onTest = if (busy) null else { group ->
             action(refreshAfter = false) {

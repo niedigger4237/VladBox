@@ -396,13 +396,15 @@ class MainActivity : ThemedActivity(),
     }
 
     val connection = SagerConnection(SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND, true)
-    override fun onServiceConnected(service: ISagerNetService) = changeState(
-        try {
+    override fun onServiceConnected(service: ISagerNetService) {
+        val state = try {
             BaseService.State.values()[service.state]
         } catch (_: RemoteException) {
             BaseService.State.Idle
         }
-    )
+        changeState(state)
+        if (state.connected) refreshSelectorSelection(DataStore.currentProfile)
+    }
 
     override fun onServiceDisconnected() = changeState(BaseService.State.Idle)
     override fun onBinderDied() {
@@ -426,15 +428,22 @@ class MainActivity : ThemedActivity(),
         }
     }
 
-    override fun cbSelectorUpdate(id: Long) {
-        val old = DataStore.selectedProxy
-        DataStore.selectedProxy = id
-        DataStore.currentProfile = id
+    private var lastDisplayedProfileId = DataStore.selectedProxy
+
+    private fun refreshSelectorSelection(id: Long) {
+        if (id <= 0) return
+        val old = lastDisplayedProfileId
+        lastDisplayedProfileId = id
         binding.stats.post { binding.stats.refreshConnectionCountry() }
+        // The service owns persisted selection. Never write a delayed callback back to it.
         runOnDefaultDispatcher {
-            ProfileManager.postUpdate(old, true)
+            if (old != id && old > 0) ProfileManager.postUpdate(old, true)
             ProfileManager.postUpdate(id, true)
         }
+    }
+
+    override fun cbSelectorUpdate(id: Long) {
+        refreshSelectorSelection(id)
     }
 
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {

@@ -205,7 +205,7 @@ class DashboardFragment : ToolbarFragment() {
                                 }
                                 DashboardMemory(dashboardVisible, connected, ui.mode)
                             } else if (tab == 2) {
-                                DashboardLiveProxies(connected)
+                                DashboardLiveProxies(connected) { activity.connection.service }
                             } else if (tab == 3) {
                                 DashboardLiveRules(connected, searchOpen, { searchOpen = it })
                             } else {

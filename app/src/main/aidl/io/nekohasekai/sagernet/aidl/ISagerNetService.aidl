@@ -10,4 +10,6 @@ interface ISagerNetService {
   oneway void unregisterCallback(in ISagerNetServiceCallback cb);
 
   int urlTest();
+  // -1 rejected, 0 unmanaged group, 1 switched, 2 service restart requested.
+  int selectManagedOutbound(String group, String tag);
 }
