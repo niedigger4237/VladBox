@@ -718,6 +718,15 @@ class BaseService {
                     // supervisor) may replace the last confirmed profile.
                     if (data.proxy !== proxy || data.state != State.Connecting || data.destroyed)
                         return@launch
+                    // A selection can be persisted between the initial DB read
+                    // and receiver registration, or while native startup is in flight.
+                    val latestSelection = DataStore.selectedProxy
+                    if (latestSelection != profile.id) {
+                        if (latestSelection > 0 && SagerDatabase.proxyDao.getById(latestSelection) != null)
+                            stopRunner(true)
+                        else stopRunner(false, getString(R.string.profile_empty))
+                        return@launch
+                    }
                     DataStore.currentProfile = profile.id
                     val waiting = (proxy as? io.nekohasekai.sagernet.bg.proto.RootProxyInstance)?.waitingAtStart == true
                     data.changeState(if (waiting) State.Waiting else State.Connected)
@@ -737,7 +746,8 @@ class BaseService {
                     data.binder.missingPlugin(e.plugin)
                     stopRunner(false, null)
                 } catch (exc: Throwable) {
-                    if (data.proxy !== proxy || data.state != State.Connecting || data.destroyed) return@launch
+                    // lateInit can fail after the Connected/Waiting transition.
+                    if (data.proxy !== proxy || !data.state.canStop || data.destroyed) return@launch
                     if (exc.javaClass.name.endsWith("proxyerror")) {
                         // error from golang
                         Logs.w(exc.readableMessage)
