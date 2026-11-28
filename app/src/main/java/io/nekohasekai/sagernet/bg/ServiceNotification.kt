@@ -233,11 +233,7 @@ class ServiceNotification(
             destroyed = true
             listenPostSpeed = false
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    (service as Service).stopForeground(Service.STOP_FOREGROUND_REMOVE)
-                } else {
-                    (service as Service).stopForeground(true)
-                }
+                (service as Service).stopForeground(Service.STOP_FOREGROUND_REMOVE)
             } finally {
                 try {
                     NotificationManagerCompat.from(service as Service).cancel(notificationId)

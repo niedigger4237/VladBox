@@ -1,5 +1,6 @@
 package com.github.shadowsocks.plugin.fragment
 
+import io.nekohasekai.sagernet.ktx.parcelableCompat
 import android.app.Activity
 import android.content.DialogInterface
 import android.os.Bundle
@@ -23,10 +24,11 @@ abstract class AlertDialogFragment<Arg : Parcelable, Ret : Parcelable?> :
         private const val KEY_RET = "ret"
         private const val KEY_WHICH = "which"
 
+        @Suppress("UNCHECKED_CAST") // Generic result type is erased at runtime.
         fun <Ret : Parcelable> setResultListener(fragment: Fragment, requestKey: String,
                                                  listener: (Int, Ret?) -> Unit) {
             fragment.setFragmentResultListener(requestKey) { _, bundle ->
-                listener(bundle.getInt(KEY_WHICH, Activity.RESULT_CANCELED), bundle.getParcelable(KEY_RET))
+                listener(bundle.getInt(KEY_WHICH, Activity.RESULT_CANCELED), bundle.parcelableCompat(KEY_RET, Parcelable::class.java) as Ret?)
             }
         }
         inline fun <reified T : AlertDialogFragment<*, Ret>, Ret : Parcelable?> setResultListener(
@@ -36,7 +38,8 @@ abstract class AlertDialogFragment<Arg : Parcelable, Ret : Parcelable?> :
     protected abstract fun AlertDialog.Builder.prepare(listener: DialogInterface.OnClickListener)
 
     private val resultKey get() = requireArguments().getString(KEY_RESULT)
-    protected val arg by lazy { requireArguments().getParcelable<Arg>(KEY_ARG)!! }
+    @Suppress("UNCHECKED_CAST") // Generic argument type is erased at runtime.
+    protected val arg by lazy { requireNotNull(requireArguments().parcelableCompat(KEY_ARG, Parcelable::class.java)) as Arg }
     protected open fun ret(which: Int): Ret? = null
 
     private fun args() = arguments ?: Bundle().also { arguments = it }

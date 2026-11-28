@@ -1,5 +1,6 @@
 package io.nekohasekai.sagernet.ui
 
+import io.nekohasekai.sagernet.ktx.parcelableCompat
 import androidx.compose.runtime.collectAsState
 
 import android.annotation.SuppressLint
@@ -1161,7 +1162,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         override fun onViewStateRestored(savedInstanceState: Bundle?) {
             super.onViewStateRestored(savedInstanceState)
 
-            savedInstanceState?.getParcelable<ProxyGroup>("proxyGroup")?.also {
+            savedInstanceState?.parcelableCompat("proxyGroup", ProxyGroup::class.java)?.also {
                 proxyGroup = it
                 onViewCreated(requireView(), null)
             }
@@ -1748,7 +1749,9 @@ class ConfigurationFragment @JvmOverloads constructor(
                             val cfg = entity.exportConfig()
                             DataStore.serverConfig = cfg.first
                             startFilesForResult(
-                                (parentFragment as ConfigurationFragment).exportConfig, cfg.second
+                                (parentFragment as ConfigurationFragment).let { parent ->
+                                    if (cfg.second.endsWith(".json", ignoreCase = true)) parent.exportConfig else parent.exportConfigText
+                                }, cfg.second
                             )
                         }
                     }
@@ -1764,7 +1767,11 @@ class ConfigurationFragment @JvmOverloads constructor(
     }
 
     private val exportConfig =
-        registerForActivityResult(ActivityResultContracts.CreateDocument()) { data ->
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/json"), ::writeExportedConfig)
+    private val exportConfigText =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain"), ::writeExportedConfig)
+
+    private fun writeExportedConfig(data: android.net.Uri?) {
             if (data != null) {
                 runOnDefaultDispatcher {
                     try {

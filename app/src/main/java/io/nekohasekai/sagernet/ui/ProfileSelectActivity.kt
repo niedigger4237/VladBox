@@ -1,5 +1,6 @@
 package io.nekohasekai.sagernet.ui
 
+import io.nekohasekai.sagernet.ktx.parcelableCompat
 import android.content.Intent
 import android.os.Bundle
 import io.nekohasekai.sagernet.R
@@ -16,7 +17,7 @@ class ProfileSelectActivity : ThemedActivity(R.layout.layout_empty),
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val selected = intent.getParcelableExtra<ProxyEntity>(EXTRA_SELECTED)
+        val selected = intent.parcelableCompat(EXTRA_SELECTED, ProxyEntity::class.java)
 
         supportFragmentManager.beginTransaction()
             .replace(

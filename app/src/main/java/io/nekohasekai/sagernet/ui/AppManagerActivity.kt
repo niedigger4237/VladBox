@@ -1,5 +1,6 @@
 package io.nekohasekai.sagernet.ui
 
+import kotlinx.coroutines.launch
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -241,7 +242,7 @@ class AppManagerActivity : ThemedActivity() {
     @UiThread
     private fun loadApps() {
         loader?.cancel()
-        loader = lifecycleScope.launchWhenCreated {
+        loader = lifecycleScope.launch {
             for (v in listOf(loading, binding.list, binding.appPlaceholder.root)) { v.clearAnimation(); v.animate().setListener(null).cancel(); v.alpha = 1F }
             binding.appPlaceholder.root.visibility = View.GONE
             binding.list.visibility = View.GONE

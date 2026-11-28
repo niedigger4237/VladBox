@@ -70,6 +70,20 @@ abstract class ThemedActivity : AppCompatActivity {
         }
     }
 
+    protected fun installBackGuard(hasUnsavedChanges: () -> Boolean, showDialog: () -> Unit) {
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (hasUnsavedChanges()) {
+                    showDialog()
+                } else {
+                    isEnabled = false
+                    try { onBackPressedDispatcher.onBackPressed() }
+                    finally { isEnabled = true }
+                }
+            }
+        })
+    }
+
     override fun setTheme(resId: Int) {
         super.setTheme(resId)
 

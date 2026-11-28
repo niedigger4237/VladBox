@@ -41,6 +41,9 @@ class AssetsActivity : ThemedActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() { finish() }
+        })
         layout = LayoutAssetsBinding.inflate(layoutInflater)
         setContentView(layout.root)
         setSupportActionBar(findViewById(R.id.toolbar))
@@ -460,6 +463,5 @@ class AssetsActivity : ThemedActivity() {
     }
 
     override fun onSupportNavigateUp(): Boolean { finish(); return true }
-    override fun onBackPressed() { finish() }
     override fun onResume() { super.onResume(); loadInstalledSets() }
 }

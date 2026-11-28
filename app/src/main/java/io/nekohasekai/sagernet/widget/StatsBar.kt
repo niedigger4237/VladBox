@@ -30,7 +30,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.isActive
-import androidx.lifecycle.whenStarted
+import androidx.lifecycle.withStarted
 import com.google.android.material.card.MaterialCardView
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.bg.BaseService
@@ -276,11 +276,16 @@ class StatsBar @JvmOverloads constructor(
         TooltipCompat.setTooltipText(this, text)
     }
 
+    private var stateUiJob: kotlinx.coroutines.Job? = null
+
     fun changeState(state: BaseService.State) {
         val activity = context as MainActivity
-        fun postWhenStarted(what: () -> Unit) = activity.lifecycleScope.launch(Dispatchers.Main) {
-            delay(100L)
-            activity.whenStarted { what() }
+        stateUiJob?.cancel()
+        fun postWhenStarted(what: () -> Unit) {
+            stateUiJob = activity.lifecycleScope.launch(Dispatchers.Main) {
+                delay(100L)
+                activity.lifecycle.withStarted { what() }
+            }
         }
         refreshMode()
         val connected = state == BaseService.State.Connected
