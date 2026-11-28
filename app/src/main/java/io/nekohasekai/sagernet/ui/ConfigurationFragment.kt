@@ -1404,6 +1404,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                     for ((_, item) in actions) {
                         SagerDatabase.proxyDao.addProxy(item)
                     }
+                    SagerNet.notifySelectorChanged(actions.map { it.second.groupId }, actions.map { it.second.id })
                     for ((index, item) in actions) {
                         configurationListView.post {
                             configurationList[item.id] = item

@@ -292,6 +292,15 @@ class SagerNet : Application(),
         fun reloadService() =
             application.sendBroadcast(Intent(Action.RELOAD).setPackage(application.packageName))
 
+        // Deliver committed configuration changes to the service process, even
+        // when the subscription worker and UI run in different processes.
+        fun notifySelectorChanged(groupIds: Collection<Long>, profileIds: Collection<Long> = emptyList()) {
+            if (groupIds.isEmpty() && profileIds.isEmpty()) return
+            application.sendBroadcast(Intent(Action.SELECTOR_CHANGED).setPackage(application.packageName)
+                .putExtra("groups", groupIds.distinct().toLongArray())
+                .putExtra("profiles", profileIds.distinct().toLongArray()))
+        }
+
         fun stopService() =
             application.sendBroadcast(Intent(Action.CLOSE).setPackage(application.packageName))
 

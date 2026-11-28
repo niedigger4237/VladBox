@@ -57,6 +57,10 @@ class BaseService {
             when (intent.action) {
                 Intent.ACTION_SHUTDOWN -> service.persistStats()
                 Action.RELOAD -> service.reload()
+                Action.SELECTOR_CHANGED -> selectorConfigurationChanged(
+                    intent.getLongArrayExtra("groups").orEmpty(),
+                    intent.getLongArrayExtra("profiles").orEmpty()
+                )
                 // Action.SWITCH_WAKE_LOCK -> runOnDefaultDispatcher { service.switchWakeLock() }
                 PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -93,6 +97,32 @@ class BaseService {
         var networkReconnectJob: Job? = null
         @Volatile var restartAfterStop = false
         var nextRootStartWaiting: Boolean? = null
+
+        private fun selectorConfigurationChanged(groups: LongArray, profiles: LongArray) {
+            if (destroyed || !state.canStop) return
+            val owner = proxy ?: return
+            val affected = if (owner.lastSelectorGroupId >= 0) {
+                val config = owner.config
+                config.selectorGroupId in groups ||
+                    groups.any { it in config.selectorDependencyGroups } ||
+                    profiles.any { it in config.selectorDependencyIds || it in config.selectorProfileTags }
+            } else {
+                // Enabling Selector on a running ordinary group also needs a rebuild.
+                owner.profile.groupId in groups &&
+                    SagerDatabase.groupDao.getById(owner.profile.groupId)?.isSelector == true
+            }
+            if (!affected) return
+            val selected = DataStore.selectedProxy
+            if (selected <= 0 || SagerDatabase.proxyDao.getById(selected) == null) {
+                if (DataStore.selectedProxy == selected) DataStore.selectedProxy = 0L
+                service.stopRunner(false, (service as Context).getString(R.string.profile_empty))
+                return
+            }
+            // The running outbound list and nested chains are immutable. Bypass
+            // hot selection and rebuild through the existing service lifecycle.
+            Logs.i("Selector: configuration changed; rebuilding session")
+            service.stopRunner(true)
+        }
 
         fun selectManagedOutbound(group: String, tag: String): Int {
             if (state != State.Connected || destroyed) return -1
@@ -299,7 +329,8 @@ class BaseService {
             val tag = owner.config.selectorProfileTags[ent.id] ?: return false
             // An edited profile must be rebuilt rather than selecting stale runtime options.
             val running = owner.config.trafficMap[tag]?.firstOrNull { it.id == ent.id } ?: return false
-            if (running.requireBean() != ent.requireBean()) return false
+            if (running.requireBean() != ent.requireBean() ||
+                running.displayName() != ent.displayName()) return false
             // Explicit rules referencing the original or requested profile may depend
             // on the generated main-profile mapping. Preserve their restart semantics.
             if (SagerDatabase.rulesDao.enabledRules().any {
@@ -573,6 +604,7 @@ class BaseService {
             if (!data.closeReceiverRegistered) {
                 val filter = IntentFilter().apply {
                     addAction(Action.RELOAD)
+                    addAction(Action.SELECTOR_CHANGED)
                     addAction(Intent.ACTION_SHUTDOWN)
                     addAction(Action.CLOSE)
                     // addAction(Action.SWITCH_WAKE_LOCK)

@@ -67,6 +67,8 @@ class ConfigBuildResult(
     val selectorGroupId: Long,
     val tunAddressPlan: TunAddressPlan? = null,
     val selectorProfileTags: Map<Long, String> = emptyMap(),
+    val selectorDependencyIds: Set<Long> = emptySet(),
+    val selectorDependencyGroups: Set<Long> = emptySet(),
 ) {
     data class IndexEntity(var chain: LinkedHashMap<Int, ProxyEntity>)
 }
@@ -99,9 +101,14 @@ fun buildConfig(
     val selectorNames = ArrayList<String>()
     val group = SagerDatabase.groupDao.getById(proxy.groupId)
 
+    val dependencyIds = linkedSetOf<Long>()
+    val dependencyGroups = linkedSetOf<Long>()
+
     fun ProxyEntity.resolvePhysicalChain(): List<ProxyEntity> =
-        ProxyChainOrder.flatten(this, { it.id }, { (it.requireBean() as? ChainBean)?.proxies },
-            { ids -> SagerDatabase.proxyDao.getEntities(ids).associateBy { it.id } })
+        ProxyChainOrder.flatten(this, { it.id }, {
+            dependencyIds.add(it.id)
+            (it.requireBean() as? ChainBean)?.proxies
+        }, { ids -> SagerDatabase.proxyDao.getEntities(ids).associateBy { it.id } })
 
     fun selectorName(name_: String): String {
         var name = name_
@@ -116,6 +123,7 @@ fun buildConfig(
     }
 
     fun ProxyEntity.resolveChain(): MutableList<ProxyEntity> {
+        dependencyGroups.add(groupId)
         val thisGroup = SagerDatabase.groupDao.getById(groupId)
         fun resolveGroupHop(id: Long?, label: String): List<ProxyEntity> {
             if (id == null || id < 0) return emptyList()
@@ -966,7 +974,9 @@ fun buildConfig(
             tagMap,
             if (buildSelector) group.id else -1L,
             tunPlan,
-            selectorProfileTags.toMap()
+            selectorProfileTags.toMap(),
+            if (buildSelector) dependencyIds.toSet() else emptySet(),
+            if (buildSelector) dependencyGroups.toSet() else emptySet()
         )
     }
 

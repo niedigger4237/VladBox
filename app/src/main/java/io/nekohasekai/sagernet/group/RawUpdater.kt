@@ -2,6 +2,7 @@ package io.nekohasekai.sagernet.group
 
 import android.annotation.SuppressLint
 import io.nekohasekai.sagernet.R
+import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.database.*
 import io.nekohasekai.sagernet.fmt.AbstractBean
 import io.nekohasekai.sagernet.fmt.naive.NaiveBean
@@ -47,6 +48,7 @@ object RawUpdater : GroupUpdater() {
         byUser: Boolean
     ) {
 
+        val previousGroupName = proxyGroup.name
         val link = subscription.link
         var proxies: List<AbstractBean>
         if (link.startsWith("content://")) {
@@ -159,6 +161,8 @@ object RawUpdater : GroupUpdater() {
 
         var userOrder = 1L
         var changed = toDelete.size
+        val changedIds = toDelete.map { it.id }.toMutableList()
+        SagerDatabase.instance.runInTransaction {
         for ((name, bean) in nameMap.entries) {
             if (toReplace.contains(name)) {
                 val entity = toReplace[name]!!
@@ -174,6 +178,7 @@ object RawUpdater : GroupUpdater() {
                 when {
                     existsBean != bean -> {
                         changed++
+                        changedIds.add(entity.id)
                         entity.putBean(bean)
                         entity.userOrder = userOrder
                         toUpdate.add(entity)
@@ -196,12 +201,13 @@ object RawUpdater : GroupUpdater() {
                 }
             } else {
                 changed++
-                SagerDatabase.proxyDao.addProxy(
+                val newId = SagerDatabase.proxyDao.addProxy(
                     ProxyEntity(
                         groupId = proxyGroup.id, userOrder = userOrder
                     ).apply {
                         putBean(bean)
                     })
+                changedIds.add(newId)
                 added.add(name)
                 Logs.d("Inserted profile: $name")
             }
@@ -224,6 +230,10 @@ object RawUpdater : GroupUpdater() {
 
         subscription.lastUpdated = (System.currentTimeMillis() / 1000).toInt()
         SagerDatabase.groupDao.updateGroup(proxyGroup)
+        }
+        if (toDelete.any { it.id == DataStore.selectedProxy }) DataStore.selectedProxy = 0L
+        if (changed > 0 || previousGroupName != proxyGroup.name)
+            SagerNet.notifySelectorChanged(listOf(proxyGroup.id), changedIds)
         finishUpdate(proxyGroup)
 
         userInterface?.onUpdateSuccess(

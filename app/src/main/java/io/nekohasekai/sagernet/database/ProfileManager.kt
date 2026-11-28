@@ -4,6 +4,7 @@ import android.database.sqlite.SQLiteCantOpenDatabaseException
 import io.nekohasekai.sagernet.fmt.internal.ChainBean
 import io.nekohasekai.sagernet.fmt.v2ray.XrayJsonImport
 import io.nekohasekai.sagernet.R
+import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.aidl.TrafficData
 import io.nekohasekai.sagernet.fmt.AbstractBean
 import io.nekohasekai.sagernet.ktx.Logs
@@ -83,6 +84,7 @@ object ProfileManager {
             userOrder = SagerDatabase.proxyDao.nextOrder(groupId) ?: 1
         }
         profile.id = SagerDatabase.proxyDao.addProxy(profile)
+        SagerNet.notifySelectorChanged(listOf(groupId), listOf(profile.id))
         iterator { onAdd(profile) }
         return profile
     }
@@ -120,16 +122,29 @@ object ProfileManager {
                 })
             }
         }
+        SagerNet.notifySelectorChanged(listOf(groupId), created.map { it.id })
         for (entity in created) iterator { onAdd(entity) }
     }
 
+    private fun configurationChanged(old: ProxyEntity?, updated: ProxyEntity): Boolean =
+        old == null || old.groupId != updated.groupId || old.type != updated.type ||
+            old.displayName() != updated.displayName() || old.requireBean() != updated.requireBean()
+
     suspend fun updateProfile(profile: ProxyEntity) {
+        val old = SagerDatabase.proxyDao.getById(profile.id)
         SagerDatabase.proxyDao.updateProxy(profile)
+        if (configurationChanged(old, profile))
+            SagerNet.notifySelectorChanged(listOfNotNull(old?.groupId, profile.groupId), listOf(profile.id))
         iterator { onUpdated(profile, false) }
     }
 
     suspend fun updateProfile(profiles: List<ProxyEntity>) {
+        if (profiles.isEmpty()) return
+        val old = SagerDatabase.proxyDao.getEntities(profiles.map { it.id }).associateBy { it.id }
+        val changed = profiles.filter { configurationChanged(old[it.id], it) }
         SagerDatabase.proxyDao.updateProxy(profiles)
+        SagerNet.notifySelectorChanged(changed.flatMap { listOfNotNull(old[it.id]?.groupId, it.groupId) },
+            changed.map { it.id })
         profiles.forEach {
             iterator { onUpdated(it, false) }
         }
@@ -140,6 +155,7 @@ object ProfileManager {
         if (DataStore.selectedProxy == profileId) {
             DataStore.selectedProxy = 0L
         }
+        SagerNet.notifySelectorChanged(listOf(groupId), listOf(profileId))
     }
 
     suspend fun deleteProfile(groupId: Long, profileId: Long) {
@@ -147,6 +163,7 @@ object ProfileManager {
         if (DataStore.selectedProxy == profileId) {
             DataStore.selectedProxy = 0L
         }
+        SagerNet.notifySelectorChanged(listOf(groupId), listOf(profileId))
         iterator { onRemoved(groupId, profileId) }
         if (SagerDatabase.proxyDao.countByGroup(groupId) > 1) {
             GroupManager.rearrange(groupId)
