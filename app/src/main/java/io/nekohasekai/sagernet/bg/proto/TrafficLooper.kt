@@ -6,190 +6,98 @@ import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.SagerConnection
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProfileManager
+import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.fmt.TAG_BYPASS
 import io.nekohasekai.sagernet.fmt.TAG_PROXY
 import io.nekohasekai.sagernet.ktx.Logs
-import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
 import kotlinx.coroutines.*
 
-class TrafficLooper
-    (
-    val data: BaseService.Data, private val sc: CoroutineScope
-) {
-
+class TrafficLooper(val data: BaseService.Data, private val sc: CoroutineScope) {
     private var job: Job? = null
-    private val idMap = mutableMapOf<Long, TrafficUpdater.TrafficLooperData>() // id to 1 data
-    private val tagMap = mutableMapOf<String, TrafficUpdater.TrafficLooperData>() // tag to 1 data
+    private var updater: TrafficUpdater? = null
+    private var ledger: TrafficLedger? = null
+    private var preparedOwner: ProxyInstance? = null
+    private val counters = linkedMapOf<String, TrafficUpdater.TrafficLooperData>()
+
+    // All counter reads belong to the polling job or to stop(), after joining it.
+    fun prepare(proxy: ProxyInstance) {
+        if (preparedOwner != null || DataStore.speedInterval <= 0) return
+        val mapping = proxy.config.trafficMap.mapValues { (_, profiles) -> profiles.map { it.id }.distinct() }
+        val bases = proxy.config.trafficMap.values.flatten().associate { it.id to TrafficLedger.Bytes(it.rx, it.tx) }
+        ledger = TrafficLedger(mapping, bases)
+        val tags = mapping.keys + setOf(TAG_PROXY, TAG_BYPASS)
+        for (tag in tags) counters[tag] = TrafficUpdater.TrafficLooperData(tag = tag)
+        proxy.box.enableStats(tags.joinToString("\n"))
+        updater = TrafficUpdater(proxy.box, counters.values.toList())
+        preparedOwner = proxy
+        Logs.d("VPN traffic: native stats enabled for ${tags.size} tags")
+    }
+
+    private fun totals() = counters.mapValues { (_, item) -> TrafficLedger.Bytes(item.rx, item.tx) }
 
     suspend fun stop() {
-        val running = job ?: return
+        val running = job
         job = null
-        running.cancelAndJoin()
-        // finally traffic post
+        running?.cancelAndJoin()
+        if (running == null) return
+        try {
+            updater?.updateAll() // last pending deltas, before native shutdown
+        } catch (e: Exception) {
+            Logs.w("Final traffic sample failed", e)
+        }
         if (!DataStore.profileTrafficStatistics) return
-        val traffic = mutableMapOf<Long, TrafficData>()
-        data.proxy?.config?.trafficMap?.forEach { (_, ents) ->
-            for (ent in ents) {
-                val item = idMap[ent.id] ?: continue
-                if (traffic.containsKey(ent.id)) continue
-                ent.rx = item.rx
-                ent.tx = item.tx
-                ProfileManager.updateProfile(ent) // update DB
-                traffic[ent.id] = TrafficData(
-                    id = ent.id,
-                    rx = ent.rx,
-                    tx = ent.tx,
-                )
-            }
+        val deltas = ledger?.profileDeltas(totals()).orEmpty()
+        val updates = mutableListOf<TrafficData>()
+        for ((id, bytes) in deltas) {
+            if (bytes.rx == 0L && bytes.tx == 0L) continue
+            // Update only counters; never overwrite a profile edited during the session.
+            if (SagerDatabase.proxyDao.addTraffic(id, bytes.rx, bytes.tx) == 0) continue
+            val current = SagerDatabase.proxyDao.getById(id) ?: continue
+            ProfileManager.postUpdate(current)
+            updates.add(TrafficData(id = id, rx = current.rx, tx = current.tx))
         }
-        data.binder.broadcast { b ->
-            for (t in traffic) {
-                b.cbTrafficUpdate(t.value)
-            }
-        }
+        data.binder.broadcast { callback -> updates.forEach { callback.cbTrafficUpdate(it) } }
         Logs.d("finally traffic post done")
     }
 
     fun start() {
-        if (job != null) return
+        if (job != null || updater == null) return
         job = sc.launch { loop() }
-    }
-
-    var selectorNowId = -114514L
-    var selectorNowFakeTag = ""
-
-    fun selectMain(id: Long) {
-        Logs.d("select traffic count $TAG_PROXY to $id, old id is $selectorNowId")
-        val oldData = idMap[selectorNowId]
-        val newData = idMap[id] ?: return
-        oldData?.apply {
-            tag = selectorNowFakeTag
-            ignore = true
-            // post traffic when switch
-            if (DataStore.profileTrafficStatistics) {
-                data.proxy?.config?.trafficMap?.get(tag)?.firstOrNull()?.let {
-                    it.rx = rx
-                    it.tx = tx
-                    runOnDefaultDispatcher {
-                        ProfileManager.updateProfile(it) // update DB
-                    }
-                }
-            }
-        }
-        selectorNowFakeTag = newData.tag
-        selectorNowId = id
-        newData.apply {
-            tag = TAG_PROXY
-            ignore = false
-        }
     }
 
     private suspend fun loop() {
         val delayMs = DataStore.speedInterval.toLong()
-        val showDirectSpeed = DataStore.showDirectSpeed
-        val profileTrafficStatistics = DataStore.profileTrafficStatistics
-        Logs.d("VPN traffic: interval=${delayMs}ms, profileStats=$profileTrafficStatistics, directSpeed=$showDirectSpeed")
-        if (delayMs <= 0L) return
-
-        var trafficUpdater: TrafficUpdater? = null
-        var proxy: ProxyInstance?
-
-        // for display
-        val itemBypass = TrafficUpdater.TrafficLooperData(tag = TAG_BYPASS)
-
-        while (currentCoroutineContext().isActive) {
-            proxy = data.proxy
-            if (proxy == null) {
-                delay(delayMs)
-                continue
-            }
-
-            if (trafficUpdater == null) {
-                if (!proxy.isInitialized()) {
-                    delay(50)
-                    continue
-                }
-                idMap.clear()
-                idMap[-1] = itemBypass
-                //
-                val tags = hashSetOf(TAG_PROXY, TAG_BYPASS)
-                proxy.config.trafficMap.forEach { (tag, ents) ->
-                    tags.add(tag)
-                    for (ent in ents) {
-                        val item = TrafficUpdater.TrafficLooperData(
-                            tag = tag,
-                            rx = ent.rx,
-                            tx = ent.tx,
-                            rxBase = ent.rx,
-                            txBase = ent.tx,
-                            ignore = proxy.config.selectorGroupId >= 0L,
-                        )
-                        idMap[ent.id] = item
-                        tagMap[tag] = item
-                        Logs.d("traffic count $tag to ${ent.id}")
-                    }
-                }
-                if (proxy.config.selectorGroupId >= 0L) {
-                    selectMain(proxy.config.mainEntId)
-                }
-                //
-                trafficUpdater = TrafficUpdater(
-                    box = proxy.box, items = idMap.values.toList()
-                )
-                proxy.box.enableStats(tags.joinToString("\n"))
-                Logs.d("VPN traffic: native stats enabled for ${tags.size} tags")
-            }
-
-            trafficUpdater.updateAll()
+        val activeUpdater = updater ?: return
+        val activeLedger = ledger ?: return
+        if (delayMs <= 0) return
+        while (currentCoroutineContext().isActive && data.proxy === preparedOwner) {
+            activeUpdater.updateAll()
             currentCoroutineContext().ensureActive()
-
-            // add all non-bypass to "main"
-            var mainTxRate = 0L
-            var mainRxRate = 0L
-            var mainTx = 0L
-            var mainRx = 0L
-            tagMap.forEach { (_, it) ->
-                if (!it.ignore) {
-                    mainTxRate += it.txRate
-                    mainRxRate += it.rxRate
-                }
-                mainTx += it.tx - it.txBase
-                mainRx += it.rx - it.rxBase
-            }
-
-            // speed
+            val bytes = totals()
+            val session = activeLedger.sessionTotal(bytes)
+            val rates = activeLedger.sessionTotal(counters.mapValues { (_, item) ->
+                TrafficLedger.Bytes(item.rxRate, item.txRate)
+            })
+            val bypass = counters[TAG_BYPASS]
             val speed = SpeedDisplayData(
-                mainTxRate,
-                mainRxRate,
-                if (showDirectSpeed) itemBypass.txRate else 0L,
-                if (showDirectSpeed) itemBypass.rxRate else 0L,
-                mainTx,
-                mainRx
+                rates.tx, rates.rx,
+                if (DataStore.showDirectSpeed) bypass?.txRate ?: 0L else 0L,
+                if (DataStore.showDirectSpeed) bypass?.rxRate ?: 0L else 0L,
+                session.tx, session.rx
             )
-
-            // broadcast (MainActivity)
-            if (data.state == BaseService.State.Connected
-                && data.binder.callbackIdMap.containsValue(SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND)
-            ) {
-                data.binder.broadcast { b ->
-                    if (data.binder.callbackIdMap[b] == SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND) {
-                        b.cbSpeedUpdate(speed)
-                        if (profileTrafficStatistics) {
-                            idMap.forEach { (id, item) ->
-                                b.cbTrafficUpdate(
-                                    TrafficData(id = id, rx = item.rx, tx = item.tx) // display
-                                )
-                            }
+            val profileTotals = if (DataStore.profileTrafficStatistics) activeLedger.profileTotals(bytes) else emptyMap()
+            if (data.state == BaseService.State.Connected &&
+                data.binder.callbackIdMap.containsValue(SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND)) {
+                data.binder.broadcast { callback ->
+                    if (data.binder.callbackIdMap[callback] == SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND) {
+                        callback.cbSpeedUpdate(speed)
+                        profileTotals.forEach { (id, total) ->
+                            callback.cbTrafficUpdate(TrafficData(id = id, rx = total.rx, tx = total.tx))
                         }
                     }
                 }
             }
-
-            // ServiceNotification
-            data.notification?.apply {
-                if (listenPostSpeed) postNotificationSpeedUpdate(speed)
-            }
-
+            data.notification?.apply { if (listenPostSpeed) postNotificationSpeedUpdate(speed) }
             delay(delayMs)
         }
     }

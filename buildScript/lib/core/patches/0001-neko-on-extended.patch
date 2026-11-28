@@ -125,10 +125,9 @@ index 00000000..a97e0af5
 +}
 diff --git a/boxapi/v2ray_stats_service.go b/boxapi/v2ray_stats_service.go
 new file mode 100644
-index 00000000..6e751fd7
 --- /dev/null
 +++ b/boxapi/v2ray_stats_service.go
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,212 @@
 +package boxapi
 +
 +import (
@@ -180,10 +179,25 @@ index 00000000..6e751fd7
 +	}
 +}
 +
++// For managed selectors, capture the selected member at routing time. Keep
++// the group counter as fallback when no configured member counter exists.
++// Each connection retains the same counter for its entire lifetime.
++func (s *SbStatsService) routedOutboundTag(outbound adapter.Outbound) string {
++	tag := outbound.Tag()
++	if tag == "proxy" && outbound.Type() == "selector" {
++		if selector, ok := outbound.(adapter.OutboundGroup); ok {
++			if selected := selector.Now(); selected != "" && s.outbounds[selected] {
++				return selected
++			}
++		}
++	}
++	return tag
++}
++
 +func (s *SbStatsService) RoutedConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) net.Conn {
 +	inbound := metadata.Inbound
 +	user := metadata.User
-+	outbound := matchOutbound.Tag()
++	outbound := s.routedOutboundTag(matchOutbound)
 +	return s.RoutedConnectionInternal(inbound, outbound, user, conn, true)
 +}
 +
@@ -221,7 +235,7 @@ index 00000000..6e751fd7
 +func (s *SbStatsService) RoutedPacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) N.PacketConn {
 +	inbound := metadata.Inbound
 +	user := metadata.User
-+	outbound := matchOutbound.Tag()
++	outbound := s.routedOutboundTag(matchOutbound)
 +	var readCounter []*atomic.Int64
 +	var writeCounter []*atomic.Int64
 +	countInbound := inbound != "" && s.inbounds[inbound]
@@ -282,7 +296,7 @@ index 00000000..6e751fd7
 +func (s *SbStatsService) RoutedFlow(ctx context.Context, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) tun.FlowTracker {
 +	inbound := metadata.Inbound
 +	user := metadata.User
-+	outbound := matchOutbound.Tag()
++	outbound := s.routedOutboundTag(matchOutbound)
 +	var uplinkCounter []*atomic.Int64
 +	var downlinkCounter []*atomic.Int64
 +	countInbound := inbound != "" && s.inbounds[inbound]

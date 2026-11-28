@@ -71,15 +71,16 @@ open class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interfac
 
     override fun launch() {
         if (isBoxInitialized()) box.setAsMain()
-        super.launch() // start box
-        // traffic stats need the in-process core (root modes run it externally)
+        // Install the tracker before native startup, not concurrently with routing.
         if (isBoxInitialized() && looper == null) {
             service?.let { owner ->
                 val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
                 trafficScope = scope
-                looper = TrafficLooper(owner.data, scope).also { it.start() }
+                looper = TrafficLooper(owner.data, scope).also { it.prepare(this) }
             }
         }
+        super.launch() // start box
+        looper?.start()
     }
 
     override fun close() {
