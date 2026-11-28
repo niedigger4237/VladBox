@@ -131,11 +131,15 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
     var busy by remember(connected) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val refreshLock = remember { kotlinx.coroutines.sync.Mutex() }
+    var displayedSessionId by remember(connected) { mutableStateOf(0L) }
     var cachedProfileId by remember(connected) { mutableStateOf(Long.MIN_VALUE) }
     var cachedProfile by remember(connected) { mutableStateOf<io.nekohasekai.sagernet.database.ProxyEntity?>(null) }
     suspend fun refresh() {
         refreshLock.lock()
         try {
+        val binder = service() ?: error("Service unavailable")
+        val sessionId = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { binder.selectorSessionId }
+        check(sessionId != 0L) { "Service not connected" }
         val id = io.nekohasekai.sagernet.database.DataStore.currentProfile
         if (cachedProfileId != id) {
             cachedProfile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -145,7 +149,7 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
         }
         val profile = cachedProfile
         val proxies = dashboardGet("proxies").getJSONObject("proxies")
-        groups = proxies.keys().asSequence().mapNotNull { name ->
+        val refreshedGroups = proxies.keys().asSequence().mapNotNull { name ->
             val item = proxies.optJSONObject(name) ?: return@mapNotNull null
             val all = item.optJSONArray("all") ?: return@mapNotNull null
             val nodes = (0 until all.length()).map { index ->
@@ -162,6 +166,10 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
             }
             DashboardProxyGroup(name, item.optString("type"), item.optString("now"), nodes)
         }.toList()
+        val confirmedSession = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { binder.selectorSessionId }
+        check(confirmedSession == sessionId) { "Service session changed" }
+        displayedSessionId = sessionId
+        groups = refreshedGroups
         } finally { refreshLock.unlock() }
     }
     LaunchedEffect(connected) {
@@ -187,21 +195,29 @@ internal fun DashboardLiveProxies(connected: Boolean, service: () -> io.nekohase
         }
     }
     DashboardProxiesTab(connected, groups,
-        onSelect = if (busy) null else { group, node ->
+        onSelect = if (busy || displayedSessionId == 0L) null else { group, node ->
+            val sessionId = displayedSessionId
             action(refreshAfter = false) {
                 val binder = service() ?: error("Service unavailable")
                 val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    binder.selectManagedOutbound(group, node)
+                    binder.selectManagedOutbound(sessionId, group, node)
                 }
                 when (result) {
                     0 -> {
                         // Custom/raw selector groups have no application profile mapping.
+                        check(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            binder.selectorSessionId == sessionId
+                        }) { "Service session changed" }
                         dashboardRequest("proxies/" + android.net.Uri.encode(group), "PUT", org.json.JSONObject().put("name", node))
                         refresh()
                     }
                     1 -> refresh()
                     2 -> Unit // Reconnection recreates this tab with the new core state.
-                    else -> error("Selector rejected")
+                    else -> {
+                        displayedSessionId = 0L
+                        refresh()
+                        error("Selector rejected")
+                    }
                 }
             }
         },

@@ -1543,9 +1543,7 @@ class ConfigurationFragment @JvmOverloads constructor(
 
         }
 
-        val profileAccess = Mutex()
-        val reloadAccess = Mutex()
-
+ 
         inner class ConfigurationHolder(val view: View) : RecyclerView.ViewHolder(view),
             PopupMenu.OnMenuItemClickListener {
 
@@ -1604,30 +1602,22 @@ class ConfigurationFragment @JvmOverloads constructor(
                     }
                 } else {
                     view.setOnClickListener {
-                        runOnDefaultDispatcher {
-                            var update: Boolean
-                            var lastSelected: Long
-                            profileAccess.withLock {
-                                update = DataStore.selectedProxy != proxyEntity.id
-                                lastSelected = DataStore.selectedProxy
-                                DataStore.selectedProxy = proxyEntity.id
-                                onMainDispatcher {
-                                    if (entity.id == proxyEntity.id) renderSelection(true)
-                                }
+                        // Clicks arrive on Main. Persist in click order, not in
+                        // independently scheduled background coroutines.
+                        val lastSelected = DataStore.selectedProxy
+                        if (lastSelected != proxyEntity.id) {
+                            DataStore.selectedProxy = proxyEntity.id
+                            if (entity.id == proxyEntity.id) renderSelection(true)
+                            SagerNet.requestProfileSelection()
+                            runOnDefaultDispatcher {
+                                ProfileManager.postUpdate(lastSelected, true)
+                                ProfileManager.postUpdate(proxyEntity.id, true)
                             }
-
-                            if (update) {
-                                ProfileManager.postUpdate(lastSelected)
-                                if (DataStore.serviceState.canStop && reloadAccess.tryLock()) {
-                                    SagerNet.reloadService()
-                                    reloadAccess.unlock()
-                                }
-                            } else if (SagerNet.isTv) {
-                                if (DataStore.serviceState.started) {
-                                    SagerNet.stopService()
-                                } else {
-                                    SagerNet.startService()
-                                }
+                        } else if (SagerNet.isTv) {
+                            if (DataStore.serviceState.started) {
+                                SagerNet.stopService()
+                            } else {
+                                SagerNet.startService()
                             }
                         }
 

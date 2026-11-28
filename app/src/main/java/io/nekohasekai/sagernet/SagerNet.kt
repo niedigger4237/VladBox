@@ -292,6 +292,10 @@ class SagerNet : Application(),
         fun reloadService() =
             application.sendBroadcast(Intent(Action.RELOAD).setPackage(application.packageName))
 
+        // Unlike a generic reload, a queued selection may never start a stopped service.
+        fun requestProfileSelection() =
+            application.sendBroadcast(Intent(Action.SELECT_PROFILE).setPackage(application.packageName))
+
         // Deliver committed configuration changes to the service process, even
         // when the subscription worker and UI run in different processes.
         fun notifySelectorChanged(groupIds: Collection<Long>, profileIds: Collection<Long> = emptyList()) {

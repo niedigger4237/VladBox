@@ -30,7 +30,7 @@ class SwitchActivity : ThemedActivity(R.layout.layout_empty),
             ProfileManager.postUpdate(old, true)
             ProfileManager.postUpdate(profileId, true)
         }
-        SagerNet.reloadService()
+        if (old != profileId) SagerNet.requestProfileSelection()
         finish()
     }
 }

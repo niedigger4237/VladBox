@@ -57,6 +57,7 @@ class BaseService {
             when (intent.action) {
                 Intent.ACTION_SHUTDOWN -> service.persistStats()
                 Action.RELOAD -> service.reload()
+                Action.SELECT_PROFILE -> applyProfileSelection()
                 Action.SELECTOR_CHANGED -> selectorConfigurationChanged(
                     intent.getLongArrayExtra("groups") ?: longArrayOf(),
                     intent.getLongArrayExtra("profiles") ?: longArrayOf()
@@ -97,6 +98,18 @@ class BaseService {
         var networkReconnectJob: Job? = null
         @Volatile var restartAfterStop = false
         var nextRootStartWaiting: Boolean? = null
+        @Volatile var selectorSessionId: Long = 0L
+
+        private fun applyProfileSelection() {
+            if (destroyed || !state.canStop) return
+            val owner = proxy ?: return
+            val selected = DataStore.selectedProxy
+            // Queued broadcasts read the latest selection. Duplicate selections
+            // must not turn a successful hot switch into a full restart.
+            if (selected > 0 && ((state == State.Connecting && owner.profile.id == selected) ||
+                    (state != State.Connecting && DataStore.currentProfile == selected))) return
+            service.reload()
+        }
 
         private fun selectorConfigurationChanged(groups: LongArray, profiles: LongArray) {
             if (destroyed || !state.canStop) return
@@ -121,11 +134,15 @@ class BaseService {
             // The running outbound list and nested chains are immutable. Bypass
             // hot selection and rebuild through the existing service lifecycle.
             Logs.i("Selector: configuration changed; rebuilding session")
-            service.stopRunner(true)
+            if (state == State.Waiting && !io.nekohasekai.sagernet.bg.root.ServiceControl.hasStartRule(
+                    io.nekohasekai.sagernet.bg.root.ServiceControl.toJson())) {
+                service.stopRunner(false)
+            } else service.stopRunner(true)
         }
 
-        fun selectManagedOutbound(group: String, tag: String): Int {
-            if (state != State.Connected || destroyed) return -1
+        fun selectManagedOutbound(sessionId: Long, group: String, tag: String): Int {
+            if (state != State.Connected || destroyed || sessionId == 0L ||
+                sessionId != selectorSessionId) return -1
             val owner = proxy ?: return -1
             val config = owner.config
             // Only the application-generated top-level selector owns a profile ID.
@@ -204,9 +221,14 @@ class BaseService {
             callbacks.unregister(cb)
         }
 
-        override fun selectManagedOutbound(group: String, tag: String): Int =
+        override fun getSelectorSessionId(): Long =
             runBlocking(Dispatchers.Main.immediate) {
-                data?.selectManagedOutbound(group, tag) ?: -1
+                data?.takeIf { it.state == State.Connected && !it.destroyed }?.selectorSessionId ?: 0L
+            }
+
+        override fun selectManagedOutbound(sessionId: Long, group: String, tag: String): Int =
+            runBlocking(Dispatchers.Main.immediate) {
+                data?.selectManagedOutbound(sessionId, group, tag) ?: -1
             }
 
         override fun urlTest(): Int {
@@ -276,6 +298,11 @@ class BaseService {
                 return
             }
             val requested = SagerDatabase.proxyDao.getById(requestedId)
+            if (requested == null) {
+                if (DataStore.selectedProxy == requestedId) DataStore.selectedProxy = 0L
+                stopRunner(false, (this as Context).getString(R.string.profile_empty))
+                return
+            }
             if (canReloadSelector(requested)) {
                 val owner = data.proxy
                 val ent = requested
@@ -372,15 +399,21 @@ class BaseService {
             if (data.destroyed) return
             if (data.state == State.Stopping) {
                 // A user stop or permission revocation must win over a pending reconnect.
-                if (!restart && msg == null) {
+                if (!restart) {
                     data.restartAfterStop = false
                     data.nextRootStartWaiting = null
                 }
                 return
             }
             data.restartAfterStop = restart
-            data.nextRootStartWaiting = if (restart && data.proxy is io.nekohasekai.sagernet.bg.proto.RootProxyInstance)
-                data.state == State.Waiting else null
+            val rootOwner = data.proxy as? io.nekohasekai.sagernet.bg.proto.RootProxyInstance
+            data.nextRootStartWaiting = if (restart && rootOwner != null) when (data.state) {
+                State.Waiting -> true
+                State.Connected -> false
+                State.Connecting -> rootOwner.startWaitingOverride
+                else -> null
+            } else null
+            data.selectorSessionId = 0L
             if (this is VpnService) Logs.i("VPN service stop: state=${data.state}, restart=$restart, error=${msg != null}")
             data.networkReconnectJob?.cancel()
             data.networkReconnectJob = null
@@ -440,6 +473,7 @@ class BaseService {
         }
 
         fun cleanupOnDestroy(deferProcessCleanup: Boolean = false) {
+            data.selectorSessionId = 0L
             data.restartAfterStop = false
             data.networkReconnectJob?.cancel()
             data.networkReconnectJob = null
@@ -600,11 +634,13 @@ class BaseService {
                 proxy.startWaitingOverride = data.nextRootStartWaiting
             data.nextRootStartWaiting = null
             data.proxy = proxy
+            data.selectorSessionId = android.os.SystemClock.elapsedRealtimeNanos().coerceAtLeast(1L)
             BootReceiver.enabled = DataStore.persistAcrossReboot
             if (!data.closeReceiverRegistered) {
                 val filter = IntentFilter().apply {
                     addAction(Action.RELOAD)
                     addAction(Action.SELECTOR_CHANGED)
+                    addAction(Action.SELECT_PROFILE)
                     addAction(Intent.ACTION_SHUTDOWN)
                     addAction(Action.CLOSE)
                     // addAction(Action.SWITCH_WAKE_LOCK)
@@ -692,13 +728,16 @@ class BaseService {
                     lateInit()
                 } catch (_: CancellationException) { // if the job was cancelled, it is canceller's responsibility to call stopRunner
                 } catch (_: UnknownHostException) {
-                    stopRunner(false, getString(R.string.invalid_server))
+                    if (data.proxy === proxy && data.state == State.Connecting && !data.destroyed)
+                        stopRunner(false, getString(R.string.invalid_server))
                 } catch (e: PluginManager.PluginNotFoundException) {
+                    if (data.proxy !== proxy || data.state != State.Connecting || data.destroyed) return@launch
                     Toast.makeText(this@Interface, e.readableMessage, Toast.LENGTH_SHORT).show()
                     Logs.w(e)
                     data.binder.missingPlugin(e.plugin)
                     stopRunner(false, null)
                 } catch (exc: Throwable) {
+                    if (data.proxy !== proxy || data.state != State.Connecting || data.destroyed) return@launch
                     if (exc.javaClass.name.endsWith("proxyerror")) {
                         // error from golang
                         Logs.w(exc.readableMessage)

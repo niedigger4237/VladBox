@@ -205,6 +205,7 @@ object Action {
     const val CLOSE = "io.nekohasekai.sagernet.CLOSE"
     const val RELOAD = "io.nekohasekai.sagernet.RELOAD"
     const val SELECTOR_CHANGED = "io.nekohasekai.sagernet.SELECTOR_CHANGED"
+    const val SELECT_PROFILE = "io.nekohasekai.sagernet.SELECT_PROFILE"
 
     // const val SWITCH_WAKE_LOCK = "io.nekohasekai.sagernet.SWITCH_WAKELOCK"
     const val RESET_UPSTREAM_CONNECTIONS = "moe.nb4a.RESET_UPSTREAM_CONNECTIONS"
