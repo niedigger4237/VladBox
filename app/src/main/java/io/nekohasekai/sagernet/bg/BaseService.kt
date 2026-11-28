@@ -58,8 +58,8 @@ class BaseService {
                 Intent.ACTION_SHUTDOWN -> service.persistStats()
                 Action.RELOAD -> service.reload()
                 Action.SELECTOR_CHANGED -> selectorConfigurationChanged(
-                    intent.getLongArrayExtra("groups").orEmpty(),
-                    intent.getLongArrayExtra("profiles").orEmpty()
+                    intent.getLongArrayExtra("groups") ?: longArrayOf(),
+                    intent.getLongArrayExtra("profiles") ?: longArrayOf()
                 )
                 // Action.SWITCH_WAKE_LOCK -> runOnDefaultDispatcher { service.switchWakeLock() }
                 PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
