@@ -108,4 +108,20 @@ class ManagedDnsRulesTest {
         assertTrue(ManagedDnsRules.decode("[]").isEmpty())
         assertEquals("System DNS", RouteDnsChoice.label(RouteDnsChoice.update("", "dns-local")))
     }
+    @Test fun geoIpResponseRulesUseExistingAssetsAndPrivateMatch() {
+        val pair = ManagedDnsRules.fromDestinationIp("Direct IP", "geoip:ru\ngeoip:private\n203.0.113.0/24",
+            "dns-direct", "dns-local")
+        val restored = ManagedDnsRules.decode(ManagedDnsRules.encode(pair))
+        assertEquals(pair, restored)
+        assertEquals(listOf("geoip:ru"), ManagedDnsRules.assetRuleSets(restored.last()))
+        val options = ManagedDnsRules.options(restored, true)
+        assertEquals("evaluate", options.first().action)
+        assertEquals("dns-local", options.last().server)
+        assertEquals(listOf("geoip:ru"), options.last().rule_set)
+        assertEquals("nf-eval-${pair.first().id}", options.last()._hack_config_map["match_response"])
+        assertEquals(true, options.last()._hack_config_map["ip_is_private"])
+        assertEquals(listOf("203.0.113.0/24"), options.last()._hack_config_map["ip_cidr"])
+        assertTrue(runCatching { ManagedDnsRules.validate(restored.last().copy(responseFrom = null)) }.isFailure)
+        assertTrue(runCatching { ManagedDnsRules.validate(restored.last().copy(srs = listOf("geosite:ru"))) }.isFailure)
+    }
 }

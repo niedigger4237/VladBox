@@ -29,7 +29,8 @@ internal object ManagedDnsRules {
         val cacheMode: String? = null,
         val removeClientSubnet: Boolean? = null,
         val logicalMode: String? = null,
-        val srs: List<String>? = null
+        val srs: List<String>? = null,
+        val responseSrs: List<String>? = null
     )
     private val gson = Gson()
     // Explicit runtime type: an anonymous TypeToken subclass loses its
@@ -65,6 +66,29 @@ internal object ManagedDnsRules {
         require(sets.size <= 512 && sets.all { it.matches(Regex("geosite:[A-Za-z0-9._!-]+")) }) {
             "DNS query matching supports Geosite SRS only"
         }
+    }
+
+    fun responseRuleSets(rule: Rule): List<String> = rule.responseSrs.orEmpty().distinct().also { sets ->
+        require(sets.size <= 512 && sets.all { it.matches(Regex("geoip:[A-Za-z0-9._!-]+")) }) {
+            "DNS response matching supports GeoIP SRS only"
+        }
+    }
+    // geoip:private is the same built-in match used by ordinary routing rules.
+    fun assetRuleSets(rule: Rule): List<String> =
+        (ruleSets(rule) + responseRuleSets(rule).filterNot { it == "geoip:private" }).distinct()
+
+    /** A DNS query does not yet have a destination IP. Evaluate A/AAAA first,
+     * then match that response and choose a final DNS target. */
+    fun fromDestinationIp(name: String, input: String, evaluateTarget: String, matchedTarget: String): List<Rule> {
+        val entries = tokens(input)
+        require(entries.isNotEmpty()) { "Specify a destination IP or GeoIP set" }
+        val eval = Rule(name = "$name · Evaluate", queries = "A, AAAA",
+            target = evaluateTarget, operation = "evaluate")
+        val match = Rule(name = "$name · Match response", queries = "A, AAAA", target = matchedTarget,
+            responseFrom = eval.id, responseCidrs = entries.filterNot { it.startsWith("geoip:") }.joinToString("\n"),
+            responseSrs = entries.filter { it.startsWith("geoip:") }.takeIf { it.isNotEmpty() })
+        require(responseRuleSets(match).isNotEmpty() || cidrs(match).isNotEmpty()) { "Specify IP response filters" }
+        return listOf(eval, match).also { validateOrder(it) }
     }
 
     /** Copy only the domain part, not transport/IP/application predicates or actions.
@@ -137,8 +161,14 @@ internal object ManagedDnsRules {
         require(rule.logicalMode.isNullOrEmpty() || ref.isEmpty()) {
             "Logical request matching cannot be combined with Match Response or Respond"
         }
-        require(ip.isEmpty() || prefixes.isEmpty()) { "Choose IP mode or CIDR ranges, not both" }
-        require(ref.isNotEmpty() || (code.isEmpty() && ip.isEmpty() && prefixes.isEmpty())) { "Response filters require Evaluate" }
+        val responseSets = responseRuleSets(rule)
+        require(ip.isEmpty() || (prefixes.isEmpty() && responseSets.isEmpty())) { "Choose IP mode or IP/CIDR/GeoIP filters, not both" }
+        require(ref.isNotEmpty() || (code.isEmpty() && ip.isEmpty() && prefixes.isEmpty() && responseSets.isEmpty())) { "Response filters require Evaluate" }
+        // Native default rules group domain and destination-IP items as OR.
+        // Avoid widening a domain restriction when adding response GeoIP.
+        require(responseSets.isEmpty() || (domainFields(rule).isEmpty() && ruleSets(rule).isEmpty())) {
+            "GeoIP response filters cannot be combined with domain/Geosite fields in this editor. Scope the preceding Evaluate instead."
+        }
         val sets = ruleSets(rule)
         require(domainFields(rule).isNotEmpty() || sets.isNotEmpty() || queries(rule).isNotEmpty() || ref.isNotEmpty()) {
             "Specify a domain, Geosite SRS, query type or evaluated response"
@@ -201,7 +231,7 @@ internal object ManagedDnsRules {
                 domain_suffix = fields["domain_suffix"]
                 domain_regex = fields["domain_regex"]
                 domain_keyword = fields["domain_keyword"]
-                rule_set = ruleSets(rule).takeIf { it.isNotEmpty() }
+                rule_set = assetRuleSets(rule).takeIf { it.isNotEmpty() }
                 query_type = queries(rule).takeIf { it.isNotEmpty() }
                 val ref = responseId(rule)
                 if (ref.isNotEmpty()) {
@@ -212,6 +242,7 @@ internal object ManagedDnsRules {
                         "private" -> _hack_config_map["ip_is_private"] = true
                     }
                     cidrs(rule).takeIf { it.isNotEmpty() }?.let { _hack_config_map["ip_cidr"] = it }
+                    if ("geoip:private" in responseRuleSets(rule)) _hack_config_map["ip_is_private"] = true
                 }
                 when (operation(rule)) {
                     "evaluate" -> {

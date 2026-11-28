@@ -906,7 +906,7 @@ fun buildConfig(
             val managedRules = ManagedDnsRules.decode(DataStore.activeDnsRulesJson)
             val bootstrapAvailable = bootstrap != null
             val activeRules = ManagedDnsRules.effective(managedRules, dnsRouting.useRemote, bootstrapAvailable)
-            val dnsRuleSets = activeRules.flatMap { ManagedDnsRules.ruleSets(it) }.distinct()
+            val dnsRuleSets = activeRules.flatMap { ManagedDnsRules.assetRuleSets(it) }.distinct()
             val missingTags = dnsRuleSets.filterNot { tag -> route.rule_set.any { it.tag == tag } }
             if (missingTags.isNotEmpty()) {
                 val additions = mutableListOf<RuleSet>()

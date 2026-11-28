@@ -27,6 +27,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class DnsRulesActivity : ThemedActivity() {
+    companion object {
+        const val EXTRA_IP_RULE_NAME = "dns.ip.rule.name"
+        const val EXTRA_IP_RULE_VALUES = "dns.ip.rule.values"
+        const val EXTRA_IP_PROFILE = "dns.ip.profile"
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { HubTheme { Screen() } }
@@ -41,6 +46,8 @@ class DnsRulesActivity : ThemedActivity() {
         var remote by remember { mutableStateOf(false) }
         var bootstrapAvailable by remember { mutableStateOf(false) }
         var installedSrs by remember { mutableStateOf<List<String>>(emptyList()) }
+        var installedGeoIp by remember { mutableStateOf<List<String>>(listOf("geoip:private")) }
+        var ipWizard by remember { mutableStateOf(false) }
         var routingSources by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
         var copyPicker by remember { mutableStateOf(false) }
         var ready by remember { mutableStateOf(false) }
@@ -61,12 +68,21 @@ class DnsRulesActivity : ThemedActivity() {
                     val sets = SagerNet.application.externalAssets.listFiles().orEmpty()
                         .filter { it.isFile && it.length() > 0 && it.name.matches(Regex("geosite-[A-Za-z0-9._!-]+[.]srs")) }
                         .map { "geosite:" + it.name.removePrefix("geosite-").removeSuffix(".srs") }.distinct().sorted()
+                    val geoIp = (SagerNet.application.externalAssets.listFiles().orEmpty()
+                        .filter { it.isFile && it.length() > 0 && it.name.matches(Regex("geoip-[A-Za-z0-9._!-]+[.]srs")) }
+                        .map { "geoip:" + it.name.removePrefix("geoip-").removeSuffix(".srs") } + "geoip:private").distinct().sorted()
                     val sources = SagerDatabase.rulesDao.allRules().filter { it.domains.isNotBlank() }
                         .map { it.displayName() to it.domains }
                     withContext(Dispatchers.Main) {
                         bootstrapAvailable = useBootstrap; installedSrs = sets; routingSources = sources
                         source = json; profileId = id; profileName = name
                         rules = parsed; modern = modernMode; remote = useRemote; ready = true
+                        installedGeoIp = geoIp
+                        if (intent.hasExtra(EXTRA_IP_RULE_VALUES)) {
+                            if (intent.getStringExtra(EXTRA_IP_PROFILE) != id) error = "Routing profile changed. Reopen the IP rule."
+                            else if (!modernMode) error = "IP response matching requires Modern DNS."
+                            else ipWizard = true
+                        }
                     }
                 }
             } catch (e: CancellationException) { throw e }
@@ -83,7 +99,7 @@ class DnsRulesActivity : ThemedActivity() {
                         RouteProfiles.saveActiveDnsRules(profileId, source, value)
                         value
                     }
-                    source = json; rules = next; editor = null; deleting = null
+                    source = json; rules = next; editor = null; deleting = null; ipWizard = false
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) { error = e.message ?: "Unable to save DNS rules" }
                 finally { busy = false }
@@ -121,6 +137,11 @@ class DnsRulesActivity : ThemedActivity() {
                                     Column(Modifier.weight(1f)) {
                                         Text(rule.name, style = MaterialTheme.typography.titleMedium)
                                         val sets = ManagedDnsRules.ruleSets(rule)
+                                        val geoIp = ManagedDnsRules.responseRuleSets(rule)
+                                        if (geoIp.isNotEmpty()) {
+                                            Text("Response GeoIP: ${geoIp.joinToString()}", style = MaterialTheme.typography.bodySmall, maxLines = 3)
+                                            if (geoIp.any { it !in installedGeoIp }) Text("Missing GeoIP SRS", color = MaterialTheme.colorScheme.error)
+                                        }
                                         if (rule.domains.isNotBlank()) Text(rule.domains, style = MaterialTheme.typography.bodySmall, maxLines = 3)
                                         if (sets.isNotEmpty()) {
                                             Text("Geosite SRS: ${sets.size}", style = MaterialTheme.typography.bodySmall)
@@ -161,6 +182,38 @@ class DnsRulesActivity : ThemedActivity() {
                 }
             }
         }
+        if (ipWizard) {
+            var initialTarget by remember { mutableStateOf("dns-direct") }
+            var matchedTarget by remember { mutableStateOf("dns-local") }
+            var wizardError by remember { mutableStateOf<String?>(null) }
+            val available = ManagedDnsRules.targets.filter { (tag, _) ->
+                (tag != "dns-remote" || remote) && (tag != "dns-bootstrap" || bootstrapAvailable)
+            }
+            val name = intent.getStringExtra(EXTRA_IP_RULE_NAME).orEmpty().ifBlank { "Destination IP" }
+            val input = intent.getStringExtra(EXTRA_IP_RULE_VALUES).orEmpty()
+            AlertDialog(onDismissRequest = { if (!busy) ipWizard = false },
+                title = { Text("DNS by destination IP") },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(name, style = MaterialTheme.typography.titleMedium)
+                        Text(input, style = MaterialTheme.typography.bodySmall)
+                        Choice("Evaluate DNS", initialTarget, available.filter { it.first != "block" }) { initialTarget = it }
+                        Choice("DNS on IP match", matchedTarget, available) { matchedTarget = it }
+                        Text("Creates two independent DNS rules for A/AAAA queries, after existing explicit DNS rules. On mismatch, normal DNS processing continues. Matching queries may require a second lookup. The traffic rule is unchanged; edits to it are not synced.")
+                        (wizardError ?: error)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                },
+                confirmButton = { TextButton(enabled = !busy && rules.size <= 254, onClick = {
+                    try {
+                        val pair = ManagedDnsRules.fromDestinationIp(name, input, initialTarget, matchedTarget)
+                        val missing = pair.flatMap { ManagedDnsRules.responseRuleSets(it) }.filterNot { it in installedGeoIp }
+                        require(missing.isEmpty()) { "Install missing GeoIP SRS in Assets: ${missing.joinToString()}" }
+                        wizardError = null
+                        save(rules + pair)
+                    } catch (e: Exception) { wizardError = e.message ?: "Invalid IP rule" }
+                }) { Text("Create DNS rules") } },
+                dismissButton = { TextButton(enabled = !busy, onClick = { ipWizard = false }) { Text("Cancel") } })
+        }
         if (copyPicker) {
             AlertDialog(onDismissRequest = { copyPicker = false }, title = { Text("Copy domain conditions") }, text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -183,7 +236,7 @@ class DnsRulesActivity : ThemedActivity() {
                 val index = rules.indexOfFirst { it.id == original.id }
                 val priorEvaluations = (if (index < 0) rules else rules.take(index))
                     .filter { ManagedDnsRules.operation(it) == "evaluate" }
-                RuleDialog(original, priorEvaluations, installedSrs, bootstrapAvailable, busy, error, onDismiss = { if (!busy) { editor = null; error = null } }) { updated ->
+                RuleDialog(original, priorEvaluations, installedSrs, installedGeoIp, bootstrapAvailable, busy, error, onDismiss = { if (!busy) { editor = null; error = null } }) { updated ->
                     val next = if (rules.any { it.id == updated.id }) rules.map { if (it.id == updated.id) updated else it } else rules + updated
                     save(next)
                 }
@@ -199,7 +252,7 @@ class DnsRulesActivity : ThemedActivity() {
     }
 
     @Composable private fun RuleDialog(rule: Rule, evaluations: List<Rule>, installedSrs: List<String>,
-        bootstrapAvailable: Boolean, busy: Boolean, saveError: String?, onDismiss: () -> Unit, onSave: (Rule) -> Unit) {
+        installedGeoIp: List<String>, bootstrapAvailable: Boolean, busy: Boolean, saveError: String?, onDismiss: () -> Unit, onSave: (Rule) -> Unit) {
         var name by remember { mutableStateOf(rule.name) }
         var domains by remember { mutableStateOf(rule.domains) }
         var selectedSrs by remember { mutableStateOf(ManagedDnsRules.ruleSets(rule).toSet()) }
@@ -213,6 +266,8 @@ class DnsRulesActivity : ThemedActivity() {
         var responseCode by remember { mutableStateOf(rule.responseCode.orEmpty()) }
         var responseIp by remember { mutableStateOf(rule.responseIp.orEmpty()) }
         var responseCidrs by remember { mutableStateOf(rule.responseCidrs.orEmpty()) }
+        var responseSrs by remember { mutableStateOf(ManagedDnsRules.responseRuleSets(rule).toSet()) }
+        var geoIpPicker by remember { mutableStateOf(false) }
         var queryTimeout by remember { mutableStateOf(rule.queryTimeout.orEmpty()) }
         var rewriteTtl by remember { mutableStateOf(rule.rewriteTtl?.toString().orEmpty()) }
         var cacheMode by remember { mutableStateOf(rule.cacheMode.orEmpty()) }
@@ -249,7 +304,7 @@ class DnsRulesActivity : ThemedActivity() {
                     operation = it
                     if (it == "respond") logicalMode = ""
                     if (it == "evaluate") {
-                        responseFrom = ""; responseCode = ""; responseIp = ""; responseCidrs = ""
+                        responseFrom = ""; responseCode = ""; responseIp = ""; responseCidrs = ""; responseSrs = emptySet()
                         if (target == "block") target = "dns-direct"
                     }
                 }
@@ -266,17 +321,25 @@ class DnsRulesActivity : ThemedActivity() {
                     Choice("Match response", responseFrom, listOf("" to "None") + refs) {
                         responseFrom = it
                         if (it.isNotEmpty()) logicalMode = ""
-                        if (it.isEmpty()) { responseCode = ""; responseIp = ""; responseCidrs = "" }
+                        if (it.isEmpty()) { responseCode = ""; responseIp = ""; responseCidrs = ""; responseSrs = emptySet() }
                     }
                     if (responseFrom.isNotEmpty()) {
                         Choice("Response code", responseCode, listOf("" to "Any") + ManagedDnsRules.responseCodes.map { it to it }) { responseCode = it }
-                        Choice("Response IP", responseIp, listOf("" to "Any / CIDR filter", "any" to "Contains an IP", "private" to "Private IP")) {
+                        Choice("Response IP", responseIp, listOf("" to "IP / CIDR / GeoIP filter", "any" to "Contains an IP", "private" to "Private IP")) {
                             responseIp = it
-                            if (it.isNotEmpty()) responseCidrs = ""
+                            if (it.isNotEmpty()) { responseCidrs = ""; responseSrs = emptySet() }
                         }
-                        if (responseIp.isEmpty()) OutlinedTextField(responseCidrs, { responseCidrs = it },
-                            label = { Text("Response IP / CIDR (optional)") },
-                            supportingText = { Text("IPv4 or IPv6, one per line or comma-separated") })
+                        if (responseIp.isEmpty()) {
+                            OutlinedTextField(responseCidrs, { responseCidrs = it },
+                                label = { Text("Response IP / CIDR (optional)") },
+                                supportingText = { Text("IPv4 or IPv6, one per line or comma-separated") })
+                            OutlinedButton(onClick = { geoIpPicker = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Select response GeoIP · ${responseSrs.size}")
+                            }
+                            if (responseSrs.isNotEmpty()) Text(responseSrs.sorted().joinToString("\n"), style = MaterialTheme.typography.bodySmall)
+                            val missingGeoIp = responseSrs.filterNot { it in installedGeoIp }
+                            if (missingGeoIp.isNotEmpty()) Text("Missing GeoIP SRS: ${missingGeoIp.joinToString()}", color = MaterialTheme.colorScheme.error)
+                        }
                     }
                     if (operation == "respond") Text("Return the selected Evaluate response. No new DNS request.")
                 }
@@ -319,26 +382,32 @@ class DnsRulesActivity : ThemedActivity() {
                         rewriteTtl = ttl, cacheMode = cacheMode.takeIf { performsQuery && it.isNotEmpty() },
                         removeClientSubnet = true.takeIf { performsQuery && removeClientSubnet },
                         logicalMode = logicalMode.takeIf { it.isNotEmpty() && responseFrom.isEmpty() && operation != "respond" },
-                        srs = selectedSrs.sorted().takeIf { it.isNotEmpty() })
+                        srs = selectedSrs.sorted().takeIf { it.isNotEmpty() },
+                        responseSrs = responseSrs.sorted().takeIf { responseFrom.isNotEmpty() && it.isNotEmpty() })
                     ManagedDnsRules.validate(updated); error = null; onSave(updated)
                 } catch (e: Exception) { error = e.message ?: "Invalid DNS rule" }
             }) { Text("Save") }
         }, dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") } })
         if (srsPicker) {
-            SrsPicker(installedSrs, selectedSrs, { srsPicker = false }) {
+            SrsPicker("Geosite SRS", installedSrs, selectedSrs, { srsPicker = false }) {
                 selectedSrs = it; srsPicker = false
+            }
+        }
+        if (geoIpPicker) {
+            SrsPicker("Response GeoIP", installedGeoIp, responseSrs, { geoIpPicker = false }) {
+                responseSrs = it; geoIpPicker = false
             }
         }
     }
 
-    @Composable private fun SrsPicker(installed: List<String>, initial: Set<String>, dismiss: () -> Unit, apply: (Set<String>) -> Unit) {
+    @Composable private fun SrsPicker(title: String, installed: List<String>, initial: Set<String>, dismiss: () -> Unit, apply: (Set<String>) -> Unit) {
         var search by remember { mutableStateOf("") }
         var selected by remember { mutableStateOf(initial) }
         val entries = (installed + initial).distinct().sorted().filter { it.contains(search, ignoreCase = true) }
-        AlertDialog(onDismissRequest = dismiss, title = { Text("Geosite SRS · ${selected.size}") }, text = {
+        AlertDialog(onDismissRequest = dismiss, title = { Text("$title · ${selected.size}") }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(search, { search = it }, singleLine = true, label = { Text("Search") })
-                if (entries.isEmpty()) Text("No matching installed Geosite sets. Install them in Assets.")
+                if (entries.isEmpty()) Text("No matching installed sets. Install them in Assets.")
                 LazyColumn(Modifier.heightIn(max = 340.dp)) {
                     items(entries, key = { it }) { tag ->
                         Row(verticalAlignment = Alignment.CenterVertically) {

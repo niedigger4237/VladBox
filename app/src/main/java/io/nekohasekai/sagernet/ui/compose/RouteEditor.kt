@@ -58,6 +58,22 @@ fun installRouteEditor(activity: RouteSettingsActivity, host: ComposeView) {
                                 else { it.toIntOrNull()?.let { value -> DataStore.routeOutbound = value }; activity.refreshEditor() }
                             }
                             RouteDnsTargetChoice(custom) { custom = it; DataStore.serverConfig = it }
+                            OutlinedButton(onClick = {
+                                val ip = DataStore.routeIP
+                                val other = listOf(DataStore.routeDomain, DataStore.routePort, DataStore.routeSourcePort,
+                                    DataStore.routeSource, DataStore.routeNetwork, DataStore.routeProtocol, DataStore.routePackages)
+                                if (DataStore.dnsEngineMode != "modern") {
+                                    android.widget.Toast.makeText(activity, "Requires Modern DNS", android.widget.Toast.LENGTH_SHORT).show()
+                                } else if (ip.isBlank() || other.any { it.isNotBlank() } || DataStore.serverConfig.isNotBlank()) {
+                                    android.widget.Toast.makeText(activity, "Use a destination IP-only rule without custom conditions", android.widget.Toast.LENGTH_LONG).show()
+                                } else {
+                                    activity.startActivity(Intent(activity, io.nekohasekai.sagernet.ui.DnsRulesActivity::class.java)
+                                        .putExtra(io.nekohasekai.sagernet.ui.DnsRulesActivity.EXTRA_IP_RULE_NAME, DataStore.routeName)
+                                        .putExtra(io.nekohasekai.sagernet.ui.DnsRulesActivity.EXTRA_IP_RULE_VALUES, ip)
+                                        .putExtra(io.nekohasekai.sagernet.ui.DnsRulesActivity.EXTRA_IP_PROFILE,
+                                            io.nekohasekai.sagernet.database.RouteProfiles.selectedId()))
+                                }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("DNS by destination IP (Modern)") }
                         }
                     }
                 }
