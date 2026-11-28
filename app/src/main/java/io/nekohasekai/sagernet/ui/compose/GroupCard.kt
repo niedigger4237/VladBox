@@ -31,7 +31,7 @@ fun installGroupCard(host: ComposeView, state: StateFlow<GroupCardState?>,
                     colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.lerp(colors.surface, colors.onSurface, 0.07f))) {
                     if (group.updating) {
                         if (group.progress == null) LinearProgressIndicator(Modifier.fillMaxWidth())
-                        else LinearProgressIndicator(progress = group.progress, modifier = Modifier.fillMaxWidth())
+                        else LinearProgressIndicator(progress = { group.progress }, modifier = Modifier.fillMaxWidth())
                     }
                     Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {

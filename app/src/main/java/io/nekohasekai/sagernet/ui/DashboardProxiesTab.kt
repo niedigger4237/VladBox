@@ -98,7 +98,7 @@ internal fun DashboardProxiesTab(
                                     ProxyDelay(node.delay, failed = node.failed)
                                 }
                             }
-                            if (index < group.nodes.lastIndex) Divider(color = colors.outlineVariant.copy(alpha = .5f))
+                            if (index < group.nodes.lastIndex) HorizontalDivider(color = colors.outlineVariant.copy(alpha = .5f))
                         }
                     }
                 }

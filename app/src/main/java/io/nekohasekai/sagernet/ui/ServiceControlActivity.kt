@@ -9,7 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Wifi
@@ -87,7 +87,7 @@ private fun ServiceControlScreen(close: () -> Unit) {
     }
     Scaffold(topBar = {
         TopAppBar(title = { Text(pageTitle) },
-            navigationIcon = { IconButton(onClick = { if (page == "home") close() else page = "home" }) { Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.sc_ui_back)) } })
+            navigationIcon = { IconButton(onClick = { if (page == "home") close() else page = "home" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.sc_ui_back)) } })
     }) { padding ->
         key(page) {
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),

@@ -327,7 +327,7 @@ private fun DashboardMemory(visible: Boolean, connected: Boolean, mode: String,
                     Text("Java heap · " + mb(current.javaUsed) + " / " + mb(current.javaLimit), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                     Text(String.format(java.util.Locale.getDefault(), "%.1f%%", ratio * 100), style = MaterialTheme.typography.labelLarge)
                 }
-                LinearProgressIndicator(progress = ratio, modifier = Modifier.fillMaxWidth())
+                LinearProgressIndicator(progress = { ratio }, modifier = Modifier.fillMaxWidth())
             }
             if (expanded) Text("Measured UI, service and ROOT core only; helper processes are not included. Heap values overlap PSS. — means unavailable or inactive.",
                 style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)

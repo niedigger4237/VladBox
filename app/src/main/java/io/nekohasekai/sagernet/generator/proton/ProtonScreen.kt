@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.Input
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
@@ -178,7 +179,7 @@ internal fun ProtonScreen(
                             FilledTonalButton(onClick = { onCopy(output.text) }) { Icon(Icons.Filled.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Copy") }
                             FilledTonalButton(onClick = { onSave(listOf(output)) }) { Icon(Icons.Filled.FileDownload, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Save") }
                             if (s.format == Conf.Format.AWG || s.format == Conf.Format.WIRESOCK)
-                                FilledTonalButton(onClick = { onImport(output.text) }) { Icon(Icons.Filled.Input, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Import") }
+                                FilledTonalButton(onClick = { onImport(output.text) }) { Icon(Icons.AutoMirrored.Filled.Input, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Import") }
                         }
                     }
                 }
