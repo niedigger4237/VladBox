@@ -22,7 +22,12 @@ internal object ManagedDnsRules {
         val responseFrom: String? = null,
         val responseCode: String? = null,
         val responseIp: String? = null,
-        val responseCidrs: String? = null
+        val responseCidrs: String? = null,
+        // Query options inherit global settings when absent.
+        val queryTimeout: String? = null,
+        val rewriteTtl: Long? = null,
+        val cacheMode: String? = null,
+        val removeClientSubnet: Boolean? = null
     )
     private val gson = Gson()
     private val type = object : TypeToken<List<Rule>>() {}.type
@@ -39,6 +44,20 @@ internal object ManagedDnsRules {
     val responseCodes = listOf("NOERROR", "FORMERR", "SERVFAIL", "NXDOMAIN", "NOTIMP", "REFUSED")
     fun operation(rule: Rule) = rule.operation ?: "route"
     fun responseId(rule: Rule) = rule.responseFrom.orEmpty()
+    val queryTimeouts = listOf("3s", "5s", "10s", "15s", "30s")
+    fun performsQuery(rule: Rule): Boolean =
+        operation(rule) == "evaluate" || (operation(rule) == "route" && rule.target != "block")
+    fun tuningSummary(rule: Rule): String = buildList {
+        if (performsQuery(rule)) {
+            rule.queryTimeout?.takeIf { it.isNotEmpty() }?.let { add("Timeout: $it") }
+            rule.rewriteTtl?.let { add("TTL: ${it}s") }
+            when (rule.cacheMode) {
+                "no_cache" -> add("No cache")
+                "no_optimistic" -> add("No optimistic cache")
+            }
+            if (rule.removeClientSubnet == true) add("Remove ECS")
+        }
+    }.joinToString(" · ")
     private fun tag(id: String) = "nf-eval-$id"
 
     private fun cidrs(rule: Rule): List<String> = tokens(rule.responseCidrs.orEmpty()).onEach { value ->
@@ -77,6 +96,13 @@ internal object ManagedDnsRules {
         require(ip.isEmpty() || prefixes.isEmpty()) { "Choose IP mode or CIDR ranges, not both" }
         require(ref.isNotEmpty() || (code.isEmpty() && ip.isEmpty() && prefixes.isEmpty())) { "Response filters require Evaluate" }
         require(domains(rule).isNotEmpty() || queries(rule).isNotEmpty() || ref.isNotEmpty()) { "Specify a domain, query type or evaluated response" }
+        require(rule.queryTimeout.isNullOrEmpty() || rule.queryTimeout in queryTimeouts) { "Invalid DNS query timeout" }
+        require(rule.rewriteTtl == null || rule.rewriteTtl in 0L..4294967295L) { "TTL must be between 0 and 4294967295 seconds" }
+        require(rule.cacheMode.orEmpty() in setOf("", "no_cache", "no_optimistic")) { "Invalid DNS cache mode" }
+        require(performsQuery(rule) || (rule.queryTimeout.isNullOrEmpty() && rule.rewriteTtl == null &&
+            rule.cacheMode.isNullOrEmpty() && rule.removeClientSubnet != true)) {
+            "DNS query options are only valid for Route and Evaluate"
+        }
     }
     fun decode(json: String): List<Rule> {
         val rules = requireNotNull(gson.fromJson<List<Rule>>(json, type)) { "Invalid DNS rules" }
@@ -150,6 +176,15 @@ internal object ManagedDnsRules {
                         action = "route"
                         server = rule.target
                     }
+                }
+                if (performsQuery(rule)) {
+                    rule.queryTimeout?.takeIf { it.isNotEmpty() }?.let { _hack_config_map["timeout"] = it }
+                    rule.rewriteTtl?.let { _hack_config_map["rewrite_ttl"] = it }
+                    when (rule.cacheMode) {
+                        "no_cache" -> disable_cache = true
+                        "no_optimistic" -> _hack_config_map["disable_optimistic_cache"] = true
+                    }
+                    if (rule.removeClientSubnet == true) _hack_config_map["remove_client_subnet"] = true
                 }
             }
         }

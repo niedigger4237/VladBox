@@ -47,4 +47,32 @@ class ManagedDnsRulesTest {
         assertTrue(runCatching { ManagedDnsRules.validate(invalid) }.isFailure)
         assertTrue(runCatching { ManagedDnsRules.validate(invalid.copy(responseFrom = "one", responseCidrs = "300.0.0.1/24")) }.isFailure)
     }
+    @Test fun queryOptionsAreOptionalAndRoundTrip() {
+        val base = ManagedDnsRules.Rule(name = "Default", domains = "example.org")
+        val plain = ManagedDnsRules.options(listOf(base), true).single()
+        assertNull(plain.disable_cache)
+        assertFalse(plain._hack_config_map.containsKey("timeout"))
+        assertFalse(plain._hack_config_map.containsKey("rewrite_ttl"))
+        val tuned = base.copy(queryTimeout = "5s", rewriteTtl = 0L, cacheMode = "no_optimistic", removeClientSubnet = true)
+        val restored = ManagedDnsRules.decode(ManagedDnsRules.encode(listOf(tuned))).single()
+        assertEquals(tuned, restored)
+        val result = ManagedDnsRules.options(listOf(restored), true).single()
+        assertEquals("5s", result._hack_config_map["timeout"])
+        assertEquals(0L, result._hack_config_map["rewrite_ttl"])
+        assertEquals(true, result._hack_config_map["disable_optimistic_cache"])
+        assertEquals(true, result._hack_config_map["remove_client_subnet"])
+        assertNull(result.disable_cache)
+        val eval = ManagedDnsRules.options(listOf(tuned.copy(operation = "evaluate", cacheMode = "no_cache")), true).single()
+        assertEquals("evaluate", eval.action)
+        assertEquals(true, eval.disable_cache)
+        assertFalse(eval._hack_config_map.containsKey("disable_optimistic_cache"))
+    }
+    @Test fun invalidQueryOptionsRejected() {
+        val base = ManagedDnsRules.Rule(name = "Rule", domains = "example.org")
+        assertTrue(runCatching { ManagedDnsRules.validate(base.copy(rewriteTtl = -1)) }.isFailure)
+        assertTrue(runCatching { ManagedDnsRules.validate(base.copy(rewriteTtl = 4294967296L)) }.isFailure)
+        assertTrue(runCatching { ManagedDnsRules.validate(base.copy(queryTimeout = "0s")) }.isFailure)
+        assertTrue(runCatching { ManagedDnsRules.validate(base.copy(target = "block", cacheMode = "no_cache")) }.isFailure)
+        assertTrue(runCatching { ManagedDnsRules.validate(base.copy(operation = "respond", responseFrom = "one", rewriteTtl = 60L)) }.isFailure)
+    }
 }

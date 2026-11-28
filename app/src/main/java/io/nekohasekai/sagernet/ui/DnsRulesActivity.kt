@@ -114,6 +114,9 @@ class DnsRulesActivity : ThemedActivity() {
                                         rules.firstOrNull { it.id == ManagedDnsRules.responseId(rule) }?.let {
                                             Text("Match response: ${it.name}", style = MaterialTheme.typography.bodySmall)
                                         }
+                                        ManagedDnsRules.tuningSummary(rule).takeIf { it.isNotEmpty() }?.let {
+                                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
                                         if (rule.enabled && (!modern || rule.id !in activeIds)) Text("Paused", color = MaterialTheme.colorScheme.error)
                                     }
                                     Switch(checked = rule.enabled, onCheckedChange = { enabled ->
@@ -167,6 +170,12 @@ class DnsRulesActivity : ThemedActivity() {
         var responseCode by remember { mutableStateOf(rule.responseCode.orEmpty()) }
         var responseIp by remember { mutableStateOf(rule.responseIp.orEmpty()) }
         var responseCidrs by remember { mutableStateOf(rule.responseCidrs.orEmpty()) }
+        var queryTimeout by remember { mutableStateOf(rule.queryTimeout.orEmpty()) }
+        var rewriteTtl by remember { mutableStateOf(rule.rewriteTtl?.toString().orEmpty()) }
+        var cacheMode by remember { mutableStateOf(rule.cacheMode.orEmpty()) }
+        var removeClientSubnet by remember { mutableStateOf(rule.removeClientSubnet == true) }
+        var advanced by remember { mutableStateOf(ManagedDnsRules.tuningSummary(rule).isNotEmpty()) }
+        val performsQuery = operation == "evaluate" || (operation == "route" && target != "block")
         var error by remember { mutableStateOf<String?>(null) }
         AlertDialog(onDismissRequest = onDismiss, title = { Text("DNS Rule") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -211,15 +220,46 @@ class DnsRulesActivity : ThemedActivity() {
                     }
                     if (operation == "respond") Text("Return the selected Evaluate response. No new DNS request.")
                 }
+                if (performsQuery) {
+                    TextButton(onClick = { advanced = !advanced }) {
+                        Text(if (advanced) "Hide query options" else "Advanced query options")
+                    }
+                    if (advanced) {
+                        Choice("Query timeout", queryTimeout, listOf("" to "Global default") +
+                            ManagedDnsRules.queryTimeouts.map { it to it }) { queryTimeout = it }
+                        OutlinedTextField(rewriteTtl, { rewriteTtl = it }, label = { Text("Rewrite TTL (seconds)") },
+                            singleLine = true, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                            supportingText = { Text("Empty: preserve server TTL. 0: advertise zero TTL.") })
+                        Choice("DNS cache", cacheMode, listOf("" to "Global default", "no_optimistic" to "Disable optimistic cache",
+                            "no_cache" to "Disable cache")) { cacheMode = it }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Remove EDNS Client Subnet")
+                                Text("Suppress client subnet in outgoing DNS requests", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Switch(checked = removeClientSubnet, onCheckedChange = { removeClientSubnet = it })
+                        }
+                    }
+                } else if (operation == "respond") {
+                    Text("Query options belong to the referenced Evaluate rule.", style = MaterialTheme.typography.bodySmall)
+                }
                 (error ?: saveError)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         }, confirmButton = {
             TextButton(enabled = !busy, onClick = {
-                val updated = rule.copy(name = name.trim(), domains = domains, queries = queries, match = match, target = target,
-                    operation = operation, responseFrom = responseFrom, responseCode = responseCode,
-                    responseIp = responseIp, responseCidrs = responseCidrs)
-                try { ManagedDnsRules.validate(updated); error = null; onSave(updated) }
-                catch (e: Exception) { error = e.message ?: "Invalid DNS rule" }
+                try {
+                    val ttl = if (performsQuery && rewriteTtl.isNotBlank()) {
+                        requireNotNull(rewriteTtl.trim().toLongOrNull()) { "TTL must be an integer" }
+                    } else null
+                    val updated = rule.copy(name = name.trim(), domains = domains, queries = queries, match = match, target = target,
+                        operation = operation, responseFrom = responseFrom, responseCode = responseCode,
+                        responseIp = responseIp, responseCidrs = responseCidrs,
+                        queryTimeout = queryTimeout.takeIf { performsQuery && it.isNotEmpty() },
+                        rewriteTtl = ttl, cacheMode = cacheMode.takeIf { performsQuery && it.isNotEmpty() },
+                        removeClientSubnet = true.takeIf { performsQuery && removeClientSubnet })
+                    ManagedDnsRules.validate(updated); error = null; onSave(updated)
+                } catch (e: Exception) { error = e.message ?: "Invalid DNS rule" }
             }) { Text("Save") }
         }, dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") } })
     }
