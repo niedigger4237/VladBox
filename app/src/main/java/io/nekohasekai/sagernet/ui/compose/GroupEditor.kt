@@ -43,7 +43,15 @@ fun installGroupEditor(activity: GroupSettingsActivity, host: ComposeView) {
                             Icon(painterResource(R.drawable.ic_navigation_close), stringResource(android.R.string.cancel))
                         }
                         Text(stringResource(R.string.group_settings), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                        if (DataStore.editingId != 0L) TextButton(onClick = { activity.editorDelete() }) { Text(stringResource(R.string.delete_group_prompt), maxLines = 1) }
+                        if (DataStore.editingId != 0L) {
+                            IconButton(onClick = { activity.editorDelete() }) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_action_delete),
+                                    contentDescription = stringResource(R.string.delete),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
                         IconButton(onClick = { activity.editorSave() }, enabled = type != GroupType.SUBSCRIPTION || validDelay) {
                             Text("✓", style = MaterialTheme.typography.headlineSmall)
                         }
