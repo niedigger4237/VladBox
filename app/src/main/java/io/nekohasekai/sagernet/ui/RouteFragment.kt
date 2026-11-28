@@ -471,7 +471,8 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                 },
                 onAssets = {
                     startActivity(Intent(requireContext(), AssetsActivity::class.java))
-                }, onAddRule = { handleRouteAction(R.id.action_new_route); Unit })
+                }, onAddRule = { handleRouteAction(R.id.action_new_route); Unit },
+                    onDnsRules = { startActivity(Intent(requireContext(), DnsRulesActivity::class.java)) })
             }
         }
 

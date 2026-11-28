@@ -869,6 +869,13 @@ fun buildConfig(
         dns.timeout = dnsTuning.timeout
         dns.cache_capacity = dnsTuning.cacheCapacity
 
+        // Explicit DNS rules override automatic route-derived DNS rules.
+        // The mandatory server bootstrap rules inserted below retain priority.
+        if (modernDns && !forTest) {
+            dns.rules.addAll(ManagedDnsRules.options(
+                ManagedDnsRules.decode(DataStore.activeDnsRulesJson), dnsRouting.useRemote))
+        }
+
         // dns object user rules
         if (enableDnsRouting) {
             userDNSRuleList.forEach {

@@ -145,6 +145,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var routeFinal by configurationStore.string(Key.ROUTE_FINAL) { "proxy" }
     var dnsMain by configurationStore.string(Key.DNS_MAIN) { "direct" }
     var dnsEngineMode by configurationStore.string(Key.DNS_ENGINE_MODE) { "modern" }
+    var activeDnsRulesJson by configurationStore.string("activeDnsRulesV1") { "[]" }
     var dnsGlobalStrategy by configurationStore.string(Key.DNS_GLOBAL_STRATEGY) { "auto" }
     var dnsOptimisticWindow by configurationStore.string(Key.DNS_OPTIMISTIC_WINDOW) { "72h" }
     var dnsQueryTimeout by configurationStore.string(Key.DNS_QUERY_TIMEOUT) { "default" }

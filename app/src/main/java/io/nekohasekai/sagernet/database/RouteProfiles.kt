@@ -16,7 +16,8 @@ object RouteProfiles {
         var name: String,
         var rules: List<RuleEntity>,
         var routeFinal: String,
-        var dnsMain: String
+        var dnsMain: String,
+        var dnsRulesJson: String? = null
     )
 
     private val gson = Gson()
@@ -57,6 +58,8 @@ object RouteProfiles {
         current.rules = SagerDatabase.rulesDao.allRules()
         current.routeFinal = DataStore.routeFinal
         current.dnsMain = DataStore.dnsMain
+        current.dnsRulesJson = DataStore.activeDnsRulesJson
+        val previousDnsRules = DataStore.activeDnsRulesJson
         val previousRules = current.rules
         val previousFinal = current.routeFinal
         val previousDns = current.dnsMain
@@ -67,6 +70,7 @@ object RouteProfiles {
             }
             DataStore.routeFinal = target.routeFinal
             DataStore.dnsMain = target.dnsMain
+            DataStore.activeDnsRulesJson = target.dnsRulesJson ?: "[]"
             persist(profiles, id)
             SagerNet.reloadService()
         } catch (e: Exception) {
@@ -76,6 +80,7 @@ object RouteProfiles {
             }
             DataStore.routeFinal = previousFinal
             DataStore.dnsMain = previousDns
+            DataStore.activeDnsRulesJson = previousDnsRules
             throw e
         }
     }
@@ -86,7 +91,8 @@ object RouteProfiles {
         val profiles = all()
         val id = UUID.randomUUID().toString()
         val rules = if (copyActive) SagerDatabase.rulesDao.allRules().map { it.copy(id = 0L) } else emptyList()
-        profiles.add(Snapshot(id, name.trim(), rules, DataStore.routeFinal, DataStore.dnsMain))
+        profiles.add(Snapshot(id, name.trim(), rules, DataStore.routeFinal, DataStore.dnsMain,
+            if (copyActive) DataStore.activeDnsRulesJson else "[]"))
         persist(profiles, selectedId())
         return id
     }
@@ -106,6 +112,15 @@ object RouteProfiles {
         val profiles = all()
         check(profiles.removeAll { it.id == id }) { "Profile not found" }
         persist(profiles, selectedId())
+    }
+
+    @Synchronized
+    fun saveActiveDnsRules(id: String, expected: String, updated: String) {
+        check(id == selectedId()) { "Routing profile changed. Reopen DNS Rules." }
+        check(expected == DataStore.activeDnsRulesJson) { "DNS rules changed. Reopen DNS Rules." }
+        io.nekohasekai.sagernet.fmt.ManagedDnsRules.decode(updated)
+        DataStore.activeDnsRulesJson = updated
+        SagerNet.reloadService()
     }
 
     fun ruleCount(profile: Snapshot): Int =

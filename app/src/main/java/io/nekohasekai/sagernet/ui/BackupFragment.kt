@@ -220,6 +220,7 @@ class BackupFragment : NamedFragment() {
                 })
             }
             if (rule) {
+                put("dnsRulesV1", JSONArray(DataStore.activeDnsRulesJson))
                 put("rules", JSONArray().apply {
                     SagerDatabase.rulesDao.allRules().forEach {
                         put(it.toBase64Str())
@@ -334,6 +335,12 @@ class BackupFragment : NamedFragment() {
     fun finishImport(
         content: JSONObject, profile: Boolean, rule: Boolean, setting: Boolean
     ) {
+        val previousDnsRules = DataStore.activeDnsRulesJson
+        val importedDnsRules = if (rule && content.has("rules")) {
+            (content.optJSONArray("dnsRulesV1")?.toString() ?: "[]").also {
+                io.nekohasekai.sagernet.fmt.ManagedDnsRules.decode(it)
+            }
+        } else previousDnsRules
         if (profile && content.has("profiles")) {
             val profiles = mutableListOf<ProxyEntity>()
             val jsonProfiles = content.getJSONArray("profiles")
@@ -389,6 +396,8 @@ class BackupFragment : NamedFragment() {
             PublicDatabase.kvPairDao.reset()
             PublicDatabase.kvPairDao.insert(settings)
         }
+        // DNS rules follow the Rules checkbox, not Settings.
+        DataStore.activeDnsRulesJson = importedDnsRules
     }
 
 }
