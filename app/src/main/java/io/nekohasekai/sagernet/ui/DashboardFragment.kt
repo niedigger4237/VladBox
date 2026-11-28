@@ -116,7 +116,12 @@ class DashboardFragment : ToolbarFragment() {
                                 }
                             }
                         }
-                        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(key(tab) { rememberScrollState() }).padding(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        val tabScroll = key(tab) { rememberScrollState() }
+                        // Connections owns a LazyColumn and must receive a finite height.
+                        val contentModifier = Modifier.weight(1f).fillMaxWidth().let {
+                            if (tab == 1) it else it.verticalScroll(tabScroll)
+                        }.padding(10.dp)
+                        Column(contentModifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             if (!dashboardVisible) {
                                 // Dispose all tab-specific effects and scopes while hidden or paused.
                             } else if (tab == 0) {
